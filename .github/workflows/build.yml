@@ -17,6 +17,7 @@ permissions:
   contents: read
 jobs:
   package:
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -47,6 +48,7 @@ jobs:
       - name: Core and distribution tests on every OS
         run: python -m unittest discover -s tests -p test_release_packaging.py
       - name: Windows regression suite
+        timeout-minutes: 10
         if: runner.os == 'Windows'
         env:
           QT_QPA_PLATFORM: windows
@@ -68,6 +70,7 @@ jobs:
         if: runner.os == 'Linux'
         run: python tools/verify_qt_libraries.py
       - name: Linux complete regression suite
+        timeout-minutes: 10
         if: runner.os == 'Linux'
         env:
           QT_QPA_PLATFORM: xcb
@@ -87,6 +90,7 @@ jobs:
           PYTHONPATH: .
         run: python tools/probe_native_shortcuts.py
       - name: macOS complete regression suite
+        timeout-minutes: 10
         if: runner.os == 'macOS'
         env:
           QT_QPA_PLATFORM: cocoa

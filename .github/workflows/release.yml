@@ -1,0 +1,83 @@
+name: Publish stable release
+on:
+  workflow_run:
+    workflows: ['Native packages']
+    types: [completed]
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: stable-release-v0.1.0
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_SHA: ${{ github.event.workflow_run.head_sha }}
+      BUILD_RUN: ${{ github.event.workflow_run.id }}
+    steps:
+      # Privileged workflow: never execute code from an untrusted PR artifact.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - name: Gate exact stable tag and four successful native package jobs
+        id: gate
+        shell: bash
+        run: |
+          if ! git rev-parse --verify refs/tags/v0.1.0 >/dev/null 2>&1; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$(git rev-parse 'refs/tags/v0.1.0^{commit}')" != "$BUILD_SHA" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh api --paginate "repos/$GH_REPO/actions/runs/$BUILD_RUN/jobs" --jq '.jobs[] | [.name,.conclusion] | @tsv' > jobs.tsv
+          python - <<'PY'
+          from pathlib import Path
+          rows = dict(line.split('\t', 1) for line in Path('jobs.tsv').read_text().splitlines())
+          for platform in ('Windows-x64', 'Linux-x64', 'macOS-Intel', 'macOS-AppleSilicon'):
+              matches = [status for name, status in rows.items() if name.startswith('package (') and platform in name]
+              if matches != ['success']:
+                  raise SystemExit('Native package gate failed: ' + platform)
+          PY
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          pattern: OrangeNotes-*
+          path: downloaded
+      - name: Prepare exact source, packages and checksums
+        if: steps.gate.outputs.ready == 'true'
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          git archive --format=zip --output=release-assets/OrangeNotes-source-v0.1.0.zip "$BUILD_SHA"
+          python tools/prepare_release_assets.py downloaded release-assets
+          git show "$BUILD_SHA:RELEASE_NOTES_v0.1.0.md" > release-notes.md
+          printf '\nBuild verification: https://github.com/%s/actions/runs/%s\nCommit: `%s`\n' "$GH_REPO" "$BUILD_RUN" "$BUILD_SHA" >> release-notes.md
+      - name: Publish only after all assets uploaded
+        if: steps.gate.outputs.ready == 'true'
+        shell: bash
+        run: |
+          if gh release view v0.1.0 --json isDraft --jq '.isDraft' > draft.txt 2>/dev/null; then
+            if [ "$(cat draft.txt)" != true ]; then
+              gh release view v0.1.0 --json body --jq '.body' > published-body.txt
+              if grep -Fq "Commit: \`$BUILD_SHA\`" published-body.txt; then
+                echo "This verified commit is already published; leaving existing downloads unchanged."
+                exit 0
+              fi
+              echo "Stable release refers to a different commit; refusing to replace user downloads."
+              exit 1
+            fi
+          else
+            gh release create v0.1.0 --verify-tag --draft --title 'Orange Notes v0.1.0' --notes-file release-notes.md
+          fi
+          gh release upload v0.1.0 release-assets/* --clobber
+          gh release edit v0.1.0 --notes-file release-notes.md --draft=false --prerelease=false --latest

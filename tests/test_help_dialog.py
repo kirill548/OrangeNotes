@@ -55,10 +55,19 @@ class HelpDialogTests(unittest.TestCase):
 
     def test_content_truthful_and_keyboard_shortcuts_present(self):
         dialog=self.dialog();text=' '.join(label.text() for label in dialog.findChildren(QLabel))
-        for expected in ['С чего начать','Напоминания','Порядок в заметках','Быстрые клавиши','Ctrl+N','Ctrl+F','Ctrl+S','Ctrl+Shift+D','Мой день','в полночь','фоновая служба настроена','войти в Windows','явном выборе','без ИИ-комплекта']:
+        for expected in ['С чего начать','Напоминания','Порядок в заметках','Быстрые клавиши','Ctrl+K','Ctrl+N','Ctrl+F','Ctrl+S','Ctrl+Shift+D','Мой день','в полночь','фоновая служба настроена','войти в Windows','явном выборе','без ИИ-комплекта']:
             self.assertIn(shortcut_label(expected).casefold(),text.casefold())
         self.assertNotIn('API',text)
         self.assertTrue(dialog.scroll.widgetResizable())
+
+    def test_quick_actions_and_fallback_explain_actual_controls_and_limits(self):
+        dialog=self.dialog();text=' '.join(label.text() for label in dialog.findChildren(QLabel))
+        for expected in [shortcut_label('Ctrl+K'),'↑ и ↓','Enter выполняет','Escape закрывает',
+                         'поиск команд приложения','Резервная карточка в Windows',
+                         '«Посмотреть» открывает «Требуют внимания»','«Почему?» — диагностику',
+                         'число ожидающих событий','не включает уведомления ОС',
+                         'когда окно приложения закрыто']:
+            self.assertIn(expected,text)
 
     def test_narrow_640_layout_has_readable_labels_and_vertical_scroll(self):
         dialog=self.dialog();dialog.resize(640,480);self.app.processEvents()
