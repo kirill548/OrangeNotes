@@ -1,5 +1,7 @@
 """Native POSIX notifications; submission is not proof that a user saw a banner."""
 import html
+import json
+import re
 import queue
 import shutil
 import subprocess
@@ -30,6 +32,7 @@ class LinuxNotifications:
         self.executable = shutil.which('notify-send')
         self.processes = {}
         self.identifiers = {}
+        self.legacy_client = False
         self.last_action_error = None
 
     def register(self, database_path=None):
@@ -40,14 +43,17 @@ class LinuxNotifications:
     def status(self):
         return {'setting': 'Unknown' if self.executable else 'Unavailable',
                 'history_supported': False, 'adapter': 'FreeDesktop/libnotify',
-                'last_action_error': self.last_action_error}
+                'last_action_error': self.last_action_error,
+                'actions_supported': not self.legacy_client}
 
     def show(self, title, body, event_id, token):
         self.register()
-        if event_id in self.processes:
+        if event_id in self.identifiers:
             self.remove(event_id)
-        if len(self.processes) >= 64:
+        if len(self.identifiers) >= 64:
             raise OSError('Очередь активных уведомлений заполнена; событие будет доставлено позже.')
+        if self.legacy_client:
+            return self._show_legacy(title, body, event_id)
         arguments = [self.executable, '--app-name=Orange Notes', '--urgency=critical',
                      '--expire-time=0', '--wait', '--print-id', '--action=done=Выполнено',
                      '--action=snooze=Отложить на 10 минут', '--', str(title), html.escape(str(body))]
@@ -68,12 +74,39 @@ class LinuxNotifications:
         if not identifier.isdecimal() or int(identifier) < 1:
             process.kill()
             _, stderr = process.communicate(timeout=5)
+            if ('unknown option' in stderr.lower() or 'unrecognized option' in stderr.lower()) and any(
+                    flag in stderr for flag in ('--wait', '--print-id', '--action')):
+                self.legacy_client = True
+                return self._show_legacy(title, body, event_id)
             raise OSError(stderr.strip() or 'Служба уведомлений не подтвердила приём сообщения.')
         self.processes[event_id] = process
         self.identifiers[event_id] = int(identifier)
         threading.Thread(target=self._action, args=(process, event_id, token), daemon=True).start()
         return {'submitted': True, 'deliveryVerified': True, 'historyVerified': False,
+                'actionsSupported': True,
                 'verification': 'libnotify request accepted; banner/history controlled by desktop'}
+
+    def _show_legacy(self, title, body, event_id):
+        """libnotify <0.8 has no wait/actions CLI; retain a real closable D-Bus ID."""
+        executable = shutil.which('gdbus')
+        if not executable:
+            raise OSError('Для старой версии libnotify нужен gdbus (GLib).')
+        result = subprocess.run([
+            executable, 'call', '--session', '--dest', 'org.freedesktop.Notifications',
+            '--object-path', '/org/freedesktop/Notifications', '--method',
+            'org.freedesktop.Notifications.Notify',
+            json.dumps('Orange Notes'), '0', json.dumps(''),
+            json.dumps(str(title), ensure_ascii=False),
+            json.dumps(html.escape(str(body)), ensure_ascii=False),
+            '[]', "{'urgency': <byte 2>, 'resident': <true>}", '0'],
+            capture_output=True, text=True, timeout=5)
+        identifier = re.fullmatch(r'\(uint32 ([1-9][0-9]*),\)\s*', result.stdout.strip())
+        if result.returncode or not identifier:
+            raise OSError(result.stderr.strip() or 'D-Bus не подтвердил приём уведомления.')
+        self.identifiers[event_id] = int(identifier.group(1))
+        return {'submitted': True, 'deliveryVerified': True, 'historyVerified': False,
+                'actionsSupported': False,
+                'verification': 'D-Bus request accepted; legacy libnotify has no action callbacks'}
 
     def _action(self, process, event_id, token):
         try:

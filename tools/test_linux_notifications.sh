@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 for tool in xvfb-run dbus-run-session dunst gdbus notify-send; do
   command -v "$tool" >/dev/null || { echo "Missing native test dependency: $tool" >&2; exit 2; }
 done
-dbus-run-session -- xvfb-run -a bash -euo pipefail <<'NATIVE_SESSION'
+xvfb-run -a dbus-run-session -- bash -euo pipefail <<'NATIVE_SESSION'
   test -n "${DBUS_SESSION_BUS_ADDRESS:-}" || { echo "D-Bus session was not created" >&2; exit 2; }
   log=$(mktemp)
   dunst >"$log" 2>&1 & daemon=$!

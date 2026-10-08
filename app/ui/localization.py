@@ -18,8 +18,11 @@ class DialogTranslator(QTranslator):
 
     def translate(self, context, sourceText, disambiguation=None, n=-1):
         if context in ('QPlatformTheme', 'QDialogButtonBox', 'QMessageBox', 'QFileDialog', 'QInputDialog'):
-            return self.LABELS.get(sourceText, '')
-        return ''
+            return self.LABELS.get(sourceText)
+        # None becomes a null QString: Qt must continue to other translators.
+        # An empty string is a successful empty translation, breaking native
+        # shortcut parsing (Ctrl/Meta) and platform-specific dialog labels.
+        return None
 
 
 def install_russian_dialogs(app):
