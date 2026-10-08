@@ -1,0 +1,10 @@
+{
+  "refs": [
+    "org.freedesktop.Platform/x86_64/25.08",
+    "org.freedesktop.Sdk/x86_64/25.08"
+  ],
+  "commits": {
+    "org.freedesktop.Platform/x86_64/25.08": "d27f7a6a974e40b061070bec1be9e1b52a7a6872b271e6a45c2c34a48bf6fedf",
+    "org.freedesktop.Sdk/x86_64/25.08": "0cc82216a407cc993941b5ddabd446becc3c9a6219d9bcf50125c60101dcad46"
+  }
+}

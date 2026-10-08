@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Orange Notes
+Exec=OrangeNotes
+Icon=org.orangenotes.OrangeNotes
+Terminal=false
+Categories=Office;Utility;

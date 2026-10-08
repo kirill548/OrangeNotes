@@ -1,0 +1,36 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+runtime/
+*.sqlite*
+*.db
+*.db-*
+*.log
+worker_status.json
+*.lock
+.env
+.env.*
+*_preview.png
+preview.png
+notes-export*/
+.DS_Store
+Thumbs.db
+
+# Local verification fixtures, downloaded dependencies and user/runtime state
+work/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.gguf
+*.onnx
+*.safetensors
+*.pfx
+*.p12
+*.pem
+*.key
+# Live benchmark outputs may contain private prompts/context
+ai_benchmark_live.json

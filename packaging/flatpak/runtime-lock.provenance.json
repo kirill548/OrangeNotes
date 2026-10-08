@@ -1,0 +1,9 @@
+{
+  "observed_at_utc": "2026-10-08T18:09:17.107238+00:00",
+  "platform": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "sources": {
+    "org.freedesktop.Platform/x86_64/25.08": "https://dl.flathub.org/repo/refs/heads/runtime/org.freedesktop.Platform/x86_64/25.08",
+    "org.freedesktop.Sdk/x86_64/25.08": "https://dl.flathub.org/repo/refs/heads/runtime/org.freedesktop.Sdk/x86_64/25.08"
+  },
+  "verification": "HTTPS Flathub branch refs retrieved on Ubuntu WSL; installed OSTree/GPG verification pending"
+}

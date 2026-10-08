@@ -1,0 +1,156 @@
+name: Native packages
+on:
+  workflow_dispatch:
+    inputs:
+      native_macos_notifications:
+        description: Test real notifications on an authorised self-hosted macOS desktop
+        type: boolean
+        default: false
+      flatpak:
+        description: Build experimental Flatpak bundle (in-session reminders)
+        type: boolean
+        default: false
+  push:
+    tags: ['v*']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            name: Windows-x64
+          - os: ubuntu-22.04
+            name: Linux-x64
+          - os: macos-15-intel
+            name: macOS-Intel
+          - os: macos-14
+            name: macOS-AppleSilicon
+    runs-on: ${{ matrix.os }}
+    env:
+      WINDOWS_SIGN_THUMBPRINT: ${{ secrets.WINDOWS_SIGN_THUMBPRINT }}
+      SIGNTOOL_PATH: ${{ secrets.SIGNTOOL_PATH }}
+      MAC_SIGN_IDENTITY: ${{ secrets.MAC_SIGN_IDENTITY }}
+      MAC_NOTARY_PROFILE: ${{ secrets.MAC_NOTARY_PROFILE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Linux Qt libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 xvfb
+      - run: python -m pip install -r requirements-build.txt
+      - name: Core and distribution tests on every OS
+        run: python -m unittest discover -s tests -p test_release_packaging.py
+      - name: Windows regression suite
+        if: runner.os == 'Windows'
+        env:
+          QT_QPA_PLATFORM: windows
+        run: python -m unittest discover -s tests
+      - name: Provision pinned official AppImage tool
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage -o "$RUNNER_TEMP/appimagetool.AppImage"
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  $RUNNER_TEMP/appimagetool.AppImage" | sha256sum --check --strict
+          chmod +x "$RUNNER_TEMP/appimagetool.AppImage"
+          cd "$RUNNER_TEMP"
+          ./appimagetool.AppImage --appimage-extract > /dev/null
+          OFFSET=$(./appimagetool.AppImage --appimage-offset)
+          head -c "$OFFSET" ./appimagetool.AppImage > ./appimage-runtime
+          echo "APPIMAGETOOL_PATH=$RUNNER_TEMP/squashfs-root/AppRun" >> "$GITHUB_ENV"
+          echo "APPIMAGE_RUNTIME_FILE=$RUNNER_TEMP/appimage-runtime" >> "$GITHUB_ENV"
+      - name: Linux complete regression suite
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m unittest discover -s tests
+      - name: Linux native notification daemon integration
+        if: runner.os == 'Linux'
+        env:
+          ORANGE_NATIVE_NOTIFICATION_TESTS: '1'
+        shell: bash
+        run: |
+          sudo apt-get install -y dbus-x11 libnotify-bin libglib2.0-bin dunst
+          bash tools/test_linux_notifications.sh
+      - name: macOS complete regression suite
+        if: runner.os == 'macOS'
+        run: python -m unittest discover -s tests
+      - name: Provision temporary signing credentials
+        if: github.event_name != 'pull_request' && runner.os != 'Linux'
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          MAC_CERTIFICATE_BASE64: ${{ secrets.MAC_CERTIFICATE_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: python tools/ci_signing.py
+      - name: Build native package
+        run: python tools/build.py --clean
+      - name: Remove temporary certificates
+        if: always() && github.event_name != 'pull_request' && runner.os != 'Linux'
+        run: python tools/ci_signing.py --cleanup
+      - name: Windows frozen smoke test
+        if: runner.os == 'Windows'
+        run: python tools/smoke_frozen.py dist/OrangeNotes/OrangeNotes.exe --hostile-qt-env
+      - name: Linux frozen GUI startup
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python tools/smoke_portable.py dist/OrangeNotes/OrangeNotes
+      - name: Linux Debian package
+        if: runner.os == 'Linux'
+        run: |
+          test "$(id -u)" -ne 0
+          python tools/package_deb.py dist/OrangeNotes dist/OrangeNotes-Linux-x64.deb
+          python tools/verify_deb.py dist/OrangeNotes-Linux-x64.deb
+      - name: macOS frozen GUI startup
+        if: runner.os == 'macOS'
+        run: python tools/smoke_portable.py dist/OrangeNotes.app/Contents/MacOS/OrangeNotes
+      - name: Experimental Flatpak bundle
+        if: runner.os == 'Linux' && inputs.flatpak == true
+        shell: bash
+        run: |
+          sudo apt-get install -y flatpak flatpak-builder
+          python tools/flatpak_bundle.py --prepare
+          python tools/flatpak_bundle.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OrangeNotes-${{ matrix.name }}
+          path: |
+            dist/OrangeNotes-*.zip
+            dist/OrangeNotes-*.tar.gz
+            dist/OrangeNotes-*.dmg
+            dist/OrangeNotes-*.AppImage
+            dist/OrangeNotes-*.deb
+            dist/OrangeNotes-*.flatpak
+            dist/Flatpak-provenance.json
+            packaging/flatpak/runtime-lock.json
+          if-no-files-found: error
+
+  macos-notifications:
+    if: github.event_name == 'workflow_dispatch' && inputs.native_macos_notifications == true
+    # A logged-in desktop is essential; hosted headless sessions cannot prove banners.
+    runs-on: [self-hosted, macOS, orangenotes-notifications]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-build.txt
+      - name: Build stable application identity
+        env:
+          MAC_SIGN_IDENTITY: ${{ secrets.MAC_SIGN_IDENTITY }}
+        run: python tools/build.py --clean
+      - name: Ad-hoc application native integration suite
+        run: bash tools/test_mac_bundle.sh
+      - name: Production bundle UserNotifications acceptance and removal
+        run: dist/OrangeNotes.app/Contents/MacOS/OrangeNotes --notification-self-test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macOS-native-notification-report
+          path: mac-native-notifications.log
+          if-no-files-found: error

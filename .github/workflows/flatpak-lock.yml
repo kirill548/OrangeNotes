@@ -1,0 +1,38 @@
+name: Bootstrap verified Flatpak lock
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  lock:
+    # Only maintainers explicitly running this workflow on the default branch may bootstrap.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Provision Flatpak client
+        run: sudo apt-get update && sudo apt-get install -y flatpak
+      - name: Resolve and verify real installed SDK and Runtime commits
+        run: python tools/flatpak_bundle.py --prepare --bootstrap
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-Flatpak-runtime-lock
+          path: packaging/flatpak/runtime-lock.json
+          if-no-files-found: error
+      - name: Commit lock on a review branch
+        shell: bash
+        run: |
+          if git diff --quiet -- packaging/flatpak/runtime-lock.json && git ls-files --error-unmatch packaging/flatpak/runtime-lock.json >/dev/null 2>&1; then
+            echo "Committed lock already matches installed revisions."
+            exit 0
+          fi
+          git config user.name 'Orange Notes CI'
+          git config user.email 'orangenotes-ci@users.noreply.github.com'
+          git switch -c "ci/flatpak-lock-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git add -- packaging/flatpak/runtime-lock.json
+          git commit -m "Pin verified Flatpak 25.08 runtime commits"
+          git push --set-upstream origin HEAD
