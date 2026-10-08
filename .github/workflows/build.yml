@@ -66,6 +66,8 @@ jobs:
           echo "APPIMAGE_RUNTIME_FILE=$RUNNER_TEMP/appimage-runtime" >> "$GITHUB_ENV"
       - name: Linux complete regression suite
         if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: xcb
         run: xvfb-run -a python -m unittest discover -s tests
       - name: Linux native notification daemon integration
         if: runner.os == 'Linux'
@@ -77,6 +79,8 @@ jobs:
           bash tools/test_linux_notifications.sh
       - name: macOS complete regression suite
         if: runner.os == 'macOS'
+        env:
+          QT_QPA_PLATFORM: cocoa
         run: python -m unittest discover -s tests
       - name: Provision temporary signing credentials
         if: github.event_name != 'pull_request' && runner.os != 'Linux'
@@ -110,7 +114,7 @@ jobs:
         if: runner.os == 'macOS'
         run: python tools/smoke_portable.py dist/OrangeNotes.app/Contents/MacOS/OrangeNotes
       - name: Experimental Flatpak bundle
-        if: runner.os == 'Linux' && inputs.flatpak == true
+        if: runner.os == 'Linux' && (inputs.flatpak == true || startsWith(github.ref, 'refs/tags/'))
         shell: bash
         run: |
           sudo apt-get install -y flatpak flatpak-builder

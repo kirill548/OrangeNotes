@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtTest import QTest
+from PySide6.QtGui import QKeySequence
+from app.utils.shortcuts import shortcut as native_shortcut
 from PySide6.QtWidgets import QApplication
 from app.database.store import Store
 from app.ui.command_palette import CommandPalette
@@ -27,6 +29,8 @@ class CriticalScaleUX(unittest.TestCase):
         self.window.clock.stop()
         self.window.startup_tick.stop()
         self.window.show()
+        self.window.activateWindow()
+        self.assertTrue(QTest.qWaitForWindowActive(self.window,3000))
         self.app.processEvents()
 
     def tearDown(self):
@@ -69,7 +73,7 @@ class CriticalScaleUX(unittest.TestCase):
         w.body.setPlainText('Unchanged body')
         w.body.setFocus()
         for _ in range(8):
-            QTest.keyClick(w.body, Qt.Key_K, Qt.ControlModifier)
+            QTest.keySequence(w.body, QKeySequence(native_shortcut('Ctrl+K')))
             self.app.processEvents()
         visible = [p for p in w.findChildren(CommandPalette) if p.isVisible()]
         self.assertEqual(len(visible), 1)

@@ -203,7 +203,7 @@ class CompanionUITests(unittest.TestCase):
         self.slow=True;self.response['text']='LATE-ANSWER'
         dialog=self.dialog();beats=[];timer=QTimer();timer.setInterval(10);timer.timeout.connect(lambda:beats.append(1));timer.start()
         dialog.input.setPlainText('question');dialog.send();self.wait(lambda:self.started.is_set())
-        QTest.qWait(80);self.assertGreaterEqual(len(beats),3)
+        self.wait(lambda:len(beats)>=3,timeout=1);self.assertGreaterEqual(len(beats),3)
         self.assertFalse(dialog.send_button.isEnabled());self.assertFalse(dialog.send())
         dialog.cancel();self.assertTrue(dialog._cancel_event.is_set())
         self.release.set();self.wait(lambda:not dialog.busy);timer.stop()

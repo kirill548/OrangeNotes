@@ -7,11 +7,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import Qt, QMimeData, QUrl, QPointF, QCoreApplication, QEvent
-from PySide6.QtGui import QFont, QTextCursor, QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QFont, QTextCursor, QDragEnterEvent, QDropEvent, QKeySequence
 from PySide6.QtWidgets import QApplication, QToolBar, QPushButton
 from PySide6.QtTest import QTest
 from app.database.store import Store
 from app.ui.window import Window
+from app.utils.shortcuts import shortcut as native_shortcut
 
 
 class ClipboardTests(unittest.TestCase):
@@ -31,7 +32,8 @@ class ClipboardTests(unittest.TestCase):
         self.window = Window(self.store)
         self.window.clock.stop()
         self.window.show()
-        QTest.qWait(30)
+        self.window.activateWindow()
+        self.assertTrue(QTest.qWaitForWindowActive(self.window,3000))
         QTest.mouseClick(self.window.findChild(QPushButton, 'new'), Qt.LeftButton)
         self.note_id = self.window.current
 
@@ -62,19 +64,19 @@ class ClipboardTests(unittest.TestCase):
     def paste(self, value):
         body = self.window.body
         QTest.mouseClick(body.viewport(), Qt.LeftButton)
-        QTest.keyClick(body, Qt.Key_A, Qt.ControlModifier)
+        QTest.keySequence(body, QKeySequence(QKeySequence.StandardKey.SelectAll))
         self.app.clipboard().setText(value)
-        QTest.keyClick(body, Qt.Key_V, Qt.ControlModifier)
+        QTest.keySequence(body, QKeySequence(QKeySequence.StandardKey.Paste))
         self.app.processEvents()
 
     def copy_all(self):
         body = self.window.body
-        QTest.keyClick(body, Qt.Key_A, Qt.ControlModifier)
-        QTest.keyClick(body, Qt.Key_C, Qt.ControlModifier)
+        QTest.keySequence(body, QKeySequence(QKeySequence.StandardKey.SelectAll))
+        QTest.keySequence(body, QKeySequence(QKeySequence.StandardKey.Copy))
         return self.app.clipboard().text()
 
     def reopen(self):
-        QTest.keyClick(self.window.body, Qt.Key_S, Qt.ControlModifier)
+        QTest.keySequence(self.window.body, QKeySequence(QKeySequence.StandardKey.Save))
         self.window.load_note(self.note_id)
 
     def test_literal_markdown_unicode_roundtrip(self):
@@ -97,16 +99,16 @@ class ClipboardTests(unittest.TestCase):
         mime.setHtml('<h1>Injected</h1><img src="https://example.invalid/image">')
         self.app.clipboard().setMimeData(mime)
         QTest.mouseClick(self.window.body.viewport(), Qt.LeftButton)
-        QTest.keyClick(self.window.body, Qt.Key_V, Qt.ControlModifier)
+        QTest.keySequence(self.window.body, QKeySequence(QKeySequence.StandardKey.Paste))
         self.assertEqual(self.window.body.toPlainText(), 'literal <script> Ω')
         self.assertNotIn('example.invalid', self.window.body.toHtml())
 
     def test_bold_italic_save_reopen_and_plain_code_copy(self):
         value = 'code <div> & markdown **literal**\nreturn x != y;'
         self.paste(value)
-        QTest.keyClick(self.window.body, Qt.Key_A, Qt.ControlModifier)
-        QTest.keyClick(self.window.body, Qt.Key_B, Qt.ControlModifier)
-        QTest.keyClick(self.window.body, Qt.Key_I, Qt.ControlModifier)
+        QTest.keySequence(self.window.body, QKeySequence(QKeySequence.StandardKey.SelectAll))
+        QTest.keySequence(self.window.body, QKeySequence(native_shortcut('Ctrl+B')))
+        QTest.keySequence(self.window.body, QKeySequence(native_shortcut('Ctrl+I')))
         self.reopen()
         cursor = self.window.body.textCursor()
         cursor.setPosition(2)

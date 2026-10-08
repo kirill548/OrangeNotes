@@ -12,6 +12,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QSystemTrayIcon
 from app.database.store import Store
 from app.ui.window import Window
+from app.utils.shortcuts import shortcut as native_shortcut
 
 
 class DesktopTests(unittest.TestCase):
@@ -51,7 +52,7 @@ class DesktopTests(unittest.TestCase):
         self.tick_patch.stop()
 
     def key(self, sequence, target=None):
-        QTest.keySequence(target or self.app.focusWidget() or self.window, QKeySequence(sequence))
+        QTest.keySequence(target or self.app.focusWidget() or self.window, QKeySequence(native_shortcut(sequence)))
         self.app.processEvents()
 
     def test_shortcuts_keep_text_and_focus(self):

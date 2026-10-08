@@ -3,6 +3,8 @@ stages: [test, package]
 linux-tests:
   image: python:3.12-bookworm
   stage: test
+  variables:
+    QT_QPA_PLATFORM: xcb
   before_script:
     - apt-get update && apt-get install -y xvfb libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 dbus-x11 libnotify-bin libglib2.0-bin dunst
     - python -m pip install -r requirements-build.txt

@@ -32,6 +32,23 @@ class MacReleaseSafetyTests(unittest.TestCase):
         self.assertEqual(transport.status()['setting'],'Denied')
         self.assertFalse(transport.authorized)
 
+    def test_framework_not_allowed_error_retains_denied_and_still_fails(self):
+        transport=MacNotifications()
+        error=SimpleNamespace(domain=lambda:'UNErrorDomain',code=lambda:1)
+        with self.assertRaisesRegex(OSError,'authorization request failed'):
+            transport._raise_authorization_error(error)
+        self.assertEqual(transport.authorization_setting,'Denied')
+        self.assertFalse(transport.authorized)
+
+    def test_other_framework_errors_are_not_user_denial(self):
+        for domain,code in [('UNErrorDomain',2),('NSCocoaErrorDomain',1)]:
+            with self.subTest(domain=domain,code=code):
+                transport=MacNotifications()
+                transport.authorization_setting='Denied'
+                error=SimpleNamespace(domain=lambda:domain,code=lambda:code)
+                with self.assertRaises(OSError):transport._raise_authorization_error(error)
+                self.assertEqual(transport.authorization_setting,'Unknown')
+
     def test_prompt_timeout_is_bounded_and_delivery_timeout_stays_short(self):
         transport=MacNotifications()
         with patch('app.services.portable_notifications.time.monotonic',side_effect=[0,121]):

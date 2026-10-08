@@ -3,8 +3,8 @@ import math
 import time
 from collections import deque
 from app.utils.runtime_paths import resource_path
-from PySide6.QtCore import Qt, QRectF, QSize, QPoint, QEvent, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QIcon, QPixmap
+from PySide6.QtCore import Qt, QRect, QRectF, QSize, QPoint, QEvent, QTimer, Signal
+from PySide6.QtGui import QColor, QPainter, QPen, QIcon, QPixmap, QFontMetrics
 from PySide6.QtWidgets import QPushButton, QWidget, QLabel, QVBoxLayout
 
 
@@ -72,7 +72,17 @@ class MiniCompanion(QWidget):
         self.bubble.setStyleSheet('QLabel {background:#fff8ed;border:1px solid #ffddb1;border-radius:12px;color:#795027;font-size:12px;}')
         self.dismiss=QPushButton('×',self);self.dismiss.setGeometry(178,49,22,22);self.dismiss.setAccessibleName('Скрыть мини-помощника');self.dismiss.setToolTip('Скрыть персонажа. Чат останется доступен в боковой панели.');self.dismiss.clicked.connect(self.hide)
         self.dismiss.setStyleSheet('QPushButton {background:#fff8ed;border:1px solid #ffddb1;border-radius:11px;color:#795027;padding:0;}')
+        self._layout_bubble()
         self.show();self._position_timer.start(0);self._bubble_timer.start()
+
+    def _layout_bubble(self):
+        self.bubble.ensurePolished()
+        bounds=QFontMetrics(self.bubble.font()).boundingRect(QRect(0,0,self.bubble.width()-12,1000),Qt.TextWordWrap,self.bubble.text())
+        height=max(47,bounds.height()+8)
+        self.bubble.setFixedHeight(height)
+        self.dismiss.move(178,height+2)
+        self.setFixedHeight(height+125)
+        self.reposition()
 
     def reposition(self):
         parent=self.parentWidget()
@@ -92,7 +102,7 @@ class MiniCompanion(QWidget):
 
     def paintEvent(self,event):
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);p.setRenderHint(QPainter.SmoothPixmapTransform,False)
-        p.translate(40,50+math.sin(self._phase)*3)
+        p.translate(40,self.bubble.height()+3+math.sin(self._phase)*3)
         if not self._bee.isNull():
             scaled=self._bee.scaled(120,120,Qt.KeepAspectRatio,Qt.FastTransformation)
             p.drawPixmap((120-scaled.width())//2,(120-scaled.height())//2,scaled)
@@ -108,7 +118,7 @@ class MiniCompanion(QWidget):
         self._recent_events.append((key,now))
         if not self.isVisible():return False
         display=text if len(text)<=56 else text[:53].rstrip()+'…'
-        self.bubble.setText(display);self.bubble.setToolTip(text);self.bubble.show();self._bubble_timer.start();return True
+        self.bubble.setText(display);self.bubble.setToolTip(text);self._layout_bubble();self.bubble.show();self._bubble_timer.start();return True
 
     def bubble_expired(self):self.bubble.hide()
 

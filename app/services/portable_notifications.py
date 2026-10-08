@@ -182,11 +182,22 @@ class MacNotifications:
         self.center.requestAuthorizationWithOptions_completionHandler_(UN.UNAuthorizationOptionAlert | UN.UNAuthorizationOptionSound, lambda granted, error: result.update(granted=bool(granted), error=error))
         self._wait(result, timeout=120)
         if result.get('error'):
-            raise OSError('macOS notification authorization request failed: '+str(result['error']))
+            self._raise_authorization_error(result['error'])
         self.authorization_setting = 'Enabled' if result.get('granted') else 'Denied'
         if not result.get('granted'):
             raise OSError('macOS запрещает уведомления Orange Notes. Разрешите их в настройках системы.')
         self.authorized = True
+
+    def _raise_authorization_error(self, error):
+        # Apple's permission rejection may arrive as NSError, before granted=False.
+        # Do not mistake other framework/service failures for a user denial.
+        try:
+            denied = str(error.domain()) == 'UNErrorDomain' and int(error.code()) == 1
+        except (AttributeError, TypeError, ValueError):
+            denied = False
+        self.authorized = False
+        self.authorization_setting = 'Denied' if denied else 'Unknown'
+        raise OSError('macOS notification authorization request failed: '+str(error))
 
     def _wait(self, result, timeout=5):
         deadline = time.monotonic() + timeout

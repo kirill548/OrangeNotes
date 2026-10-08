@@ -1,5 +1,6 @@
 """Native transport contract tests; no OS registrations or notifications."""
-import sys,unittest,json,subprocess,xml.etree.ElementTree as ET
+import sys,unittest,json,subprocess,os,xml.etree.ElementTree as ET
+from types import SimpleNamespace
 from pathlib import Path
 from urllib.parse import urlparse,parse_qs
 from unittest.mock import patch
@@ -28,9 +29,9 @@ class NativeContract(unittest.TestCase):
    self.assertEqual(run.call_args.kwargs['database'],str(database))
  def test_os_error_and_timeout_cleanup(self):
   n=WindowsNotifications()
-  with patch('app.services.windows_notifications.subprocess.run',return_value=subprocess.CompletedProcess([],1,json.dumps({'ok':False,'error':'DisabledForUser'}),'')):
+  with patch('app.services.windows_notifications.os',SimpleNamespace(name='nt',environ=os.environ)),patch('app.services.windows_notifications.subprocess.CREATE_NO_WINDOW',0,create=True),patch('app.services.windows_notifications.subprocess.run',return_value=subprocess.CompletedProcess([],1,json.dumps({'ok':False,'error':'DisabledForUser'}),'')):
    with self.assertRaisesRegex(OSError,'DisabledForUser'):n.history()
-  with patch('app.services.windows_notifications.subprocess.run',side_effect=subprocess.TimeoutExpired('ps',25)):
+  with patch('app.services.windows_notifications.os',SimpleNamespace(name='nt',environ=os.environ)),patch('app.services.windows_notifications.subprocess.CREATE_NO_WINDOW',0,create=True),patch('app.services.windows_notifications.subprocess.run',side_effect=subprocess.TimeoutExpired('ps',25)):
    with self.assertRaisesRegex(OSError,'timed out'):n.history()
 
 if __name__=='__main__':unittest.main()

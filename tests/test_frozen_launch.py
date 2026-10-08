@@ -15,7 +15,7 @@ from app.services.windows_notifications import WindowsNotifications
 class FrozenLaunchTests(unittest.TestCase):
     def setUp(self):
         self.directory=tempfile.TemporaryDirectory()
-        self.root=Path(self.directory.name)/"Orange Notes & 中文 ' folder"
+        self.root=Path(self.directory.name).resolve()/"Orange Notes & 中文 ' folder"
         self.root.mkdir()
         self.exe=self.root/'OrangeNotes.exe'
         self.exe.write_bytes(b'test executable placeholder')

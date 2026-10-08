@@ -8,6 +8,7 @@ from PySide6.QtGui import QFont
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QLabel,QMainWindow,QPushButton,QWidget
 from app.ui.help_dialog import HelpDialog,StyledDialog
+from app.utils.shortcuts import shortcut_label
 
 
 class HelpDialogTests(unittest.TestCase):
@@ -55,7 +56,7 @@ class HelpDialogTests(unittest.TestCase):
     def test_content_truthful_and_keyboard_shortcuts_present(self):
         dialog=self.dialog();text=' '.join(label.text() for label in dialog.findChildren(QLabel))
         for expected in ['С чего начать','Напоминания','Порядок в заметках','Быстрые клавиши','Ctrl+N','Ctrl+F','Ctrl+S','Ctrl+Shift+D','Мой день','в полночь','фоновая служба настроена','войти в Windows','явном выборе','без ИИ-комплекта']:
-            self.assertIn(expected.casefold(),text.casefold())
+            self.assertIn(shortcut_label(expected).casefold(),text.casefold())
         self.assertNotIn('API',text)
         self.assertTrue(dialog.scroll.widgetResizable())
 
