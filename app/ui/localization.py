@@ -8,6 +8,7 @@ class DialogTranslator(QTranslator):
         'OK': 'ОК', '&OK': 'ОК', 'Cancel': 'Отмена', '&Cancel': 'Отмена',
         'Save': 'Сохранить', '&Save': 'Сохранить',
         'Discard': 'Не сохранять', '&Discard': 'Не сохранять',
+        "Don't Save": 'Не сохранять', "Do not Save": 'Не сохранять',
         'Close': 'Закрыть', '&Close': 'Закрыть',
         'Open': 'Открыть', '&Open': 'Открыть',
     }

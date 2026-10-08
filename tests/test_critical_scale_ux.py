@@ -74,7 +74,7 @@ class CriticalScaleUX(unittest.TestCase):
         w.body.setFocus()
         for _ in range(8):
             QTest.keySequence(w.body, QKeySequence(native_shortcut('Ctrl+K')))
-            self.app.processEvents()
+            QTest.qWait(30)
         visible = [p for p in w.findChildren(CommandPalette) if p.isVisible()]
         self.assertEqual(len(visible), 1)
         visible[0].query.setText('архив')

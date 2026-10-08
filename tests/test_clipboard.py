@@ -61,22 +61,30 @@ class ClipboardTests(unittest.TestCase):
         gc.collect()
         self.app.processEvents()
 
+    def send_shortcut(self, body, sequence):
+        body.setFocus()
+        self.app.processEvents()
+        self.assertIs(self.app.focusWidget(), body)
+        QTest.keySequence(body, sequence)
+        # Cocoa dispatches command shortcuts through its native application queue.
+        QTest.qWait(30)
+
     def paste(self, value):
         body = self.window.body
         QTest.mouseClick(body.viewport(), Qt.LeftButton)
-        QTest.keySequence(body, QKeySequence(QKeySequence.StandardKey.SelectAll))
+        self.send_shortcut(body, QKeySequence(QKeySequence.StandardKey.SelectAll))
         self.app.clipboard().setText(value)
-        QTest.keySequence(body, QKeySequence(QKeySequence.StandardKey.Paste))
+        self.send_shortcut(body, QKeySequence(QKeySequence.StandardKey.Paste))
         self.app.processEvents()
 
     def copy_all(self):
         body = self.window.body
-        QTest.keySequence(body, QKeySequence(QKeySequence.StandardKey.SelectAll))
-        QTest.keySequence(body, QKeySequence(QKeySequence.StandardKey.Copy))
+        self.send_shortcut(body, QKeySequence(QKeySequence.StandardKey.SelectAll))
+        self.send_shortcut(body, QKeySequence(QKeySequence.StandardKey.Copy))
         return self.app.clipboard().text()
 
     def reopen(self):
-        QTest.keySequence(self.window.body, QKeySequence(QKeySequence.StandardKey.Save))
+        self.send_shortcut(self.window.body, QKeySequence(QKeySequence.StandardKey.Save))
         self.window.load_note(self.note_id)
 
     def test_literal_markdown_unicode_roundtrip(self):
@@ -99,16 +107,16 @@ class ClipboardTests(unittest.TestCase):
         mime.setHtml('<h1>Injected</h1><img src="https://example.invalid/image">')
         self.app.clipboard().setMimeData(mime)
         QTest.mouseClick(self.window.body.viewport(), Qt.LeftButton)
-        QTest.keySequence(self.window.body, QKeySequence(QKeySequence.StandardKey.Paste))
+        self.send_shortcut(self.window.body, QKeySequence(QKeySequence.StandardKey.Paste))
         self.assertEqual(self.window.body.toPlainText(), 'literal <script> Ω')
         self.assertNotIn('example.invalid', self.window.body.toHtml())
 
     def test_bold_italic_save_reopen_and_plain_code_copy(self):
         value = 'code <div> & markdown **literal**\nreturn x != y;'
         self.paste(value)
-        QTest.keySequence(self.window.body, QKeySequence(QKeySequence.StandardKey.SelectAll))
-        QTest.keySequence(self.window.body, QKeySequence(native_shortcut('Ctrl+B')))
-        QTest.keySequence(self.window.body, QKeySequence(native_shortcut('Ctrl+I')))
+        self.send_shortcut(self.window.body, QKeySequence(QKeySequence.StandardKey.SelectAll))
+        self.send_shortcut(self.window.body, QKeySequence(native_shortcut('Ctrl+B')))
+        self.send_shortcut(self.window.body, QKeySequence(native_shortcut('Ctrl+I')))
         self.reopen()
         cursor = self.window.body.textCursor()
         cursor.setPosition(2)

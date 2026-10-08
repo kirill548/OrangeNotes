@@ -144,8 +144,13 @@ class NotificationFallbackTests(unittest.TestCase):
         finally: worker.db.close()
         with patch('app.utils.timezones.device_zone',return_value='America/New_York'), patch('app.ui.window.device_zone',return_value='America/New_York'):
             self.window.clock.start(10)
-            QTest.qWait(80)
-            self.window.clock.stop()
+            from time import monotonic
+            deadline=monotonic()+2
+            try:
+                while self.window.notes.count()!=1 and monotonic()<deadline:
+                    QTest.qWait(10)
+            finally:
+                self.window.clock.stop()
             self.assertEqual(self.window.notes.count(),1)
             self.assertEqual(self.window._attention_event_count,1)
             self.assertFalse(self.window.isVisible())

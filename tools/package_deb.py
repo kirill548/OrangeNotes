@@ -19,7 +19,7 @@ def package(folder, destination, version, architecture):
         root = pathlib.Path(temporary)
         shutil.copytree(folder, root / 'opt/orangenotes')
         (root / 'DEBIAN').mkdir()
-        (root / 'DEBIAN/control').write_text(f'Package: orange-notes\nVersion: {version}\nArchitecture: {architecture}\nMaintainer: Orange Notes contributors\nDepends: libnotify-bin, libglib2.0-bin, libegl1, libopengl0, libxcb-cursor0, libxkbcommon-x11-0\nDescription: Local notes and durable reminders\n', encoding='utf-8')
+        (root / 'DEBIAN/control').write_text(f'Package: orange-notes\nVersion: {version}\nArchitecture: {architecture}\nMaintainer: Orange Notes contributors\nDepends: libnotify-bin, libglib2.0-bin, libegl1, libopengl0, libxcb-cursor0, libxkbcommon-x11-0, libxcb-icccm4, libxcb-keysyms1, libxcb-xinerama0, libxcb-randr0, libxcb-shape0, libxcb-sync1, libxcb-xfixes0, libx11-xcb1, libfontconfig1, libdbus-1-3, libgl1\nDescription: Local notes and durable reminders\n', encoding='utf-8')
         bin_path = root / 'usr/bin'
         bin_path.mkdir(parents=True)
         launcher = bin_path / 'orange-notes'

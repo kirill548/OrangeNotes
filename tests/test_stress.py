@@ -42,6 +42,29 @@ class LocalStress(unittest.TestCase):
         self.app.processEvents();self.store.db.close();self.directory.cleanup()
     def integrity(self):
         self.assertEqual(self.store.rows('PRAGMA integrity_check')[0][0],'ok');self.assertFalse(self.store.rows('PRAGMA foreign_key_check'))
+    def locked_baseline(self):
+        # Hosted macOS SQLite/VM lock waits can exceed the requested 250 ms.
+        # Compare UI overhead with one measured lock attempt, never a 5 s wait.
+        self.assertEqual(self.store.rows('PRAGMA busy_timeout')[0][0],250)
+        started=time.perf_counter()
+        with self.assertRaisesRegex(sqlite3.OperationalError,'locked'):
+            self.store.db.execute('BEGIN IMMEDIATE')
+        baseline=time.perf_counter()-started
+        self.assertLessEqual(baseline,2.0,f'One lock attempt stalled for {baseline:.3f}s')
+        return baseline
+    def assert_bounded_locked_action(self,action,baseline):
+        statements=[]
+        self.store.db.set_trace_callback(statements.append)
+        try:
+            started=time.perf_counter();action();elapsed=time.perf_counter()-started
+        finally:
+            self.store.db.set_trace_callback(None)
+        commands=[sql.lstrip().split(None,1)[0].upper() for sql in statements]
+        self.assertLessEqual(commands.count('BEGIN'),1,'Action retried a locked transaction')
+        self.assertLessEqual(sum(command in ('UPDATE','INSERT','DELETE') for command in commands),1,
+                             'Action retried a locked write')
+        self.assertLess(elapsed,baseline+1.0,
+                        f'UI lock wait {elapsed:.3f}s; single SQLite wait {baseline:.3f}s')
     def test_large_unicode_code_log_context(self):
         w=self.window;s=self.store;before=memory_bytes()
         # 130,000+ whitespace-separated words and >1MB Unicode/code/log text.
@@ -59,10 +82,11 @@ class LocalStress(unittest.TestCase):
         w=self.window;s=self.store;w.new_note();target=w.current;w.title.setText('Original');w.body.setPlainText('original');w.save();other=s.create_note();s.save_note(other,'Other','other',None,False,'')
         connection=sqlite3.connect(s.path);connection.execute('BEGIN IMMEDIATE')
         try:
+            baseline=self.locked_baseline()
             w.body.setPlainText('Unsaved Unicode 東京');count=len(s.rows('SELECT * FROM notes'));beat=[]
             with patch.object(QMessageBox,'warning',return_value=QMessageBox.Ok):
                 for action in [lambda:w.save(),lambda:w.search.setText('Unsaved'),w.delete,w.duplicate_note]:
-                    started=time.perf_counter();action();elapsed=time.perf_counter()-started;self.assertLess(elapsed,1.25)
+                    self.assert_bounded_locked_action(action,baseline)
                     self.assertEqual(w.current,target);self.assertEqual(w.body.toPlainText(),'Unsaved Unicode 東京');self.assertTrue(w._dirty)
                     QTimer.singleShot(0,lambda:beat.append(True));self.app.processEvents()
             self.assertEqual(len(beat),4);self.assertEqual(len(s.rows('SELECT * FROM notes')),count)
@@ -75,7 +99,8 @@ class LocalStress(unittest.TestCase):
         s.execute('UPDATE reminders SET created_utc=NULL,created_at=?',((past-timedelta(seconds=2)).isoformat(timespec='seconds'),));notices=[];w.scheduler.notify=lambda *args:notices.append(args)
         lock=sqlite3.connect(s.path);lock.execute('BEGIN IMMEDIATE')
         try:
-            started=time.perf_counter();w.tick();self.assertLess(time.perf_counter()-started,1.25);self.assertEqual(notices,[])
+            baseline=self.locked_baseline()
+            self.assert_bounded_locked_action(w.tick,baseline);self.assertEqual(notices,[])
         finally:lock.rollback();lock.close()
         w.tick();w.tick();self.assertEqual(len(notices),1);self.assertEqual(s.rows("SELECT count(*) FROM reminder_events WHERE status='notified'")[0][0],1);self.integrity()
     def test_monkey_seed_20261002_400_actions(self):

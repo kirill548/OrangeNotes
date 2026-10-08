@@ -53,7 +53,7 @@ class DesktopTests(unittest.TestCase):
 
     def key(self, sequence, target=None):
         QTest.keySequence(target or self.app.focusWidget() or self.window, QKeySequence(native_shortcut(sequence)))
-        self.app.processEvents()
+        QTest.qWait(30)
 
     def test_shortcuts_keep_text_and_focus(self):
         w = self.window
