@@ -33,7 +33,7 @@ class LocalStress(unittest.TestCase):
     def setUpClass(cls):cls.app=QApplication.instance() or QApplication([])
     def setUp(self):
         self.directory=tempfile.TemporaryDirectory();self.store=Store(Path(self.directory.name)/'notes.db');self.window=Window(self.store)
-        self.window.clock.stop();self.window.show();self.app.processEvents()
+        self.window.clock.stop();self.window.startup_tick.stop();self.window.show();self.app.processEvents()
     def tearDown(self):
         w=self.window
         if w.panel:w.panel.hide()
@@ -102,7 +102,11 @@ class LocalStress(unittest.TestCase):
             baseline=self.locked_baseline()
             self.assert_bounded_locked_action(w.tick,baseline);self.assertEqual(notices,[])
         finally:lock.rollback();lock.close()
-        w.tick();w.tick();self.assertEqual(len(notices),1);self.assertEqual(s.rows("SELECT count(*) FROM reminder_events WHERE status='notified'")[0][0],1);self.integrity()
+        w.tick();w.tick()
+        self.assertEqual(len(notices),1,{'reminders':[dict(row) for row in s.rows('SELECT * FROM reminders')],
+                                          'events':[dict(row) for row in s.rows('SELECT * FROM reminder_events')],
+                                          'background_managed':w.background_managed,'scheduler_running':w.scheduler._running})
+        self.assertEqual(s.rows("SELECT count(*) FROM reminder_events WHERE status='notified'")[0][0],1);self.integrity()
     def test_monkey_seed_20261002_400_actions(self):
         rng=random.Random(20261002);w=self.window;s=self.store;w.new_note();w.title.setText('Anchor');w.save();actions=0
         with patch.object(QMessageBox,'warning',return_value=QMessageBox.Ok),patch.object(QMessageBox,'question',return_value=QMessageBox.No):

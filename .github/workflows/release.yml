@@ -7,7 +7,7 @@ permissions:
   contents: write
   actions: read
 concurrency:
-  group: stable-release-v0.1.0
+  group: stable-release-v0.1.1
   cancel-in-progress: false
 jobs:
   publish:
@@ -28,11 +28,11 @@ jobs:
         id: gate
         shell: bash
         run: |
-          if ! git rev-parse --verify refs/tags/v0.1.0 >/dev/null 2>&1; then
+          if ! git rev-parse --verify refs/tags/v0.1.1 >/dev/null 2>&1; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [ "$(git rev-parse 'refs/tags/v0.1.0^{commit}')" != "$BUILD_SHA" ]; then
+          if [ "$(git rev-parse 'refs/tags/v0.1.1^{commit}')" != "$BUILD_SHA" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -58,17 +58,17 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
-          git archive --format=zip --output=release-assets/OrangeNotes-source-v0.1.0.zip "$BUILD_SHA"
+          git archive --format=zip --output=release-assets/OrangeNotes-source-v0.1.1.zip "$BUILD_SHA"
           python tools/prepare_release_assets.py downloaded release-assets
-          git show "$BUILD_SHA:RELEASE_NOTES_v0.1.0.md" > release-notes.md
+          git show "$BUILD_SHA:RELEASE_NOTES_v0.1.1.md" > release-notes.md
           printf '\nBuild verification: https://github.com/%s/actions/runs/%s\nCommit: `%s`\n' "$GH_REPO" "$BUILD_RUN" "$BUILD_SHA" >> release-notes.md
       - name: Publish only after all assets uploaded
         if: steps.gate.outputs.ready == 'true'
         shell: bash
         run: |
-          if gh release view v0.1.0 --json isDraft --jq '.isDraft' > draft.txt 2>/dev/null; then
+          if gh release view v0.1.1 --json isDraft --jq '.isDraft' > draft.txt 2>/dev/null; then
             if [ "$(cat draft.txt)" != true ]; then
-              gh release view v0.1.0 --json body --jq '.body' > published-body.txt
+              gh release view v0.1.1 --json body --jq '.body' > published-body.txt
               if grep -Fq "Commit: \`$BUILD_SHA\`" published-body.txt; then
                 echo "This verified commit is already published; leaving existing downloads unchanged."
                 exit 0
@@ -77,7 +77,7 @@ jobs:
               exit 1
             fi
           else
-            gh release create v0.1.0 --verify-tag --draft --title 'Orange Notes v0.1.0' --notes-file release-notes.md
+            gh release create v0.1.1 --verify-tag --draft --title 'Orange Notes v0.1.1' --notes-file release-notes.md
           fi
-          gh release upload v0.1.0 release-assets/* --clobber
-          gh release edit v0.1.0 --notes-file release-notes.md --draft=false --prerelease=false --latest
+          gh release upload v0.1.1 release-assets/* --clobber
+          gh release edit v0.1.1 --notes-file release-notes.md --draft=false --prerelease=false --latest

@@ -176,6 +176,29 @@ class CompanionUITests(unittest.TestCase):
         self.assertTrue(all(turn['workspace_id']==dialog.workspace_id for turn in history))
         self.assertTrue(dialog.send_button.isEnabled());self.assertFalse(dialog.cancel_button.isEnabled())
 
+    def test_source_changed_during_ui_batch_never_reaches_chat_or_history(self):
+        source=self.source()
+        dialog=self.dialog()
+        response={'text':'STALE-BATCH-CANARY','sources':[source],'engine_label':'fake'}
+        dialog._completed(dialog._request_id,response,None,'ask')
+        self.store.save_note(source['note_id'],'Changed','new body',None,False,'')
+        self.wait(lambda:not getattr(dialog,'_pending_render',False))
+        self.assertNotIn('STALE-BATCH-CANARY',dialog.chat.toPlainText())
+        self.assertEqual(dialog._history,[])
+        self.assertIn('изменился',dialog.status.text())
+
+    def test_cancel_during_verified_ui_batch_discards_packet(self):
+        self.slow=True
+        self.response={'text':'CANCEL-BATCH-CANARY','sources':[],'engine_label':'fake'}
+        dialog=self.dialog();dialog.input.setPlainText('Обсудим')
+        self.assertTrue(dialog.send());self.wait(self.started.is_set)
+        # Simulate worker completion before delivery of the 40ms UI batch.
+        dialog._completed(dialog._request_id,dict(self.response),None,'ask')
+        dialog.cancel();self.release.set()
+        self.wait(lambda:not dialog.busy)
+        self.assertNotIn('CANCEL-BATCH-CANARY',dialog.chat.toPlainText())
+        self.assertEqual(dialog._history,[])
+
     def test_source_click_revalidates_and_rejects_changed_note(self):
         source=self.source();self.response['sources']=[source]
         dialog=self.dialog();opened=[];dialog.open_note.connect(opened.append)
@@ -285,8 +308,9 @@ class CompanionUITests(unittest.TestCase):
         from PySide6.QtWidgets import QLabel
         labels=' '.join(label.text() for label in dialog._settings_dialog.findChildren(QLabel))
         self.assertIn('готовый комплект',labels)
-        self.assertIn('runtime',labels)
-        self.assertIn('ничего не отправляет в облако',labels)
+        self.assertIn('мастер настройки',labels)
+        self.assertIn('не отправляются в облако',labels)
+        self.assertTrue(any(button.text()=='Открыть мастер настройки' for button in dialog._settings_dialog.findChildren(QPushButton)))
         self.assertIn('ещё не проверен',labels)
         missing=dialog._setup_message({'available':True,'model_ready':False,'models':[]},DEFAULT_CONFIG)
         self.assertIn(DEFAULT_CONFIG['model'],missing)

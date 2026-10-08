@@ -14,7 +14,7 @@ def distance(left,right,budget=1):
 def near_identifiers(requested,candidates):
     matches=[]
     for original in sorted(requested):
-        if not 6<=len(original)<=128: continue
+        if not 3<=len(original)<=128: continue
         budget=1 if len(original)<16 else 2
         for candidate in sorted(candidates):
             if len(candidate)>128: continue

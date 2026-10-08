@@ -141,27 +141,43 @@ class OllamaClient:
         if result.get('remote_host') or result.get('remote_model'):
             raise LocalAIError('Эта модель работает в облаке. Разрешены только локальные модели.')
 
-    def chat(self,messages,cancel_event=None,json_mode=False):
+    def chat(self,messages,cancel_event=None,json_mode=False,stream=False):
+        # One budget includes the local-model preflight and the entire stream.
+        previous_deadline=self.deadline
+        self.deadline=min(previous_deadline or time.monotonic()+30,time.monotonic()+30)
+        try:
+            return self._chat(messages,cancel_event,json_mode,stream)
+        finally:
+            self.deadline=previous_deadline
+
+    def _chat(self,messages,cancel_event=None,json_mode=False,stream=False):
         self._check_cancel(cancel_event)
         if not isinstance(messages,list) or not messages:raise LocalAIError('Добавьте сообщение для помощника.')
         for message in messages:
             if not isinstance(message,dict) or message.get('role') not in ('system','user','assistant') or not isinstance(message.get('content'),str):
                 raise LocalAIError('Некорректная история диалога.')
         self._ensure_installed_local(self.model)
-        payload={'model':self.model,'messages':messages,'stream':False,'think':False,'options':{'temperature':0.2,'num_ctx':8192,'num_predict':1024}}
+        payload={'model':self.model,'messages':messages,'stream':bool(stream),'think':False,'options':{'temperature':0.2,'num_ctx':8192,'num_predict':1024}}
         if json_mode:
             payload['format']=deepcopy(_DIALOGUE_SCHEMA if json_mode=='dialogue' else _ANSWER_SCHEMA)
             if json_mode=='dialogue' and re.search(r'\b(?:список|перечень|чек.?лист)\b',messages[-1]['content'].casefold()):
                 # Require actual item segments rather than a syntactically valid
                 # introduction-only answer. Evidence mode keeps its own schema.
                 payload['format']['properties']['segments']['minItems']=3
-        result=self._request('/api/chat',payload,cancel_event=cancel_event)
+        result=self._stream_request(payload,cancel_event) if stream else self._request('/api/chat',payload,cancel_event=cancel_event)
         if result.get('done_reason')=='length':
             raise LocalAIError('Ответ модели оборвался из-за ограничения длины. Попросите более короткий ответ.')
         message=result.get('message')
         content=message.get('content') if isinstance(message,dict) else None
         if not isinstance(content,str) or not content.strip():raise LocalAIError('Локальная модель не вернула текст ответа.')
         return content.strip()
+
+    def chat_stream(self,messages,cancel_event=None,json_mode=False):
+        return self.chat(messages,cancel_event=cancel_event,json_mode=json_mode,stream=True)
+
+    def _stream_request(self,payload,cancel_event):
+        from app.services.ollama_stream import receive_stream
+        return receive_stream(self,payload,cancel_event)
 
     def embed(self,texts,model='qwen3-embedding:0.6b'):
         model=self._local_model(model)

@@ -59,23 +59,32 @@ def resource_advisory():
     return {'available_ram_bytes':available,'vram_bytes':vram,'warning':('Мало свободной памяти: ответы могут быть медленными. Закройте тяжёлые программы или используйте поиск.' if available is not None and available<4*1024**3 else None)}
 
 
-def ensure_runtime(client,cancel_event=None):
+def ensure_runtime(client,cancel_event=None,runtime_root=None):
     global _process
+    override=runtime_root or getattr(client,'runtime_root',None)
+    if not isinstance(override,(str,os.PathLike)):
+        if runtime_root is not None:raise ValueError('Проверьте путь к ИИ-комплекту.')
+        override=None
     if client.probe()['available']:
-        return True
+        return not bool(runtime_root)
     if client.base_url!='http://127.0.0.1:11434':
         return False
     root=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else Path(__file__).resolve().parents[2]
+    if override:
+        root=Path(override).resolve()
+        if root.name=='runtime':root=root.parent
     candidates=runtime_candidates(root)
+    if override:candidates=[(exe,models) for exe,models in candidates if exe.is_relative_to(root)]
     selected=next(((exe,models) for exe,models in candidates if exe.is_file()),None)
     if not selected:
         return False
     with _lock:
         if client.probe()['available']:
-            return True
+            return not bool(runtime_root)
         # A server we started can still be loading GPU libraries. Reuse it rather
         # than launching another daemon when the health probe briefly times out.
         if _process is not None and _process.poll() is None:
+            if runtime_root:return False
             for _ in range(30):
                 if cancel_event and cancel_event.is_set():return False
                 if isinstance(getattr(client,'deadline',None),(int,float)) and time.monotonic()>=client.deadline:return False

@@ -16,7 +16,8 @@ from app.services.memory_store import MemoryStore
 from app.widgets.companion_mascot import companion_icon
 
 _ACTIVE_DIALOGS=set()
-DEFAULT_CONFIG={'provider':'ollama','base_url':'http://127.0.0.1:11434','model':'qwen3:4b','embedding_model':'qwen3-embedding:0.6b'}
+DEFAULT_CONFIG={'provider':'ollama','base_url':'http://127.0.0.1:11434','model':'qwen3:4b','embedding_model':'qwen3-embedding:0.6b',
+                'runtime_root':'','ai_pack_path':'','onboarding_seen':False}
 
 
 def _engine_factory(path):
@@ -39,12 +40,17 @@ def validate_config(config):
             raise ValueError('Укажите название локальной модели без пробелов.')
         result[key]=str(result[key]).strip()
     result['base_url']=str(result['base_url']).strip().rstrip('/')
+    for key in ('runtime_root','ai_pack_path'):
+        if not isinstance(result[key],str) or len(result[key])>4096 or '\x00' in result[key]:
+            raise ValueError('Проверьте путь к ИИ-комплекту.')
+    if type(result['onboarding_seen']) is not bool:raise ValueError('Неверный статус первой настройки.')
     return result
 
 
 class _RequestThread(QThread):
     completed=Signal(int,object,object)
     advisory=Signal(int,str)
+    progress=Signal(int,object)
 
     def __init__(self,request_id,factory,path,query,workspace_id,mode,history,config,include_archive,include_trash,cancel_event,kind='ask'):
         super().__init__()
@@ -69,10 +75,17 @@ class _RequestThread(QThread):
                 from app.services.local_runtime import resource_advisory
                 warning=resource_advisory().get('warning')
                 if warning:self.advisory.emit(self.request_id,warning)
-            engine=self.factory(self.path)
+            if self.kind in ('detect','pack','pull'):
+                from app.services.ai_onboarding import ModelManager
+                manager=ModelManager(self.config)
+                if self.kind=='pack':response=manager.connect_pack(self.query,self.cancel_event)
+                elif self.kind=='pull':response=manager.pull_missing(self.cancel_event,lambda value:self.progress.emit(self.request_id,value))
+                else:response=manager.detect(self.cancel_event)
+            else:
+                engine=self.factory(self.path)
             if self.kind=='status':
                 response=engine.status(self.config)
-            else:
+            elif self.kind=='ask':
                 response=engine.ask(self.query,self.workspace_id,mode=self.mode,
                                     include_archive=self.include_archive,include_trash=self.include_trash,
                                     history=self.history,config=self.config,cancel_event=self.cancel_event)
@@ -98,6 +111,11 @@ class CompanionDialog(QDialog):
         self.store=store
         self.database_path=Path(store.path).resolve()
         self.engine_factory=engine_factory or _engine_factory
+        self._auto_detect=engine_factory is None
+        self._detected_once=False
+        self._onboarding_dialog=None
+        self._connection_status=None
+        self._open_onboarding_pending=False
         self._thread=None
         self._deadline_timer=QTimer(self)
         self._deadline_timer.setSingleShot(True)
@@ -140,6 +158,13 @@ class CompanionDialog(QDialog):
         header.addLayout(headings,1)
         self.new_chat_button=QPushButton('Новый разговор');self.new_chat_button.clicked.connect(self.new_conversation);header.addWidget(self.new_chat_button)
         layout.addLayout(header)
+        connection=QHBoxLayout()
+        self.connection_banner=QLabel('Локальный ИИ-помощник ещё не проверен. Поиск доступен сразу.')
+        self.connection_banner.setTextFormat(Qt.PlainText);self.connection_banner.setWordWrap(True)
+        self.connection_banner.setStyleSheet('background:#fff0dc;border-radius:8px;padding:8px;color:#86520c;')
+        connection.addWidget(self.connection_banner,1)
+        self.setup_button=QPushButton('Настроить');self.setup_button.clicked.connect(self.show_onboarding);connection.addWidget(self.setup_button)
+        layout.addLayout(connection)
         controls=QHBoxLayout()
         controls.addWidget(QLabel('Где искать'))
         self.workspace=QComboBox()
@@ -161,6 +186,7 @@ class CompanionDialog(QDialog):
         self.include_trash=QCheckBox('Искать в корзине');self.include_trash.setChecked(False)
         options.addWidget(self.include_archive);options.addWidget(self.include_trash);options.addStretch();layout.addLayout(options)
         self.fuzzy_identifiers=QCheckBox('Искать похожие номера при опечатке')
+        self.fuzzy_identifiers.setChecked(True)
         self.fuzzy_identifiers.setToolTip('Только если точных совпадений нет. Похожие номера будут показаны отдельно, без утверждения, что это нужная запись.')
         layout.addWidget(self.fuzzy_identifiers)
         self.chat=QPlainTextEdit();self.chat.setReadOnly(True);self.chat.setAccessibleName('Разговор с помощником');layout.addWidget(self.chat,1)
@@ -191,7 +217,65 @@ class CompanionDialog(QDialog):
         self._welcome()
 
     @property
-    def busy(self):return self._thread is not None
+    def busy(self):return self._thread is not None or bool(self._onboarding_dialog and self._onboarding_dialog.busy)
+
+    def showEvent(self,event):
+        super().showEvent(event)
+        if self._auto_detect and not self._detected_once:
+            self._detected_once=True
+            QTimer.singleShot(0,self._detect_first_open)
+
+    def _detect_first_open(self):
+        if self._closing:return
+        if not self.isVisible():self._detected_once=False;return
+        if self.busy:
+            QTimer.singleShot(100,self._detect_first_open);return
+        self._start(kind='detect')
+
+    def _setup_worker(self,kind,config,path=''):
+        return _RequestThread(1,self.engine_factory,self.database_path,path,self.workspace_id,'discuss',[],
+                              config,True,False,threading.Event(),kind)
+
+    def _connection_changed(self,response):
+        self._connection_status=dict(response)
+        if response.get('model_ready'):
+            message='Локальный ИИ подключён · '+self.config['model']+' · NDJSON stream=true'
+            latency=response.get('latency_ms')
+            if isinstance(latency,(int,float)):message+=' · проверка '+str(round(latency))+' мс'
+            if not response.get('embedding_ready'):message+=' · поиск по смыслу ещё не настроен'
+            if self.config.get('provider')=='search':message='Локальный ИИ найден. Сейчас выбран поиск без модели; нажмите «Настроить», чтобы включить разговор.'
+        else:message='Локальный ИИ-помощник не подключён. Поиск и создание заметок доступны без модели.'
+        self.connection_banner.setText(message)
+        if self._settings_dialog:self._settings_dialog.result_label.setText(message)
+
+    def show_onboarding(self):
+        if self.busy:return
+        if self._onboarding_dialog and self._onboarding_dialog.isVisible():
+            self._onboarding_dialog.raise_();return
+        from app.ui.ai_onboarding import AIOnboardingWizard
+        wizard=AIOnboardingWizard(self.config,self,self._setup_worker,self._connection_status)
+        self._onboarding_dialog=wizard
+        wizard.configured.connect(self._onboarding_configured)
+        wizard.skipped.connect(self._onboarding_skipped)
+        wizard.finished.connect(self._setup_closed)
+        wizard.show()
+
+    def _setup_closed(self,*args):
+        if self._closing and self._thread is None:
+            self.close();_ACTIVE_DIALOGS.discard(self);self.shutdown_ready.emit()
+
+    def _onboarding_configured(self,config):
+        try:self._save_config(config)
+        except (OSError,ValueError) as error:
+            self.status.setText('Не удалось сохранить настройки: '+str(error));return
+        if self._onboarding_dialog:self._connection_changed(self._onboarding_dialog._status)
+        self.status.setText('ИИ подключён. Напишите «Привет» или попросите помочь с заметкой.')
+        self.input.setFocus()
+
+    def _onboarding_skipped(self):
+        try:self._save_config({**self.config,'provider':'search','onboarding_seen':True})
+        except (OSError,ValueError) as error:self.status.setText('Не удалось сохранить выбор: '+str(error));return
+        self.status.setText('Поиск доступен без модели. Подключить ИИ можно кнопкой «Настроить».')
 
     @property
     def workspace_id(self):return self.workspace.currentData()
@@ -232,6 +316,7 @@ class CompanionDialog(QDialog):
                                'Поиск, простые подсказки и создание заметок доступны без модели. Для свободного разговора нужен локальный ИИ-комплект: «Подключение ИИ». Ваши заметки остаются на компьютере.')
         self.scope_hint.setText('Использую только пространство «'+self.workspace.currentText()+'». Личные и рабочие заметки не смешиваются.')
         self.status.setText('Готов к вопросу · поиск доступен сразу · ИИ ещё не проверен')
+        if self._connection_status:self.status.setText(self.connection_banner.text())
 
     def _mode_changed(self,*args):
         descriptions={'memory':'Найду записи и покажу источники. Чем конкретнее вопрос, тем легче вспомнить нужное.',
@@ -323,11 +408,27 @@ class CompanionDialog(QDialog):
         self.cancel_button.setEnabled(False)
 
     def _completed(self,identity,response,error,kind):
+        # Streaming transport never exposes model tokens. The complete grounded
+        # packet is queued as one atomic UI batch; cancellation invalidates it.
+        self._pending_render = True
+        def render():
+            try:
+                self._render_completed(identity,response,error,kind)
+            finally:
+                self._pending_render = False
+        QTimer.singleShot(40, render)
+
+    def _render_completed(self,identity,response,error,kind):
         if identity!=self._request_id or self._closing:return
         if error:
             self.status.setText('Не удалось получить ответ. Попробуйте ещё раз или выберите поиск в заметках.')
             self.chat.appendPlainText('\nПомощник\nЗапрос не выполнен. Ответ и источники не были сохранены в контексте разговора.')
             if self._settings_dialog:self._settings_dialog.result_label.setText(self.status.text())
+            return
+        if kind=='detect':
+            self._connection_changed(response)
+            self.status.setText(self.connection_banner.text())
+            self._open_onboarding_pending=not response.get('model_ready') and not self.config.get('onboarding_seen')
             return
         if kind=='status':
             if response.get('message') or response.get('text'):
@@ -340,6 +441,25 @@ class CompanionDialog(QDialog):
         if any(isinstance(source,dict) and source.get('workspace_id',self.workspace_id)!=self.workspace_id for source in response.get('sources') or []):
             self.status.setText('Ответ отклонён: источник относится к другому пространству.')
             return
+        # Recheck the current database after the UI batching delay. A source
+        # may have moved, changed, or been deleted since worker validation.
+        memory=None
+        try:
+            response_sources=response.get('sources') or []
+            if response_sources:
+                memory=MemoryStore(self.database_path)
+                for source in response_sources:
+                    if (not isinstance(source,dict) or type(source.get('note_id')) is not int
+                            or type(source.get('revision')) is not int
+                            or memory.resolve(source['note_id'],source['revision'],workspace_id=self.workspace_id,
+                                include_archive=self.include_archive.isChecked(),include_trash=self.include_trash.isChecked()) is None):
+                        self.status.setText('Источник изменился или больше не доступен. Задайте вопрос ещё раз.')
+                        return
+        except (sqlite3.Error,ValueError,OSError):
+            self.status.setText('Не удалось проверить источники. Ответ не показан; повторите вопрос.')
+            return
+        finally:
+            if memory:memory.close()
         text=str(response.get('text') or '')
         self.chat.appendPlainText('\nПомощник\n'+text)
         sources=[{'note_id':source['note_id'],'revision':source.get('revision')} for source in response.get('sources') or [] if isinstance(source,dict) and 'note_id' in source]
@@ -372,12 +492,17 @@ class CompanionDialog(QDialog):
             if memory:memory.close()
 
     def cancel(self):
+        if self._onboarding_dialog and self._onboarding_dialog.busy:
+            self._onboarding_dialog.cancel();return
         if not self.busy:return
         self._request_id+=1
         if self._cancel_event:self._cancel_event.set()
         self.status.setText('Запрос отменён. Завершаю текущую операцию…');self.cancel_button.setEnabled(False)
 
     def _finished(self,thread):
+        if getattr(self,'_pending_render',False):
+            QTimer.singleShot(10,lambda:self._finished(thread))
+            return
         self._deadline_timer.stop()
         if self._thread is thread:self._thread=None;self._cancel_event=None
         thread.deleteLater()
@@ -385,10 +510,19 @@ class CompanionDialog(QDialog):
         if self._closing:
             self.close();self.shutdown_ready.emit()
         _ACTIVE_DIALOGS.discard(self)
+        if self._open_onboarding_pending and not self._closing:
+            self._open_onboarding_pending=False
+            QTimer.singleShot(0,self.show_onboarding)
 
     def request_close(self):self.close()
 
     def closeEvent(self,event):
+        if self._onboarding_dialog and self._onboarding_dialog.busy:
+            self._closing=True;_ACTIVE_DIALOGS.add(self)
+            self._onboarding_dialog.close()
+            # A setup worker owns its event loop until cancellation completes.
+            self.hide();event.ignore();return
+        if self._onboarding_dialog and self._onboarding_dialog.isVisible():self._onboarding_dialog.close()
         if self.busy:
             self._closing=True;self._request_id+=1
             if self._cancel_event:self._cancel_event.set()
@@ -405,8 +539,9 @@ class CompanionDialog(QDialog):
         outer=QVBoxLayout(dialog)
         heading=QLabel('Настройка локального ИИ');heading.setStyleSheet('font-size:18px;font-weight:600;');outer.addWidget(heading)
         explanation=QLabel('Поиск по заметкам работает сразу, даже без ИИ-комплекта. Для разговора и поиска по смыслу нужен отдельный готовый комплект моделей. '
-                           'Распакуйте его в папку приложения, чтобы рядом с OrangeNotes.exe появилась папка runtime с подпапками ollama и models. '
-                           'Затем нажмите «Проверить ИИ-комплект». Настройка ничего не отправляет в облако.');explanation.setTextFormat(Qt.PlainText);explanation.setWordWrap(True);outer.addWidget(explanation)
+                           'Подключите папку с распакованным комплектом или скачайте модели через мастер настройки. '
+                           'Ваши заметки не отправляются в облако.');explanation.setTextFormat(Qt.PlainText);explanation.setWordWrap(True);outer.addWidget(explanation)
+        setup=QPushButton('Открыть мастер настройки');setup.clicked.connect(lambda:(dialog.close(),self.show_onboarding()));outer.addWidget(setup)
         form=QFormLayout();provider=QComboBox();provider.addItem('Локальный ИИ','ollama');provider.addItem('Поиск в заметках','search');provider.setCurrentIndex(max(0,provider.findData(self.config['provider'])))
         model=QLineEdit(self.config['model']);address=QLineEdit(self.config['base_url'])
         form.addRow('Как отвечать',provider);outer.addLayout(form)
@@ -415,6 +550,7 @@ class CompanionDialog(QDialog):
         advanced_form.addRow('Модель на компьютере',model);advanced_form.addRow('Локальный адрес',address)
         advanced.hide();advanced_toggle.toggled.connect(advanced.setVisible);outer.addWidget(advanced)
         dialog.result_label=QLabel('Комплект ещё не проверен. Модель разговора: '+self.config['model']+'. Модель памяти: '+self.config['embedding_model']+'.');dialog.result_label.setTextFormat(Qt.PlainText);dialog.result_label.setWordWrap(True);outer.addWidget(dialog.result_label)
+        if self._connection_status:dialog.result_label.setText(self.connection_banner.text())
         buttons=QHBoxLayout();probe=QPushButton('Проверить ИИ-комплект');save=QPushButton('Сохранить');close=QPushButton('Закрыть');buttons.addWidget(probe);buttons.addStretch();buttons.addWidget(save);buttons.addWidget(close);outer.addLayout(buttons)
         def fields():return validate_config({**self.config,'provider':provider.currentData(),'model':model.text(),'base_url':address.text()})
         def apply():

@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QCoreApplication, QEvent
 from PySide6.QtGui import QKeySequence
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QSystemTrayIcon
@@ -26,9 +26,13 @@ class DesktopTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = Store(Path(self.tmp.name) / 'desktop.sqlite3')
         self.window = Window(self.store)
+        # Clean up even if native activation fails during setUp.
+        self.addCleanup(self.cleanup_window)
         self.window.clock.stop()
         self.window.show()
+        self.window.raise_()
         self.window.activateWindow()
+        self.window.windowHandle().requestActivate()
         # Window-scoped QShortcuts dispatch only after native activation completes.
         # A fixed delay races focus restoration from dialogs in earlier tests.
         self.assertTrue(QTest.qWaitForWindowActive(self.window, 3000))
@@ -37,7 +41,7 @@ class DesktopTests(unittest.TestCase):
         self.window.body.setPlainText('Текст, который нельзя потерять.')
         self.window.save()
 
-    def tearDown(self):
+    def cleanup_window(self):
         w = self.window
         if w.panel:
             w.panel.hide()
@@ -46,6 +50,7 @@ class DesktopTests(unittest.TestCase):
         w.tray.hide()
         w.close()
         w.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
         self.store.db.close()
         self.tmp.cleanup()

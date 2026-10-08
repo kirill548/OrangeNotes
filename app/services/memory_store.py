@@ -31,6 +31,7 @@ def _opaque_identifiers(value):
     identifiers = {token for token in tokens if
                    (len(re.findall(r'\d', token)) >= 4 and len(re.findall(r'[a-zа-я]', token)) >= 3)
                    or (token.isdigit() and len(token) >= 6)}
+    identifiers.update(re.findall(r'(?<![\w])(?:[a-zа-я]{1,6}-?\d{2,12})(?![\w])', _normal(value)))
     # Preserve exact phone matching across spaces, parentheses and separators.
     for phone in re.findall(r'(?<![\w])\+?\d[\d ()-]{4,}\d(?![\w])', value):
         digits = ''.join(re.findall(r'\d', phone))
@@ -40,7 +41,7 @@ def _opaque_identifiers(value):
 
 
 def _stem(word):
-    for ending in ('иями','ями','ами','ого','его','ому','ему','ая','яя','ый','ий','ой','ов','ев','ах','ях','ы','и','а','я','у','ю','е','о'):
+    for ending in ('иями','ями','ами','ого','его','ому','ему','ая','яя','ый','ий','ей','ой','ов','ев','ах','ях','ы','и','а','я','у','ю','е','о'):
         if word.endswith(ending) and len(word)-len(ending)>=3:
             return word[:-len(ending)]
     return word
@@ -62,6 +63,9 @@ _SYNONYMS = [set(_stem(word) for word in _words(group)) for group in (
 
 class MemoryStore:
     retrieval_mode = 'keyword_fallback'
+    CHUNK_SIZE = 500
+    CHUNK_OVERLAP = 100
+    INDEX_FORMAT = '500-overlap100-v1'
 
     @staticmethod
     def _dense_threshold(model):
@@ -111,6 +115,10 @@ class MemoryStore:
                 position INTEGER NOT NULL,workspace_id INTEGER NOT NULL REFERENCES workspaces(id),
                 model TEXT NOT NULL,text_hash TEXT NOT NULL,vector TEXT NOT NULL,
                 PRIMARY KEY(version_id,position,model))''')
+            self.db.execute('''CREATE TABLE IF NOT EXISTS memory_index_state(
+                note_id INTEGER PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+                version_id INTEGER NOT NULL REFERENCES note_versions(id) ON DELETE CASCADE,
+                format TEXT NOT NULL)''')
             try:
                 self.db.execute('CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(chunk,note_id UNINDEXED,version_id UNINDEXED,position UNINDEXED)')
                 self.fts_available=True
@@ -138,15 +146,17 @@ class MemoryStore:
             if self.fts_available:
                 self.db.execute('DELETE FROM memory_fts WHERE note_id=?',(note_id,))
 
-    def sync(self,workspace_id=1,include_trash=False):
+    def sync(self,workspace_id=1,include_trash=False,_snapshots=None):
         workspace_id=self._workspace(workspace_id)
         changed=0
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
-            rows=self.store.rows('SELECT id,title,body,workspace_id FROM notes WHERE workspace_id=? AND (? OR deleted=0)',(workspace_id,int(include_trash)))
+            rows=self.store.rows('SELECT id,title,body,workspace_id,updated_at,deleted,archived FROM notes WHERE workspace_id=? AND (? OR deleted=0)',(workspace_id,int(include_trash)))
             for note in rows:
                 digest=_hash(note['title'],note['body'])
-                versions=self.store.rows('SELECT * FROM note_versions WHERE note_id=? ORDER BY revision DESC LIMIT 1',(note['id'],))
+                if _snapshots is not None:
+                    _snapshots[note['id']]=dict(note,content_hash=digest)
+                versions=self.store.rows('SELECT id,revision,content_hash,workspace_id FROM note_versions WHERE note_id=? ORDER BY revision DESC LIMIT 1',(note['id'],))
                 previous=versions[0] if versions else None
                 if not previous or previous['content_hash']!=digest or previous['workspace_id']!=workspace_id:
                     revision=previous['revision']+1 if previous else 1
@@ -155,15 +165,20 @@ class MemoryStore:
                     changed+=1
                 else:
                     version_id=previous['id']
+                indexed=self.store.rows('SELECT version_id,format FROM memory_index_state WHERE note_id=?',(note['id'],))
+                if indexed and indexed[0]['version_id']==version_id and indexed[0]['format']==self.INDEX_FORMAT and self.store.rows('SELECT 1 FROM memory_chunks WHERE note_id=? LIMIT 1',(note['id'],)):
+                    continue
+                self.db.execute('DELETE FROM memory_embeddings WHERE note_id=?',(note['id'],))
                 self.db.execute('DELETE FROM memory_chunks WHERE note_id=?',(note['id'],))
                 if self.fts_available:
                     self.db.execute('DELETE FROM memory_fts WHERE note_id=?',(note['id'],))
                 text=' '.join(plain_body(note['body']).split())
-                for position in range(0,max(1,len(text)),500):
-                    chunk=text[position:position+500]
+                for position in range(0,max(1,len(text)),self.CHUNK_SIZE-self.CHUNK_OVERLAP):
+                    chunk=text[position:position+self.CHUNK_SIZE]
                     self.db.execute('INSERT INTO memory_chunks VALUES(?,?,?,?)',(note['id'],version_id,position,chunk))
                     if self.fts_available:
                         self.db.execute('INSERT INTO memory_fts(chunk,note_id,version_id,position) VALUES(?,?,?,?)',(chunk,note['id'],version_id,position))
+                self.db.execute('INSERT OR REPLACE INTO memory_index_state VALUES(?,?,?)',(note['id'],version_id,self.INDEX_FORMAT))
             # Physical deletion cascades relational rows; FTS has no foreign keys.
             if self.fts_available:
                 self.db.execute('DELETE FROM memory_fts WHERE note_id NOT IN (SELECT id FROM notes)')
@@ -195,6 +210,13 @@ class MemoryStore:
             score+=100
         return score
 
+    @staticmethod
+    def _literal_score(query,title,chunk):
+        terms={_stem(word) for word in _words(query) if word not in _STOP}
+        title_words={_stem(word) for word in _words(title)}
+        chunk_words={_stem(word) for word in _words(chunk)}
+        return sum(6*(term in title_words)+3*(term in chunk_words) for term in terms)
+
     def search(self,query,workspace_id=1,include_archive=True,include_trash=False,limit=8,
                embedding_provider=None,embedding_model='qwen3-embedding:0.6b',fuzzy_identifiers=False):
         workspace_id=self._workspace(workspace_id)
@@ -203,28 +225,42 @@ class MemoryStore:
         limit=max(0,min(100,int(limit)))
         if not limit:
             return []
-        self.sync(workspace_id,include_trash=include_trash)
+        note_snapshots={}
+        self.sync(workspace_id,include_trash=include_trash,_snapshots=note_snapshots)
         # Scope and visibility are applied in SQL before scoring or returning data.
-        rows=self.store.rows('''SELECT n.id,n.title,n.body,n.workspace_id,n.updated_at,n.deleted,n.archived,
+        rows=self.store.rows('''SELECT n.id,n.title,n.workspace_id,n.updated_at,n.deleted,n.archived,
                 c.chunk,c.position,v.id AS version_id,v.revision,v.content_hash
             FROM notes n JOIN memory_chunks c ON c.note_id=n.id JOIN note_versions v ON v.id=c.version_id
             WHERE n.workspace_id=? AND (? OR n.archived=0) AND (? OR n.deleted=0)
                 AND v.workspace_id=n.workspace_id''',(workspace_id,int(include_archive),int(include_trash)))
-        rows=[row for row in rows if _hash(row['title'],row['body'])==row['content_hash']]
+        hashes={identity:note['content_hash'] for identity,note in note_snapshots.items()}
+        rows=[row for row in rows if hashes.get(row['id'])==row['content_hash']]
+        requested_identifiers = _opaque_identifiers(query)
+        literal=[row for row in rows if self._literal_score(query,row['title'],row['chunk'])>0
+                 and (not requested_identifiers or requested_identifiers.intersection(
+                     _opaque_identifiers(row['title']+' '+row['chunk'])))]
+        stage='literal' if literal else 'fallback'
+        if literal: rows=literal
         provider=self.embedding_provider if embedding_provider is None else embedding_provider
-        dense=self._dense_scores(query,rows,provider,embedding_model) if provider else {}
+        dense=self._dense_scores(query,rows,provider,embedding_model) if provider and not literal and not requested_identifiers else {}
         dense_threshold=self._dense_threshold(embedding_model)
         found={}
         fuzzy_found={}
-        requested_identifiers = _opaque_identifiers(query)
+        # Compare with immutable versions inside SQLite after model I/O. The full
+        # body was returned only once by sync; raw SQL edits (even with an unchanged
+        # updated_at) and workspace moves are still detected without re-fetching it.
+        current_notes={row['id']:row for row in self.store.rows('''
+            SELECT n.id,v.content_hash FROM notes n
+            JOIN memory_index_state i ON i.note_id=n.id
+            JOIN note_versions v ON v.id=i.version_id
+            WHERE n.workspace_id=? AND v.workspace_id=n.workspace_id
+                AND (? OR n.deleted=0) AND (? OR n.archived=0)
+                AND n.title=v.title AND n.body=v.body''',
+            (workspace_id,int(include_trash),int(include_archive)))}
+        bodies={}
         for row in rows:
-            current=self.store.rows('SELECT title,body,workspace_id,deleted,archived FROM notes WHERE id=?',(row['id'],))
-            if not current or current[0]['workspace_id']!=workspace_id or _hash(current[0]['title'],current[0]['body'])!=row['content_hash']:
-                continue
-            if (current[0]['deleted'] and not include_trash) or (current[0]['archived'] and not include_archive):
-                continue
-            # A concurrent edit after sync must never yield an unverified citation.
-            if _hash(row['title'],row['body'])!=row['content_hash']:
+            current=current_notes.get(row['id'])
+            if current is None or current['content_hash']!=row['content_hash']:
                 continue
             score=self._score(query,row['title'],row['chunk'])
             similarity=dense.get((row['version_id'],row['position']),0)
@@ -241,12 +277,14 @@ class MemoryStore:
                 continue
             if not approximate and score<=0 and similarity<dense_threshold:
                 continue
-            result={'id':row['id'],'title':row['title'] or 'Без названия','body':' '.join(plain_body(row['body']).split()),
-                    'chunk':row['chunk'],'revision':row['revision'],'workspace_id':row['workspace_id'],
+            result={'id':row['id'],'title':row['title'] or 'Без названия','body':bodies.setdefault(row['id'],None),
+                    'search_stage':stage,'chunk':row['chunk'],'revision':row['revision'],'workspace_id':row['workspace_id'],
                     'state':'trash' if row['deleted'] else 'archive' if row['archived'] else 'active',
                     'updated_at':row['updated_at'],'score':round(score,4),'offset':row['position'],
-                    'version_id':row['version_id'],'retrieval':'hybrid' if provider else self.retrieval_mode,
+                    'version_id':row['version_id'],'retrieval':'hybrid' if provider and not literal else self.retrieval_mode,
                     'dense_similarity':similarity}
+            if bodies[row['id']] is None: bodies[row['id']]=' '.join(plain_body(note_snapshots[row['id']]['body']).split())
+            result['body']=bodies[row['id']]
             if approximate:
                 result.update(retrieval='fuzzy_identifier',identifier_matches=approximate)
                 previous=fuzzy_found.get(row['id'])
@@ -259,7 +297,8 @@ class MemoryStore:
                 result['_strength']=strength
                 found[row['id']]=result
         if not found and fuzzy_identifiers and fuzzy_found:
-            return sorted(fuzzy_found.values(),key=lambda r:(r['identifier_matches'][0]['distance'],r['id']))[:limit]
+            selected=sorted(fuzzy_found.values(),key=lambda r:(r['identifier_matches'][0]['distance'],r['id']))[:limit]
+            return self._merge_neighbors(selected)
         results=list(found.values())
         if provider:
             lexical=sorted((row for row in results if row['score']>0),key=lambda row:row['score'],reverse=True)
@@ -273,7 +312,19 @@ class MemoryStore:
                 row['score']=ranks[row['id']]
         for row in results:
             row.pop('_strength',None)
-        return sorted(results,key=lambda row:(row['score'],row['updated_at'],row['id']),reverse=True)[:limit]
+        selected=sorted(results,key=lambda row:(row['score'],row['updated_at'],row['id']),reverse=True)[:limit]
+        return self._merge_neighbors(selected)
+
+    def _merge_neighbors(self,results):
+        # Excerpts remain exact slices of the verified normalized body. Adjacent
+        # blocks add context without repeating their overlapping characters.
+        stride=self.CHUNK_SIZE-self.CHUNK_OVERLAP
+        for result in results:
+            start=max(0,result['offset']-stride)
+            end=min(len(result['body']),result['offset']+self.CHUNK_SIZE+stride)
+            result['chunk']=result['body'][start:end]
+            result['offset']=start
+        return results
 
     @staticmethod
     def _embed(provider,texts,model):
@@ -313,8 +364,11 @@ class MemoryStore:
                 for (row,text,digest),vector in zip(batch,embedded):
                     # Recheck scope/content after model I/O. Moved/deleted or changed
                     # notes must not be written into the former workspace's cache.
-                    active=self.store.rows('SELECT title,body,workspace_id,deleted FROM notes WHERE id=?',(row['id'],))
-                    if not active or active[0]['workspace_id']!=row['workspace_id'] or _hash(active[0]['title'],active[0]['body'])!=row['content_hash']:
+                    active=self.store.rows('''SELECT 1 FROM notes n JOIN note_versions v ON v.id=?
+                        WHERE n.id=? AND n.workspace_id=? AND v.workspace_id=n.workspace_id
+                            AND n.title=v.title AND n.body=v.body''',
+                        (row['version_id'],row['id'],row['workspace_id']))
+                    if not active:
                         continue
                     self.db.execute('INSERT OR REPLACE INTO memory_embeddings VALUES(?,?,?,?,?,?,?)',
                                     (row['id'],row['version_id'],row['position'],row['workspace_id'],model,digest,json.dumps(vector)))
