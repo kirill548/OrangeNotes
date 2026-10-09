@@ -115,6 +115,9 @@ class QtStreamContracts(unittest.TestCase):
             self.__class__.mode='normal';self.__class__.slow=False
 
     def test_real_request_thread_qt_transport_cancel_keeps_chat_history_clean(self):
+        from unittest.mock import patch
+        telemetry=patch('app.services.local_runtime.resource_advisory',return_value={'warning':None})
+        telemetry.start();self.addCleanup(telemetry.stop)
         import tempfile
         from pathlib import Path
         from PySide6.QtCore import QTimer,QCoreApplication,QEvent

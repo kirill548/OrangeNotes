@@ -310,6 +310,9 @@ class SlowServerQuality(unittest.TestCase):
         with self.assertRaises(LocalAICancelled): client._request('/slow',cancel_event=cancel)
 
     def test_actual_dialog_cancel_button_keeps_gui_heartbeat(self):
+        # Resource discovery is external to the controlled slow-engine scenario.
+        telemetry=patch('app.services.local_runtime.resource_advisory',return_value={'warning':None})
+        telemetry.start();self.addCleanup(telemetry.stop)
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QTimer,Qt,QCoreApplication,QEvent
         from PySide6.QtTest import QTest
