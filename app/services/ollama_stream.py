@@ -1,6 +1,7 @@
 """Bounded NDJSON reception. Model text remains private until grounding completes."""
 import json
 import time
+import socket
 from app.services.local_ai import LocalAIError
 
 MAX_RESPONSE = 4 * 1024 * 1024
@@ -8,14 +9,32 @@ MAX_LINE = 256 * 1024
 
 
 class NDJSONAnswer:
-    def __init__(self):
+    def __init__(self, on_content=None):
+        self.on_content = on_content
         self.pending = bytearray()
         self.size = 0
         self.parts = []
         self.done = False
         self.reason = None
+        self.aborted = False
+
+    def abort(self):
+        """Discard private model text on cancellation, truncation or protocol error."""
+        self.pending.clear()
+        self.parts.clear()
+        self.aborted = True
+
 
     def feed(self, data):
+        if self.aborted:
+            raise LocalAIError("Поток локальной модели уже остановлен.")
+        try:
+            self._feed(data)
+        except Exception:
+            self.abort()
+            raise
+
+    def _feed(self, data):
         self.size += len(data)
         if self.size > MAX_RESPONSE:
             raise LocalAIError('Ответ локальной модели слишком большой.')
@@ -46,18 +65,31 @@ class NDJSONAnswer:
             content = message.get('content', '')
             if not isinstance(content, str) or type(item.get('done', False)) is not bool:
                 raise ValueError()
-            self.parts.append(content)
+            if content:
+                self.parts.append(content)
+                # Private worker callback: never connect raw model text to GUI signals.
+                if self.on_content is not None:
+                    self.on_content(content)
             self.done = item.get('done', False)
             self.reason = item.get('done_reason', self.reason)
         except (ValueError, UnicodeError) as error:
             raise LocalAIError('Локальный сервер вернул некорректный поток.') from error
 
     def finish(self):
-        if self.pending.strip():
-            self._line(self.pending)
-        if not self.done:
-            raise LocalAIError('Поток локальной модели оборвался до завершения ответа.')
-        return {'message': {'content': ''.join(self.parts)}, 'done_reason': self.reason}
+        if self.aborted:
+            raise LocalAIError('Поток локальной модели уже остановлен.')
+        try:
+            if self.pending.strip():
+                self._line(self.pending)
+            if not self.done:
+                raise LocalAIError('Поток локальной модели оборвался до завершения ответа.')
+            result = {'message': {'content': ''.join(self.parts)}, 'done_reason': self.reason}
+            self.pending.clear()
+            self.parts.clear()
+            return result
+        except Exception:
+            self.abort()
+            raise
 
 
 def receive_stream(client, payload, cancel_event):
@@ -67,7 +99,7 @@ def receive_stream(client, payload, cancel_event):
     # Headless command-line benchmarks have no Qt application/event dispatcher.
     from urllib.request import Request
     deadline = min(client.deadline or time.monotonic()+30, time.monotonic()+client.timeout)
-    parser = NDJSONAnswer()
+    parser = NDJSONAnswer(getattr(client, "on_stream_content", None))
     request = Request(client.base_url+'/api/chat', data=json.dumps(payload).encode('utf-8'),
                       headers={'Content-Type': 'application/json'}, method='POST')
     try:
@@ -87,8 +119,14 @@ def receive_stream(client, payload, cancel_event):
         client._check_cancel(cancel_event)
         return parser.finish()
     except LocalAIError:
+        parser.abort()
         raise
+    except (TimeoutError, socket.timeout) as error:
+        parser.abort()
+        client._check_cancel(cancel_event)
+        raise LocalAIError("Локальный помощник отвечает слишком долго. Ответ не завершён.") from error
     except Exception as error:
+        parser.abort()
         client._check_cancel(cancel_event)
         raise LocalAIError('Локальный помощник недоступен или отвечает слишком долго.') from error
 
@@ -109,7 +147,7 @@ def _receive_qt(client, payload, cancel_event):
     timer = QTimer()
     timer.setInterval(10)
     deadline = min(client.deadline or time.monotonic()+30, time.monotonic()+client.timeout)
-    parser = NDJSONAnswer()
+    parser = NDJSONAnswer(getattr(client, "on_stream_content", None))
     failures = []
 
     def consume():
@@ -122,8 +160,10 @@ def _receive_qt(client, payload, cancel_event):
                 if time.monotonic() >= deadline:
                     raise LocalAIError('Локальный помощник отвечает слишком долго.')
                 parser.feed(bytes(reply.read(65536)))
-        except LocalAIError as error:
-            failures.append(error)
+        except Exception as error:
+            parser.abort()
+            failures.append(error if isinstance(error, LocalAIError) else
+                            LocalAIError("Ошибка проверки потока локальной модели. Ответ остановлен."))
             reply.abort()
             loop.quit()
 
@@ -143,6 +183,7 @@ def _receive_qt(client, payload, cancel_event):
             raise LocalAIError('Локальный сервер вернул ошибку потока: '+str(status or reply.errorString()))
         return parser.finish()
     finally:
+        parser.abort()
         reply.close()
         # Drain deletion in the owning worker while its dispatcher still exists.
         # Leaving the network manager to QThread teardown races Cocoa shutdown.

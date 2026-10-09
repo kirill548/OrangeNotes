@@ -24,6 +24,7 @@ def _normal(text):return ' '.join(str(text).split()).casefold()
 
 
 class CompanionEngine:
+    supports_stream_segments = True
     def __init__(self,database_path,client_factory=None):
         self.path=database_path
         self.client_factory=client_factory or OllamaClient
@@ -45,7 +46,7 @@ class CompanionEngine:
                 'latency_ms':round((time.perf_counter()-started)*1000,3),'transport':'NDJSON stream=true'}
 
     def ask(self,query,workspace_id=1,mode='memory',include_archive=True,include_trash=False,
-            history=None,config=None,cancel_event=None):
+            history=None,config=None,cancel_event=None,on_segment=None):
         query=str(query).strip()
         if not query or len(query)>12000:
             raise ValueError('Введите вопрос длиной до 12000 символов.')
@@ -117,11 +118,28 @@ class CompanionEngine:
             sources=sources[:len(permitted)]
             packet=permitted
             chat=client.chat_stream if callable(getattr(type(client),'chat_stream',None)) else client.chat
-            raw=chat(messages,cancel_event=cancel_event,json_mode=json_mode)
+            from app.services.stream_validator import StreamSegmentValidator
+            def check_stream_revision():
+                if cancel_event.is_set():raise LocalAICancelled('Запрос отменён.')
+                for source in sources:
+                    if memory.resolve(source['note_id'],source['revision'],workspace_id=workspace_id,
+                                      include_archive=include_archive,include_trash=include_trash) is None:
+                        raise LocalAIError('Источники изменились во время ответа. Повторите вопрос.')
+            segment_validator=StreamSegmentValidator(sources=sources,revision_check=check_stream_revision)
+            def stream_content(content):
+                for fragment in segment_validator.feed(content):
+                    if on_segment is not None:on_segment({'kind':'segment','text':fragment,'sources':sources})
+            client.on_stream_content=stream_content if on_segment is not None else None
+            try:
+                raw=chat(messages,cancel_event=cancel_event,json_mode=json_mode)
+            finally:
+                client.on_stream_content=None
+                segment_validator.abort()
             try:
                 answer=self._validate(raw,sources,strict_memory=mode=='memory',allow_inference=bool(re.search(r'связ|сопостав|сравн|общего',query,re.I)))
                 if json_mode=='dialogue':self._validate_dialogue_completeness(answer,query)
             except LocalAIError:
+                if on_segment is not None:on_segment({'kind':'reset'})
                 # One bounded repair, using the same authorized source packet.
                 messages.extend([{'role':'assistant','content':raw[:12000]},
                                  {'role':'user','content':json.dumps({'mode':mode,'question':query,'sources':packet,'repair':('Ответ неполный или не прошёл проверку. Верни JSON segments с kind suggestion/question, пустыми source_ids и quotes. Напиши сам полный полезный текст. Если нужен список, перечисли минимум три конкретных пункта в text с переносами строк; не ограничивайся вступлением.' if json_mode=='dialogue' else 'Ответ не прошёл проверку. Исправь JSON: quotes должны дословно содержаться в тексте указанных sources; source_ids — только их номера. Удали неподтверждённые факты. Для каждого fact нужны реальные цитаты. Верни только исправленный JSON.')},ensure_ascii=False)}])
@@ -147,6 +165,7 @@ class CompanionEngine:
                 result.update(text='Точного совпадения нет. Найдены только похожие идентификаторы: проверьте их вручную.\n\n'+result['text'],status='fuzzy_suggestions',engine_label='Похожие идентификаторы · проверьте')
             return result
         finally:
+            if on_segment is not None:on_segment({'kind':'reset'})
             memory.close()
 
     @staticmethod

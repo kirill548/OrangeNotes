@@ -8,7 +8,7 @@ import tempfile
 import threading
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import Qt, QThread, Signal, QSize, QDateTime, QTimer, Slot
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QDateTime, QTimer, Slot, QPropertyAnimation, QEasingCurve
 from app.utils.shortcuts import shortcut, shortcut_label
 from PySide6.QtGui import QShortcut, QKeySequence
 from PySide6.QtWidgets import (QCheckBox,QComboBox,QDialog,QDateTimeEdit,QFormLayout,QHBoxLayout,QLabel,QLineEdit,QMessageBox,QPlainTextEdit,QPushButton,QScrollArea,QVBoxLayout,QWidget)
@@ -86,9 +86,12 @@ class _RequestThread(QThread):
             if self.kind=='status':
                 response=engine.status(self.config)
             elif self.kind=='ask':
+                stream_options={}
+                if getattr(engine,'supports_stream_segments',False):
+                    stream_options['on_segment']=lambda packet:self.progress.emit(self.request_id,packet)
                 response=engine.ask(self.query,self.workspace_id,mode=self.mode,
                                     include_archive=self.include_archive,include_trash=self.include_trash,
-                                    history=self.history,config=self.config,cancel_event=self.cancel_event)
+                                    history=self.history,config=self.config,cancel_event=self.cancel_event,**stream_options)
             if not isinstance(response,dict):raise ValueError('Помощник вернул непонятный ответ.')
             self.completed.emit(self.request_id,response,None)
         except Exception as error:
@@ -124,6 +127,8 @@ class CompanionDialog(QDialog):
         self._request_id=0
         self._history=[]
         self._pending_query=''
+        self._stream_baseline=None
+        self._stream_scope=None
         self._closing=False
         self._settings_dialog=None
         self.source_buttons=[]
@@ -190,6 +195,11 @@ class CompanionDialog(QDialog):
         self.fuzzy_identifiers.setToolTip('Только если точных совпадений нет. Похожие номера будут показаны отдельно, без утверждения, что это нужная запись.')
         layout.addWidget(self.fuzzy_identifiers)
         self.chat=QPlainTextEdit();self.chat.setReadOnly(True);self.chat.setAccessibleName('Разговор с помощником');layout.addWidget(self.chat,1)
+        self._scroll_animation=QPropertyAnimation(self.chat.verticalScrollBar(),b'value',self)
+        self._scroll_animation.setDuration(100)
+        self._scroll_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.chat.verticalScrollBar().sliderPressed.connect(self._scroll_animation.stop)
+        self.chat.verticalScrollBar().actionTriggered.connect(lambda action:self._scroll_animation.stop())
         self._action_draft=None
         self.draft_panel=QWidget();draft_layout=QVBoxLayout(self.draft_panel);draft_layout.setContentsMargins(0,0,0,0)
         draft_layout.addWidget(QLabel('Проверьте заметку перед созданием'))
@@ -210,6 +220,13 @@ class CompanionDialog(QDialog):
         self.input=QPlainTextEdit();self.input.setPlaceholderText(shortcut_label('Например: «Создай заметку: позвонить завтра в 10:00»\nCtrl+Enter — отправить, Enter — новая строка'));self.input.setMaximumHeight(75);self.input.setAccessibleName('Ваш вопрос');layout.addWidget(self.input)
         self.send_shortcut=QShortcut(QKeySequence(shortcut('Ctrl+Return')),self);self.send_shortcut.activated.connect(self.send)
         self.send_shortcut_enter=QShortcut(QKeySequence(shortcut('Ctrl+Enter')),self);self.send_shortcut_enter.activated.connect(self.send)
+        self.typing_indicator=QLabel('');self.typing_indicator.setTextFormat(Qt.PlainText)
+        self.typing_indicator.setAccessibleName('Состояние ответа помощника')
+        self.typing_indicator.hide()
+        self._typing_frame=0
+        self._typing_timer=QTimer(self);self._typing_timer.setInterval(320)
+        self._typing_timer.timeout.connect(self._animate_typing)
+        layout.addWidget(self.typing_indicator)
         footer=QHBoxLayout();self.status=QLabel('');self.status.setTextFormat(Qt.PlainText);self.status.setWordWrap(True);footer.addWidget(self.status,1)
         self.cancel_button=QPushButton('Отменить');self.cancel_button.setEnabled(False);self.cancel_button.clicked.connect(self.cancel);footer.addWidget(self.cancel_button)
         self.send_button=QPushButton('Отправить');self.send_button.setObjectName('companionSend');self.send_button.clicked.connect(self.send);footer.addWidget(self.send_button);layout.addLayout(footer)
@@ -364,6 +381,9 @@ class CompanionDialog(QDialog):
         self.source_buttons=[];self.sources_area.hide()
 
     def _scope_changed(self,*args):
+        self._discard_stream_preview()
+        self._discard_stream_preview()
+        self._set_typing(False)
         self._request_id+=1
         if self._cancel_event:self._cancel_event.set()
         self._history=[];self._pending_query='';self.input.clear();self._clear_sources();self._clear_draft();self._welcome()
@@ -392,11 +412,60 @@ class CompanionDialog(QDialog):
         self._thread=thread;_ACTIVE_DIALOGS.add(self)
         thread.advisory.connect(self._request_advisory, Qt.QueuedConnection)
         thread.completed.connect(self._request_completed, Qt.QueuedConnection)
+        thread.progress.connect(self._request_progress, Qt.QueuedConnection)
         thread.finished.connect(self._request_finished, Qt.QueuedConnection)
         self.send_button.setEnabled(False);self.cancel_button.setEnabled(True);self.settings_button.setEnabled(False);self.new_chat_button.setEnabled(False)
-        self.status.setText('Проверяю локальный ИИ…' if kind=='status' else 'Готовлю ответ…')
+        self.status.setText('Проверяю локальный ИИ…' if kind=='status' else 'ИИ проверяет факты…')
+        if kind=='ask':self._set_typing(True)
         self._deadline_timer.start(30000)
         thread.start();return True
+
+    def _set_typing(self, active):
+        self.typing_indicator.setVisible(active)
+        if active:
+            self._typing_frame=0;self._animate_typing();self._typing_timer.start()
+        else:
+            self._typing_timer.stop();self.typing_indicator.clear()
+
+    def _animate_typing(self):
+        self._typing_frame=(self._typing_frame+1)%4
+        self.typing_indicator.setText('Помощник готовит проверенный ответ'+'.'*self._typing_frame)
+
+    def _follow_verified_scroll(self, follow, previous):
+        bar=self.chat.verticalScrollBar()
+        if not follow:
+            self._scroll_animation.stop();bar.setValue(min(previous,bar.maximum()));return
+        self._scroll_animation.stop()
+        self._scroll_animation.setStartValue(bar.value())
+        self._scroll_animation.setEndValue(bar.maximum())
+        self._scroll_animation.start()
+
+    def _discard_stream_preview(self):
+        if self._stream_baseline is not None and self._stream_scope==self.workspace_id:
+            previous=self.chat.verticalScrollBar().value()
+            self.chat.setPlainText(self._stream_baseline)
+            self._follow_verified_scroll(False,previous)
+        self._stream_baseline=None;self._stream_scope=None
+
+    @Slot(int, object)
+    def _request_progress(self,identity,packet):
+        if identity!=self._request_id or self._closing or not isinstance(packet,dict):return
+        if packet.get('kind')=='reset':
+            self._discard_stream_preview();return
+        if packet.get('kind')!='segment':return
+        if not self._sources_current(packet):
+            self._discard_stream_preview()
+            self.cancel();self.status.setText('Источник изменился. Ответ не показан; повторите вопрос.');return
+        text=packet.get('text')
+        if not isinstance(text,str) or not text:return
+        bar=self.chat.verticalScrollBar();previous=bar.value()
+        follow=self._scroll_animation.state()==self._scroll_animation.State.Running or bar.maximum()-previous<=24
+        if self._stream_baseline is None:
+            self._stream_baseline=self.chat.toPlainText();self._stream_scope=self.workspace_id
+            self.chat.appendPlainText('\nПомощник\n')
+        cursor=self.chat.textCursor();cursor.movePosition(cursor.MoveOperation.End);cursor.insertText(text)
+        self._follow_verified_scroll(follow,previous)
+        self.status.setText('ИИ проверяет факты… Проверенные фрагменты уже показаны.')
 
     @Slot(int, str)
     def _request_advisory(self, identity, message):
@@ -414,6 +483,8 @@ class CompanionDialog(QDialog):
 
     def _deadline_expired(self):
         if not self.busy:return
+        self._discard_stream_preview()
+        self._set_typing(False)
         self._request_id+=1
         if self._cancel_event:self._cancel_event.set()
         message='Ответ не получен за 30 секунд. Можно использовать поиск в заметках или закрыть тяжёлые программы и попробовать снова.'
@@ -422,6 +493,7 @@ class CompanionDialog(QDialog):
         self.cancel_button.setEnabled(False)
 
     def _completed(self,identity,response,error,kind):
+        self._discard_stream_preview()
         # The worker returns a fully grounded packet, never raw model tokens.
         # Queue immediately; presentation animation begins only after validation.
         self._pending_render = True
@@ -455,7 +527,11 @@ class CompanionDialog(QDialog):
         baseline=self.chat.toPlainText()
         scope=self.workspace_id
         position=0
+        self._set_typing(True)
+        self.status.setText('Показываю проверенный ответ…')
+        bar=self.chat.verticalScrollBar();previous=bar.value();follow=bar.maximum()-previous<=24
         self.chat.appendPlainText('\nПомощник\n')
+        self._follow_verified_scroll(follow,previous)
         # Bound duration even for a large response; ordinary replies use small
         # readable portions. This animates verified text, not transport tokens.
         step=max(12,(len(text)+39)//40)
@@ -464,23 +540,35 @@ class CompanionDialog(QDialog):
             valid=(identity==self._request_id and not self._closing
                    and scope==self.workspace_id and self._sources_current(response))
             if not valid:
-                if scope==self.workspace_id:self.chat.setPlainText(baseline)
+                if scope==self.workspace_id:
+                    previous=self.chat.verticalScrollBar().value()
+                    self.chat.setPlainText(baseline);self._follow_verified_scroll(False,previous)
+                self._set_typing(False)
                 self._pending_render=False
                 if identity==self._request_id:self.status.setText('Источник изменился или больше не доступен. Задайте вопрос ещё раз.')
                 return
             if position<len(text):
+                bar=self.chat.verticalScrollBar();previous=bar.value()
+                follow=self._scroll_animation.state()==self._scroll_animation.State.Running or bar.maximum()-previous<=24
                 cursor=self.chat.textCursor();cursor.movePosition(cursor.MoveOperation.End)
-                cursor.insertText(text[position:position+step]);self.chat.setTextCursor(cursor)
+                cursor.insertText(text[position:position+step])
+                self._follow_verified_scroll(follow,previous)
                 position+=step
                 QTimer.singleShot(16,tick)
                 return
             # Publish history, sources and action drafts only after completion.
+            bar=self.chat.verticalScrollBar();previous=bar.value()
+            follow=self._scroll_animation.state()==self._scroll_animation.State.Running or bar.maximum()-previous<=24
             self.chat.setPlainText(baseline)
-            try:self._render_completed(identity,response,error,kind)
+            self._set_typing(False)
+            try:
+                self._render_completed(identity,response,error,kind)
+                self._follow_verified_scroll(follow,previous)
             finally:self._pending_render=False
         tick()
 
     def _render_completed(self,identity,response,error,kind):
+        self._set_typing(False)
         if identity!=self._request_id or self._closing:return
         if error:
             self.status.setText('Не удалось получить ответ. Попробуйте ещё раз или выберите поиск в заметках.')
@@ -557,6 +645,9 @@ class CompanionDialog(QDialog):
         if self._onboarding_dialog and self._onboarding_dialog.busy:
             self._onboarding_dialog.cancel();return
         if not self.busy:return
+        self._discard_stream_preview()
+        self._set_typing(False)
+        self._scroll_animation.stop()
         self._request_id+=1
         if self._cancel_event:self._cancel_event.set()
         self.status.setText('Запрос отменён. Завершаю текущую операцию…');self.cancel_button.setEnabled(False)
@@ -579,6 +670,9 @@ class CompanionDialog(QDialog):
     def request_close(self):self.close()
 
     def closeEvent(self,event):
+        self._discard_stream_preview()
+        self._set_typing(False)
+        self._scroll_animation.stop()
         if self._onboarding_dialog and self._onboarding_dialog.busy:
             self._closing=True;_ACTIVE_DIALOGS.add(self)
             self._onboarding_dialog.close()
