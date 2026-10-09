@@ -52,7 +52,7 @@ jobs:
         if: runner.os == 'Windows'
         env:
           QT_QPA_PLATFORM: windows
-        run: python -m unittest discover -s tests
+        run: python -u tools/run_regression.py
       - name: Provision pinned official AppImage tool
         if: runner.os == 'Linux'
         shell: bash
@@ -94,7 +94,7 @@ jobs:
         if: runner.os == 'macOS'
         env:
           QT_QPA_PLATFORM: cocoa
-        run: python -m unittest discover -s tests
+        run: python -u tools/run_regression.py
       - name: Provision temporary signing credentials
         if: github.event_name != 'pull_request' && runner.os != 'Linux'
         env:
