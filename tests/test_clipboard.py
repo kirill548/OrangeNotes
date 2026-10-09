@@ -30,14 +30,17 @@ class ClipboardTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.store = Store(Path(self.directory.name) / 'notes.sqlite3')
         self.window = Window(self.store)
+        self.addCleanup(self.cleanup_window)
         self.window.clock.stop()
         self.window.show()
+        self.window.raise_()
         self.window.activateWindow()
+        self.window.windowHandle().requestActivate()
         self.assertTrue(QTest.qWaitForWindowActive(self.window,3000))
         QTest.mouseClick(self.window.findChild(QPushButton, 'new'), Qt.LeftButton)
         self.note_id = self.window.current
 
-    def tearDown(self):
+    def cleanup_window(self):
         self.window.quitting = True
         self.window.tray.hide()
         self.window.close()

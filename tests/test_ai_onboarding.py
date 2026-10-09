@@ -66,7 +66,7 @@ class ModelSetupTests(unittest.TestCase):
     def test_pack_candidates_are_canonicalized_before_containment(self):
         import os
         manager = ModelManager({})
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as tmp:
             root = Path(tmp)
             exe = root/'runtime/ollama/ollama.exe'; exe.parent.mkdir(parents=True); exe.touch()
             models = root/'runtime/models'; models.mkdir()
