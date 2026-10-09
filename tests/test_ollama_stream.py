@@ -124,6 +124,11 @@ class QtStreamContracts(unittest.TestCase):
         from PySide6.QtTest import QTest
         from app.database.store import Store
         from app.ui.companion import CompanionDialog
+        def pump(milliseconds):
+            deadline=time.monotonic()+milliseconds/1000
+            while time.monotonic()<deadline:
+                self.app.processEvents()
+                time.sleep(.001)
         worker_ids=[]
         base_url='http://127.0.0.1:'+str(self.server.server_port)
         main_id=threading.get_ident()
@@ -148,12 +153,12 @@ class QtStreamContracts(unittest.TestCase):
                 dialog.input.setPlainText('fixture request');heartbeat.start()
                 self.assertTrue(dialog.send())
                 deadline=time.monotonic()+2
-                while not self.chat_started.is_set() and time.monotonic()<deadline:QTest.qWait(5)
+                while not self.chat_started.is_set() and time.monotonic()<deadline:pump(5)
                 self.assertTrue(self.chat_started.is_set())
-                QTest.qWait(50)
+                pump(50)
                 self.assertNotIn('RAW_UNVALIDATED_CANARY',dialog.chat.toPlainText())
                 start=time.monotonic();dialog.cancel()
-                while dialog.busy and time.monotonic()-start<1:QTest.qWait(5)
+                while dialog.busy and time.monotonic()-start<1:pump(5)
                 self.assertFalse(dialog.busy)
                 self.assertLess(time.monotonic()-start,.5)
                 self.assertGreater(len(beats),2)
@@ -168,7 +173,7 @@ class QtStreamContracts(unittest.TestCase):
                 dialog.request_close()
                 if dialog._thread is not None:
                     dialog._thread.wait(2000)
-                    QTest.qWait(60)
+                    pump(60)
                 dialog.deleteLater()
                 QCoreApplication.sendPostedEvents(None,QEvent.DeferredDelete)
                 self.app.processEvents();store.db.close()

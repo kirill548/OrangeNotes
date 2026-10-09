@@ -94,7 +94,7 @@ def receive_stream(client, payload, cancel_event):
 
 
 def _receive_qt(client, payload, cancel_event):
-    from PySide6.QtCore import QEventLoop, QTimer, QUrl
+    from PySide6.QtCore import QEventLoop, QTimer, QUrl, QCoreApplication, QEvent
     from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkProxy
     client._check_cancel(cancel_event)
     manager = QNetworkAccessManager()
@@ -144,4 +144,8 @@ def _receive_qt(client, payload, cancel_event):
         return parser.finish()
     finally:
         reply.close()
+        # Drain deletion in the owning worker while its dispatcher still exists.
+        # Leaving the network manager to QThread teardown races Cocoa shutdown.
+        reply.deleteLater()
         manager.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
