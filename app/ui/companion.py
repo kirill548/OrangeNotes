@@ -217,7 +217,7 @@ class CompanionDialog(QDialog):
         self._welcome()
 
     @property
-    def busy(self):return self._thread is not None or bool(self._onboarding_dialog and self._onboarding_dialog.busy)
+    def busy(self):return self._thread is not None or getattr(self,'_pending_render',False) or bool(self._onboarding_dialog and self._onboarding_dialog.busy)
 
     def showEvent(self,event):
         super().showEvent(event)
@@ -422,15 +422,63 @@ class CompanionDialog(QDialog):
         self.cancel_button.setEnabled(False)
 
     def _completed(self,identity,response,error,kind):
-        # Streaming transport never exposes model tokens. The complete grounded
-        # packet is queued as one atomic UI batch; cancellation invalidates it.
+        # The worker returns a fully grounded packet, never raw model tokens.
+        # Queue immediately; presentation animation begins only after validation.
         self._pending_render = True
-        def render():
-            try:
-                self._render_completed(identity,response,error,kind)
-            finally:
-                self._pending_render = False
-        QTimer.singleShot(40, render)
+        QTimer.singleShot(0, lambda:self._begin_verified_render(identity,response,error,kind))
+
+    def _sources_current(self,response):
+        memory=None
+        try:
+            sources=response.get('sources') or []
+            if sources:memory=MemoryStore(self.database_path)
+            for source in sources:
+                if (not isinstance(source,dict) or type(source.get('note_id')) is not int
+                        or type(source.get('revision')) is not int
+                        or source.get('workspace_id',self.workspace_id)!=self.workspace_id
+                        or memory.resolve(source['note_id'],source['revision'],workspace_id=self.workspace_id,
+                            include_archive=self.include_archive.isChecked(),include_trash=self.include_trash.isChecked()) is None):
+                    return False
+            return True
+        except (sqlite3.Error,ValueError,OSError):
+            return False
+        finally:
+            if memory:memory.close()
+
+    def _begin_verified_render(self,identity,response,error,kind):
+        if (identity!=self._request_id or self._closing or error or kind!='ask'
+                or not self._sources_current(response)):
+            try:self._render_completed(identity,response,error,kind)
+            finally:self._pending_render=False
+            return
+        text=str(response.get('text') or '')
+        baseline=self.chat.toPlainText()
+        scope=self.workspace_id
+        position=0
+        self.chat.appendPlainText('\nПомощник\n')
+        # Bound duration even for a large response; ordinary replies use small
+        # readable portions. This animates verified text, not transport tokens.
+        step=max(12,(len(text)+39)//40)
+        def tick():
+            nonlocal position
+            valid=(identity==self._request_id and not self._closing
+                   and scope==self.workspace_id and self._sources_current(response))
+            if not valid:
+                if scope==self.workspace_id:self.chat.setPlainText(baseline)
+                self._pending_render=False
+                if identity==self._request_id:self.status.setText('Источник изменился или больше не доступен. Задайте вопрос ещё раз.')
+                return
+            if position<len(text):
+                cursor=self.chat.textCursor();cursor.movePosition(cursor.MoveOperation.End)
+                cursor.insertText(text[position:position+step]);self.chat.setTextCursor(cursor)
+                position+=step
+                QTimer.singleShot(16,tick)
+                return
+            # Publish history, sources and action drafts only after completion.
+            self.chat.setPlainText(baseline)
+            try:self._render_completed(identity,response,error,kind)
+            finally:self._pending_render=False
+        tick()
 
     def _render_completed(self,identity,response,error,kind):
         if identity!=self._request_id or self._closing:return
@@ -455,7 +503,7 @@ class CompanionDialog(QDialog):
         if any(isinstance(source,dict) and source.get('workspace_id',self.workspace_id)!=self.workspace_id for source in response.get('sources') or []):
             self.status.setText('Ответ отклонён: источник относится к другому пространству.')
             return
-        # Recheck the current database after the UI batching delay. A source
+        # Recheck the current database before publishing the final response. A source
         # may have moved, changed, or been deleted since worker validation.
         memory=None
         try:

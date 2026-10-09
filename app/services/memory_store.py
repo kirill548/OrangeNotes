@@ -89,6 +89,10 @@ class MemoryStore:
     def close(self):
         self.db.close()
 
+    @staticmethod
+    def _fts_terms(text):
+        return " ".join(sorted({_stem(word) for word in _words(text)}))
+
     def _initialize(self):
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
@@ -121,6 +125,14 @@ class MemoryStore:
                 format TEXT NOT NULL)''')
             try:
                 self.db.execute('CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(chunk,note_id UNINDEXED,version_id UNINDEXED,position UNINDEXED)')
+                # A separate normalized stem index preserves the literal scorer's
+                # Russian morphology and ё normalization, unlike unicode61 alone.
+                existed = self.db.execute("SELECT 1 FROM sqlite_master WHERE name='memory_literal_fts'").fetchone()
+                self.db.execute('CREATE VIRTUAL TABLE IF NOT EXISTS memory_literal_fts USING fts5(terms,note_id UNINDEXED,version_id UNINDEXED,position UNINDEXED)')
+                if not existed:
+                    for row in self.db.execute('SELECT c.*,v.title FROM memory_chunks c JOIN note_versions v ON v.id=c.version_id'):
+                        self.db.execute('INSERT INTO memory_literal_fts VALUES(?,?,?,?)',
+                                        (self._fts_terms(row['title']+' '+row['chunk']),row['note_id'],row['version_id'],row['position']))
                 self.fts_available=True
             except Exception as error:
                 # Only the optional FTS module absence is a supported fallback.
@@ -145,6 +157,7 @@ class MemoryStore:
             self.db.execute('DELETE FROM memory_chunks WHERE note_id=?',(note_id,))
             if self.fts_available:
                 self.db.execute('DELETE FROM memory_fts WHERE note_id=?',(note_id,))
+                self.db.execute('DELETE FROM memory_literal_fts WHERE note_id=?',(note_id,))
 
     def sync(self,workspace_id=1,include_trash=False,_snapshots=None):
         workspace_id=self._workspace(workspace_id)
@@ -172,16 +185,20 @@ class MemoryStore:
                 self.db.execute('DELETE FROM memory_chunks WHERE note_id=?',(note['id'],))
                 if self.fts_available:
                     self.db.execute('DELETE FROM memory_fts WHERE note_id=?',(note['id'],))
+                    self.db.execute('DELETE FROM memory_literal_fts WHERE note_id=?',(note['id'],))
                 text=' '.join(plain_body(note['body']).split())
                 for position in range(0,max(1,len(text)),self.CHUNK_SIZE-self.CHUNK_OVERLAP):
                     chunk=text[position:position+self.CHUNK_SIZE]
                     self.db.execute('INSERT INTO memory_chunks VALUES(?,?,?,?)',(note['id'],version_id,position,chunk))
                     if self.fts_available:
                         self.db.execute('INSERT INTO memory_fts(chunk,note_id,version_id,position) VALUES(?,?,?,?)',(chunk,note['id'],version_id,position))
+                        self.db.execute('INSERT INTO memory_literal_fts VALUES(?,?,?,?)',
+                                        (self._fts_terms(note['title']+' '+chunk),note['id'],version_id,position))
                 self.db.execute('INSERT OR REPLACE INTO memory_index_state VALUES(?,?,?)',(note['id'],version_id,self.INDEX_FORMAT))
             # Physical deletion cascades relational rows; FTS has no foreign keys.
             if self.fts_available:
                 self.db.execute('DELETE FROM memory_fts WHERE note_id NOT IN (SELECT id FROM notes)')
+                self.db.execute('DELETE FROM memory_literal_fts WHERE note_id NOT IN (SELECT id FROM notes)')
         return {'indexed':len(rows),'changed':changed,'retrieval':self.retrieval_mode}
 
     @staticmethod
@@ -228,11 +245,19 @@ class MemoryStore:
         note_snapshots={}
         self.sync(workspace_id,include_trash=include_trash,_snapshots=note_snapshots)
         # Scope and visibility are applied in SQL before scoring or returning data.
-        rows=self.store.rows('''SELECT n.id,n.title,n.workspace_id,n.updated_at,n.deleted,n.archived,
+        candidate_sql='''SELECT n.id,n.title,n.workspace_id,n.updated_at,n.deleted,n.archived,
                 c.chunk,c.position,v.id AS version_id,v.revision,v.content_hash
             FROM notes n JOIN memory_chunks c ON c.note_id=n.id JOIN note_versions v ON v.id=c.version_id
             WHERE n.workspace_id=? AND (? OR n.archived=0) AND (? OR n.deleted=0)
-                AND v.workspace_id=n.workspace_id''',(workspace_id,int(include_archive),int(include_trash)))
+                AND v.workspace_id=n.workspace_id'''
+        parameters=(workspace_id,int(include_archive),int(include_trash))
+        terms={_stem(word) for word in _words(query) if word not in _STOP}
+        match=' OR '.join('"'+term+'"' for term in sorted(terms)) if len(terms)<=128 else ''
+        if self.fts_available and match:
+            rows=self.store.rows(candidate_sql+''' AND (c.note_id,c.version_id,c.position) IN (
+                SELECT note_id,version_id,position FROM memory_literal_fts WHERE memory_literal_fts MATCH ?)''',parameters+(match,))
+        else:
+            rows=self.store.rows(candidate_sql,parameters)
         hashes={identity:note['content_hash'] for identity,note in note_snapshots.items()}
         rows=[row for row in rows if hashes.get(row['id'])==row['content_hash']]
         requested_identifiers = _opaque_identifiers(query)
@@ -240,7 +265,13 @@ class MemoryStore:
                  and (not requested_identifiers or requested_identifiers.intersection(
                      _opaque_identifiers(row['title']+' '+row['chunk'])))]
         stage='literal' if literal else 'fallback'
-        if literal: rows=literal
+        if literal:
+            rows=literal
+        elif self.fts_available and match:
+            # Fuzzy/synonym/embedding fallback must see the full scoped corpus.
+            # No LIMIT on literal candidates: precision and recall stay unchanged.
+            rows=self.store.rows(candidate_sql,parameters)
+            rows=[row for row in rows if hashes.get(row['id'])==row['content_hash']]
         provider=self.embedding_provider if embedding_provider is None else embedding_provider
         dense=self._dense_scores(query,rows,provider,embedding_model) if provider and not literal and not requested_identifiers else {}
         dense_threshold=self._dense_threshold(embedding_model)
