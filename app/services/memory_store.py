@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import re
+import sqlite3
 from datetime import datetime
 from difflib import SequenceMatcher
 
@@ -77,6 +78,7 @@ class MemoryStore:
         path = store_or_path.path if isinstance(store_or_path,Store) else store_or_path
         self.store = Store(path)
         self.db = self.store.db
+        self.db.create_function("orange_search_normalize", 1, _normal, deterministic=True)
         # Reserved extension point. No unconfigured provider or network is invoked.
         self.embedding_provider = embedding_provider
         self.fts_available = False
@@ -123,18 +125,25 @@ class MemoryStore:
                 note_id INTEGER PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
                 version_id INTEGER NOT NULL REFERENCES note_versions(id) ON DELETE CASCADE,
                 format TEXT NOT NULL)''')
+            self.db.execute('CREATE TABLE IF NOT EXISTS memory_search_state(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
             try:
-                self.db.execute('CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(chunk,note_id UNINDEXED,version_id UNINDEXED,position UNINDEXED)')
+                self.db.execute('CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(chunk,note_id UNINDEXED,version_id UNINDEXED,position UNINDEXED, tokenize="unicode61")')
                 # A separate normalized stem index preserves the literal scorer's
                 # Russian morphology and ё normalization, unlike unicode61 alone.
                 existed = self.db.execute("SELECT 1 FROM sqlite_master WHERE name='memory_literal_fts'").fetchone()
-                self.db.execute('CREATE VIRTUAL TABLE IF NOT EXISTS memory_literal_fts USING fts5(terms,note_id UNINDEXED,version_id UNINDEXED,position UNINDEXED)')
-                if not existed:
+                self.db.execute('CREATE VIRTUAL TABLE IF NOT EXISTS memory_literal_fts USING fts5(terms,note_id UNINDEXED,version_id UNINDEXED,position UNINDEXED, tokenize="unicode61")')
+                dirty=self.db.execute("SELECT 1 FROM memory_search_state WHERE key='fts_dirty'").fetchone()
+                if not existed or dirty:
+                    self.db.execute('DELETE FROM memory_literal_fts')
+                    self.db.execute('DELETE FROM memory_fts')
                     for row in self.db.execute('SELECT c.*,v.title FROM memory_chunks c JOIN note_versions v ON v.id=c.version_id'):
+                        self.db.execute('INSERT INTO memory_fts(chunk,note_id,version_id,position) VALUES(?,?,?,?)',
+                                        (row['chunk'],row['note_id'],row['version_id'],row['position']))
                         self.db.execute('INSERT INTO memory_literal_fts VALUES(?,?,?,?)',
                                         (self._fts_terms(row['title']+' '+row['chunk']),row['note_id'],row['version_id'],row['position']))
+                self.db.execute("DELETE FROM memory_search_state WHERE key='fts_dirty'")
                 self.fts_available=True
-            except Exception as error:
+            except sqlite3.OperationalError as error:
                 # Only the optional FTS module absence is a supported fallback.
                 if 'no such module: fts5' not in str(error).lower():
                     raise
@@ -195,6 +204,9 @@ class MemoryStore:
                         self.db.execute('INSERT INTO memory_literal_fts VALUES(?,?,?,?)',
                                         (self._fts_terms(note['title']+' '+chunk),note['id'],version_id,position))
                 self.db.execute('INSERT OR REPLACE INTO memory_index_state VALUES(?,?,?)',(note['id'],version_id,self.INDEX_FORMAT))
+            if not self.fts_available:
+                # A later FTS-capable runtime must rebuild indexes changed here.
+                self.db.execute("INSERT OR REPLACE INTO memory_search_state VALUES('fts_dirty','1')")
             # Physical deletion cascades relational rows; FTS has no foreign keys.
             if self.fts_available:
                 self.db.execute('DELETE FROM memory_fts WHERE note_id NOT IN (SELECT id FROM notes)')
@@ -256,6 +268,12 @@ class MemoryStore:
         if self.fts_available and match:
             rows=self.store.rows(candidate_sql+''' AND (c.note_id,c.version_id,c.position) IN (
                 SELECT note_id,version_id,position FROM memory_literal_fts WHERE memory_literal_fts MATCH ?)''',parameters+(match,))
+        elif match:
+            # LIKE uses the same Unicode normalization as the Python scorer.
+            # Stems are substrings of original tokens, so this is a superset of
+            # literal matches; fuzzy/semantic fallback still sees all rows.
+            filters=' OR '.join("orange_search_normalize(n.title || ' ' || c.chunk) LIKE ?" for _ in terms)
+            rows=self.store.rows(candidate_sql+' AND ('+filters+')',parameters+tuple('%'+term+'%' for term in sorted(terms)))
         else:
             rows=self.store.rows(candidate_sql,parameters)
         hashes={identity:note['content_hash'] for identity,note in note_snapshots.items()}
@@ -267,7 +285,7 @@ class MemoryStore:
         stage='literal' if literal else 'fallback'
         if literal:
             rows=literal
-        elif self.fts_available and match:
+        elif match:
             # Fuzzy/synonym/embedding fallback must see the full scoped corpus.
             # No LIMIT on literal candidates: precision and recall stay unchanged.
             rows=self.store.rows(candidate_sql,parameters)
