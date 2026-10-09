@@ -78,6 +78,27 @@ class Window(QMainWindow):
         self.undo_button.clicked.connect(self.undo_change)
         self.statusBar().addPermanentWidget(self.undo_button)
         self.undo_button.hide()
+        from app.widgets.ai_status import AIStatusStatusBarWidget
+        self.ai_status_widget = AIStatusStatusBarWidget(self)
+        self.ai_status_widget.settings_requested.connect(self.show_ai_settings)
+        self.statusBar().addPermanentWidget(self.ai_status_widget)
+        from app.services.ai_metrics import AIMetricsCollector
+        from app.services.ai_monitor import AIHardwareMonitor
+        self.ai_metrics = AIMetricsCollector(self)
+        self.ai_metrics.changed.connect(self.ai_status_widget.update_metrics)
+        # Loading preferences is local and does not probe or start a model.
+        import json
+        try:
+            config = json.loads((Path(store.path).parent/'ai_settings.json').read_text(encoding='utf-8'))
+            enabled = isinstance(config, dict) and config.get('provider') == 'ollama'
+        except (OSError, ValueError):
+            config = {}
+            enabled = False
+        self.ai_metrics.set_enabled(enabled)
+        self.ai_metrics.set_model(config.get("model") if enabled else None)
+        self.ai_status_widget.update_metrics(self.ai_metrics.snapshot())
+        self.ai_hardware_monitor = AIHardwareMonitor(self.ai_metrics, self)
+        QApplication.instance().aboutToQuit.connect(self.ai_hardware_monitor.stop)
         self.debounce = QTimer(self)
         self.debounce.setSingleShot(True)
         self.debounce.setInterval(600)
@@ -611,12 +632,16 @@ class Window(QMainWindow):
         self._mini_companion.reposition()
         if self._companion_dialog is None:
             from app.ui.companion import CompanionDialog
-            self._companion_dialog=CompanionDialog(self.store,self)
+            self._companion_dialog=CompanionDialog(self.store,self,metrics_collector=self.ai_metrics)
             self._companion_dialog.open_note.connect(self.open_companion_note)
             self._companion_dialog.note_created.connect(self.companion_note_created)
         self._companion_dialog.show()
         self._companion_dialog.raise_()
         self._companion_dialog.activateWindow()
+
+    def show_ai_settings(self):
+        self.show_companion()
+        self._companion_dialog.show_settings()
 
     def companion_note_created(self,note_id):
         self.refresh_nav()
@@ -1238,4 +1263,5 @@ class Window(QMainWindow):
                 event.ignore()
                 self.quit()
                 return
+            self.ai_hardware_monitor.stop()
             event.accept()

@@ -126,7 +126,13 @@ class CompanionEngine:
                                       include_archive=include_archive,include_trash=include_trash) is None:
                         raise LocalAIError('Источники изменились во время ответа. Повторите вопрос.')
             segment_validator=StreamSegmentValidator(sources=sources,revision_check=check_stream_revision)
+            if on_segment is not None:on_segment({"kind":"metrics_start","at":time.monotonic()})
+            first_content=True
             def stream_content(content):
+                nonlocal first_content
+                if content and first_content:
+                    first_content=False
+                    if on_segment is not None:on_segment({"kind":"first_token","at":time.monotonic()})
                 for fragment in segment_validator.feed(content):
                     if on_segment is not None:on_segment({'kind':'segment','text':fragment,'sources':sources})
             client.on_stream_content=stream_content if on_segment is not None else None
@@ -135,6 +141,7 @@ class CompanionEngine:
             finally:
                 client.on_stream_content=None
                 segment_validator.abort()
+            if on_segment is not None:on_segment({"kind":"grounding"})
             try:
                 answer=self._validate(raw,sources,strict_memory=mode=='memory',allow_inference=bool(re.search(r'связ|сопостав|сравн|общего',query,re.I)))
                 if json_mode=='dialogue':self._validate_dialogue_completeness(answer,query)

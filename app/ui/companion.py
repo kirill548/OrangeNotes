@@ -6,6 +6,7 @@ import re
 import sqlite3
 import tempfile
 import threading
+import time
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QDateTime, QTimer, Slot, QPropertyAnimation, QEasingCurve
@@ -93,6 +94,7 @@ class _RequestThread(QThread):
                                     include_archive=self.include_archive,include_trash=self.include_trash,
                                     history=self.history,config=self.config,cancel_event=self.cancel_event,**stream_options)
             if not isinstance(response,dict):raise ValueError('Помощник вернул непонятный ответ.')
+            if self.kind=="ask":response["_metrics_finished"]=time.monotonic()
             self.completed.emit(self.request_id,response,None)
         except Exception as error:
             self.completed.emit(self.request_id,None,str(error))
@@ -109,9 +111,11 @@ class CompanionDialog(QDialog):
     note_created=Signal(int)
     shutdown_ready=Signal()
 
-    def __init__(self,store,parent=None,engine_factory=None):
+    def __init__(self,store,parent=None,engine_factory=None,metrics_collector=None):
         super().__init__(parent)
         self.store=store
+        self.metrics_collector=metrics_collector
+        self._metrics_identity=None
         self.database_path=Path(store.path).resolve()
         self.engine_factory=engine_factory or _engine_factory
         self._auto_detect=engine_factory is None
@@ -134,6 +138,7 @@ class CompanionDialog(QDialog):
         self.source_buttons=[]
         self.settings_path=self.database_path.parent/'ai_settings.json'
         self.config=self._load_config()
+        self._sync_metrics_config()
         self._pending_config=dict(self.config)
         memory=MemoryStore(self.database_path)
         try:self.workspaces=memory.list_workspaces()
@@ -326,6 +331,12 @@ class CompanionDialog(QDialog):
         finally:
             if temporary is not None:temporary.unlink(missing_ok=True)
         self.config=config
+        self._sync_metrics_config()
+
+    def _sync_metrics_config(self):
+        if self.metrics_collector is not None:
+            self.metrics_collector.set_enabled(self.config.get("provider")=="ollama")
+            self.metrics_collector.set_model(self.config.get("model"))
 
     def _welcome(self):
         self.chat.setPlainText('Привет! Я ваш маленький помощник. Можно просто поздороваться, спросить, как работает приложение, или попросить создать заметку.\n\n'
@@ -384,6 +395,8 @@ class CompanionDialog(QDialog):
         self._discard_stream_preview()
         self._discard_stream_preview()
         self._set_typing(False)
+        if self.metrics_collector is not None and self._metrics_identity is not None:
+            self.metrics_collector.abort(self._metrics_identity);self._metrics_identity=None
         self._request_id+=1
         if self._cancel_event:self._cancel_event.set()
         self._history=[];self._pending_query='';self.input.clear();self._clear_sources();self._clear_draft();self._welcome()
@@ -450,6 +463,18 @@ class CompanionDialog(QDialog):
     @Slot(int, object)
     def _request_progress(self,identity,packet):
         if identity!=self._request_id or self._closing or not isinstance(packet,dict):return
+        collector=self.metrics_collector
+        key=(id(self),identity)
+        if collector is not None and packet.get('kind')=='metrics_start':
+            self._metrics_identity=key
+            collector.begin(key,self._pending_config.get('model'),at=packet.get('at'))
+            return
+        if collector is not None and packet.get('kind')=='first_token':
+            collector.first_token(key,at=packet.get('at'))
+            return
+        if collector is not None and packet.get('kind') in ('segment','grounding'):
+            collector.grounding(key)
+            if packet.get('kind')=='grounding':return
         if packet.get('kind')=='reset':
             self._discard_stream_preview();return
         if packet.get('kind')!='segment':return
@@ -475,6 +500,13 @@ class CompanionDialog(QDialog):
     @Slot(int, object, object)
     def _request_completed(self, identity, response, error):
         thread = self.sender()
+        if self.metrics_collector is not None and self._metrics_identity is not None:
+            success=(identity==self._request_id and not self._closing and not error
+                     and isinstance(response,dict) and response.get('status')=='answered'
+                     and not self._cancel_event.is_set())
+            self.metrics_collector.complete(self._metrics_identity,success=success,
+                                           at=response.get('_metrics_finished') if isinstance(response,dict) else None)
+            self._metrics_identity=None
         self._completed(identity, response, error, thread.kind)
 
     @Slot()
@@ -485,6 +517,8 @@ class CompanionDialog(QDialog):
         if not self.busy:return
         self._discard_stream_preview()
         self._set_typing(False)
+        if self.metrics_collector is not None and self._metrics_identity is not None:
+            self.metrics_collector.abort(self._metrics_identity);self._metrics_identity=None
         self._request_id+=1
         if self._cancel_event:self._cancel_event.set()
         message='Ответ не получен за 30 секунд. Можно использовать поиск в заметках или закрыть тяжёлые программы и попробовать снова.'
@@ -648,6 +682,8 @@ class CompanionDialog(QDialog):
         self._discard_stream_preview()
         self._set_typing(False)
         self._scroll_animation.stop()
+        if self.metrics_collector is not None and self._metrics_identity is not None:
+            self.metrics_collector.abort(self._metrics_identity);self._metrics_identity=None
         self._request_id+=1
         if self._cancel_event:self._cancel_event.set()
         self.status.setText('Запрос отменён. Завершаю текущую операцию…');self.cancel_button.setEnabled(False)
@@ -670,6 +706,8 @@ class CompanionDialog(QDialog):
     def request_close(self):self.close()
 
     def closeEvent(self,event):
+        if self.metrics_collector is not None and self._metrics_identity is not None:
+            self.metrics_collector.abort(self._metrics_identity);self._metrics_identity=None
         self._discard_stream_preview()
         self._set_typing(False)
         self._scroll_animation.stop()
