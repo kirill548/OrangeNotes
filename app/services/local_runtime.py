@@ -74,7 +74,9 @@ def ensure_runtime(client,cancel_event=None,runtime_root=None):
         root=Path(override).resolve()
         if root.name=='runtime':root=root.parent
     candidates=runtime_candidates(root)
-    if override:candidates=[(exe,models) for exe,models in candidates if exe.is_relative_to(root)]
+    if override:
+        candidates=[(Path(exe).resolve(),Path(models).resolve()) for exe,models in candidates]
+        candidates=[(exe,models) for exe,models in candidates if exe.is_relative_to(root) and models.is_relative_to(root)]
     selected=next(((exe,models) for exe,models in candidates if exe.is_file()),None)
     if not selected:
         return False

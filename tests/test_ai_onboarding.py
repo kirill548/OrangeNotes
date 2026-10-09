@@ -63,6 +63,19 @@ class ModelSetupTests(unittest.TestCase):
                 self.assertEqual(result['runtime_root'], str(root.resolve()))
                 self.assertEqual(start.call_args.kwargs['runtime_root'], root.resolve())
 
+    def test_pack_candidates_are_canonicalized_before_containment(self):
+        import os
+        manager = ModelManager({})
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exe = root/'runtime/ollama/ollama.exe'; exe.parent.mkdir(parents=True); exe.touch()
+            models = root/'runtime/models'; models.mkdir()
+            relative_exe = Path(os.path.relpath(exe, Path.cwd()))
+            relative_models = Path(os.path.relpath(models, Path.cwd()))
+            with patch.object(manager.client, 'probe', return_value={'available': False}), patch('app.services.ai_onboarding.runtime_candidates', return_value=[(relative_exe, relative_models)]), patch('app.services.ai_onboarding.ensure_runtime', return_value=True), patch.object(manager, 'detect', return_value={'available': True}):
+                result = manager.connect_pack(root)
+            self.assertEqual(result['runtime_root'], str(root.resolve()))
+
     def test_pack_permission_error_is_actionable(self):
         manager = ModelManager({})
         with tempfile.TemporaryDirectory() as tmp:

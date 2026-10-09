@@ -138,8 +138,9 @@ class ModelManager:
         root = Path(path).expanduser().resolve()
         if root.name == 'runtime':
             root = root.parent
-        candidates = [(exe, models) for exe, models in runtime_candidates(root)
-                      if exe.is_relative_to(root) and exe.is_file() and models.is_dir()]
+        candidates = [(Path(exe).resolve(), Path(models).resolve()) for exe, models in runtime_candidates(root)]
+        candidates = [(exe, models) for exe, models in candidates
+                      if exe.is_relative_to(root) and models.is_relative_to(root) and exe.is_file() and models.is_dir()]
         if not candidates:
             raise LocalAIError('В папке нет совместимого ИИ-комплекта: нужны runtime/ollama и runtime/models для этой ОС.')
         self.client._check_cancel(cancel_event)
