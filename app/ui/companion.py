@@ -8,7 +8,7 @@ import tempfile
 import threading
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import Qt, QThread, Signal, QSize, QDateTime, QTimer
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QDateTime, QTimer, Slot
 from app.utils.shortcuts import shortcut, shortcut_label
 from PySide6.QtGui import QShortcut, QKeySequence
 from PySide6.QtWidgets import (QCheckBox,QComboBox,QDialog,QDateTimeEdit,QFormLayout,QHBoxLayout,QLabel,QLineEdit,QMessageBox,QPlainTextEdit,QPushButton,QScrollArea,QVBoxLayout,QWidget)
@@ -390,13 +390,27 @@ class CompanionDialog(QDialog):
         thread=_RequestThread(identity,self.engine_factory,self.database_path,query,self.workspace_id,self.mode.currentData(),
                               [dict(message) for message in self._history],request_config,self.include_archive.isChecked(),self.include_trash.isChecked(),event,kind)
         self._thread=thread;_ACTIVE_DIALOGS.add(self)
-        thread.advisory.connect(lambda rid,message:self.status.setText(message) if rid==self._request_id and not self._closing else None)
-        thread.completed.connect(lambda rid,response,error,k=kind:self._completed(rid,response,error,k))
-        thread.finished.connect(lambda t=thread:self._finished(t))
+        thread.advisory.connect(self._request_advisory, Qt.QueuedConnection)
+        thread.completed.connect(self._request_completed, Qt.QueuedConnection)
+        thread.finished.connect(self._request_finished, Qt.QueuedConnection)
         self.send_button.setEnabled(False);self.cancel_button.setEnabled(True);self.settings_button.setEnabled(False);self.new_chat_button.setEnabled(False)
         self.status.setText('Проверяю локальный ИИ…' if kind=='status' else 'Готовлю ответ…')
         self._deadline_timer.start(30000)
         thread.start();return True
+
+    @Slot(int, str)
+    def _request_advisory(self, identity, message):
+        if identity == self._request_id and not self._closing:
+            self.status.setText(message)
+
+    @Slot(int, object, object)
+    def _request_completed(self, identity, response, error):
+        thread = self.sender()
+        self._completed(identity, response, error, thread.kind)
+
+    @Slot()
+    def _request_finished(self):
+        self._finished(self.sender())
 
     def _deadline_expired(self):
         if not self.busy:return

@@ -135,6 +135,12 @@ class QtStreamContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store=Store(Path(tmp)/'notes.sqlite3')
             dialog=CompanionDialog(store,engine_factory=lambda path:Engine())
+            finish_ids=[]
+            original_finished=dialog._finished
+            def record_finished(thread):
+                finish_ids.append(threading.get_ident())
+                original_finished(thread)
+            dialog._finished=record_finished
             beats=[]
             heartbeat=QTimer();heartbeat.setInterval(5);heartbeat.timeout.connect(lambda:beats.append(1))
             self.__class__.mode='partial_slow';self.chat_started.clear()
@@ -153,6 +159,8 @@ class QtStreamContracts(unittest.TestCase):
                 self.assertGreater(len(beats),2)
                 self.assertNotEqual(worker_ids,[main_id])
                 self.assertEqual(len(worker_ids),1)
+                self.assertTrue(finish_ids)
+                self.assertEqual(set(finish_ids),{main_id})
                 self.assertEqual(dialog._history,[])
                 self.assertNotIn('RAW_UNVALIDATED_CANARY',dialog.chat.toPlainText())
             finally:
