@@ -36,11 +36,18 @@ def _nvml():
             return None
         used = total = 0
         utilization = []
+        measured = 0
         for index in range(count):
             device = nvml.nvmlDeviceGetHandleByIndex(index)
             memory = nvml.nvmlDeviceGetMemoryInfo(device)
-            used += memory.used
-            total += memory.total
+            device_used = _number(memory.used)
+            device_total = _number(memory.total)
+            if (device_used is None or device_total is None or
+                    device_total <= 0 or device_used > device_total):
+                continue
+            used += int(device_used)
+            total += int(device_total)
+            measured += 1
             try:
                 value = _number(nvml.nvmlDeviceGetUtilizationRates(device).gpu, 100)
                 if value is not None:
@@ -49,13 +56,16 @@ def _nvml():
                 pass
         if total <= 0 or used < 0 or used > total:
             return None
-        result = _snapshot('NVML', f'{count} NVIDIA device(s); device-wide telemetry')
+        result = _snapshot('NVML', f'{measured} NVIDIA device(s); device-wide telemetry')
         result.update(mode='gpu', gpu_utilization_pct=max(utilization) if utilization else None,
                       vram_used_bytes=int(used), vram_total_bytes=int(total))
         return result
     finally:
         if initialized:
-            nvml.nvmlShutdown()
+            try:
+                nvml.nvmlShutdown()
+            except Exception:
+                pass
 
 
 def _nvidia_smi():
@@ -88,11 +98,11 @@ def _amd_sysfs(root=Path('/sys/class/drm')):
     rows = []
     seen = set()
     for device in root.glob('card[0-9]*/device'):
-        resolved = device.resolve()
-        if resolved in seen:
-            continue
-        seen.add(resolved)
         try:
+            resolved = device.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
             if (device / 'vendor').read_text().strip().lower() != '0x1002':
                 continue
             used = _number((device / 'mem_info_vram_used').read_text().strip())

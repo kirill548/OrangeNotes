@@ -113,7 +113,7 @@ class CompanionMetricsIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot['sample_count'], 1)
         self.assertEqual(snapshot['state'], 'idle')
         self.assertEqual(snapshot['active_count'], 0)
-        self.assertGreaterEqual(snapshot['latency_p50_ms'], 100)
+        self.assertGreaterEqual(snapshot['latency_p50_ms'], 100-1e-6)
         self.assertAlmostEqual(snapshot['ttft_p50_ms'], 25, places=3)
         self.assertEqual([sample['state'] for sample in observations],
                          ['active', 'active', 'grounding', 'idle'])

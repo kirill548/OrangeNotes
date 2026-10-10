@@ -29,7 +29,8 @@ def mac_icon():
     return output
 
 
-def package_bundle(folder, target=None):
+def prepare_bundle(folder, target=None):
+    """Finish bundle contents before code signing seals macOS resources."""
     target = target or sys.platform
     resources = folder / 'Contents/Resources' if target == 'darwin' else folder
     resources.mkdir(parents=True, exist_ok=True)
@@ -43,6 +44,12 @@ def package_bundle(folder, target=None):
             '[Desktop Entry]\nType=Application\nName=Orange Notes\n'
             'Comment=Local notes and reminders\nExec=OrangeNotes\n'
             'Icon=OrangeNotes\nTerminal=false\nCategories=Office;Utility;\n', encoding='utf-8')
+
+
+def package_bundle(folder, target=None, *, prepared=False):
+    target = target or sys.platform
+    if not prepared:
+        prepare_bundle(folder, target)
     name = 'OrangeNotes-' + platform.system() + '-' + platform.machine()
     # tar preserves executable permissions on Linux. ditto preserves macOS bundle metadata.
     if target == 'darwin':
@@ -87,8 +94,9 @@ def main():
     native=importlib.util.module_from_spec(native_spec)
     native_spec.loader.exec_module(native)
     folder=bundle_directory()
+    prepare_bundle(folder)
     native.sign_bundle(folder)
-    archive = package_bundle(folder)
+    archive = package_bundle(folder, prepared=True)
     if sys.platform=='darwin':
         native.mac_dmg(folder,ROOT/'dist'/('OrangeNotes-macOS-'+platform.machine()+'.dmg'))
     if sys.platform.startswith('linux'):
