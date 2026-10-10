@@ -303,6 +303,10 @@ class LocalDeploymentTests(unittest.TestCase):
         workspace = self.root / 'workspace'
         build = workspace / 'build'
         build.mkdir(parents=True)
+        # cleanup canonicalizes its root. macOS /var and Windows short temp
+        # names can describe the same directory with different lexical paths.
+        workspace = workspace.resolve()
+        build = workspace / 'build'
         original = Path.is_symlink
 
         def linked(path):

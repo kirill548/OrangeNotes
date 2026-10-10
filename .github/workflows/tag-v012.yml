@@ -35,8 +35,24 @@ jobs:
           if git rev-parse --verify refs/tags/v0.1.2 >/dev/null 2>&1; then
             test "$(git cat-file -t refs/tags/v0.1.2)" = tag
             if [ "$(git rev-parse 'refs/tags/v0.1.2^{commit}')" != "$RELEASE_SHA" ]; then
-              echo 'Existing v0.1.2 points to another commit; refusing to replace it.'
-              exit 1
+              # One-time repair of the exact unpublished candidate whose CI failed.
+              # A published release, any other tag or API failure remains immutable.
+              OLD_TAG=6ae59c7bf9acd313c5679f3d4f5ab5a6b5d3f5e5
+              OLD_COMMIT=e7d2cb58952bb16980ca8352c54a5d4772ff05d0
+              test "$(git rev-parse refs/tags/v0.1.2)" = "$OLD_TAG"
+              test "$(git rev-parse 'refs/tags/v0.1.2^{commit}')" = "$OLD_COMMIT"
+              if gh api --include "repos/$GH_REPO/releases/tags/v0.1.2" > "$RUNNER_TEMP/release-response.txt" 2> "$RUNNER_TEMP/release-error.txt"; then
+                echo 'A release already exists; refusing to replace its tag.'
+                exit 1
+              fi
+              if ! grep -Eq '^HTTP/[0-9.]+ 404( |$)' "$RUNNER_TEMP/release-response.txt"; then
+                echo 'Release absence could not be verified as HTTP 404; refusing to replace tag.'
+                exit 1
+              fi
+              git config user.name 'github-actions[bot]'
+              git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+              git tag -f -a v0.1.2 "$RELEASE_SHA" -m 'Release v0.1.2'
+              git push --force-with-lease=refs/tags/v0.1.2:"$OLD_TAG" origin refs/tags/v0.1.2
             fi
           else
             git config user.name 'github-actions[bot]'

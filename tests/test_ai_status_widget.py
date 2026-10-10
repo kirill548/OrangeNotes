@@ -1,8 +1,8 @@
 """Passive AI status presentation; synthetic metrics, no model or GPU launch."""
 import unittest
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtTest import QTest
+from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, Qt
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QMenu
 
 from app.services.ai_metrics import AIMetricsCollector
@@ -67,10 +67,14 @@ class AIStatusWidgetTests(unittest.TestCase):
         self.assertEqual(self.widget.property('aiState'), 'grounding')
         self.assertIn('Проверка фактов', self.widget.text())
         clock[0] = 1.25
+        finished = QSignalSpy(self.widget._transition.finished)
         collector.complete('request')
         self.assertEqual(self.widget.property('aiState'), 'idle')
         self.assertIn('250 мс', self.widget.text())
-        QTest.qWait(170)
+        # Wait for the animation's final frame, including on slower CI event loops.
+        self.assertTrue(finished.count() or finished.wait(1000),
+                        'Idle color animation did not finish within one second')
+        self.assertEqual(self.widget._transition.state(), QAbstractAnimation.Stopped)
         self.assertEqual(self.widget._color.name(), self.widget.COLORS['idle'])
 
     def test_click_opens_settings_menu_and_action_emits_signal(self):

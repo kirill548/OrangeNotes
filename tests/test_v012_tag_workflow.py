@@ -20,8 +20,19 @@ class V012TagWorkflowTests(unittest.TestCase):
         self.assertIn("refs/tags/v0.1.2^{commit}", source)
         self.assertIn("git tag -a v0.1.2 \"$RELEASE_SHA\" -m 'Release v0.1.2'", source)
         self.assertIn('git push origin refs/tags/v0.1.2', source)
-        self.assertNotIn('--force', source)
         self.assertNotIn('git tag -d', source)
+
+    def test_one_time_unpublished_candidate_repair_has_exact_lease_and_absence_gate(self):
+        source = WORKFLOW.read_text(encoding='utf-8')
+        self.assertIn('OLD_TAG=6ae59c7bf9acd313c5679f3d4f5ab5a6b5d3f5e5', source)
+        self.assertIn('OLD_COMMIT=e7d2cb58952bb16980ca8352c54a5d4772ff05d0', source)
+        self.assertIn('test "$(git rev-parse refs/tags/v0.1.2)" = "$OLD_TAG"', source)
+        self.assertIn('= "$OLD_COMMIT"', source)
+        self.assertIn('gh api --include "repos/$GH_REPO/releases/tags/v0.1.2"', source)
+        self.assertIn("'^HTTP/[0-9.]+ 404( |$)'", source)
+        self.assertIn('git push --force-with-lease=refs/tags/v0.1.2:"$OLD_TAG"', source)
+        self.assertNotIn('git push --force ', source)
+        self.assertLess(source.index('Release absence could not be verified'), source.index('git tag -f'))
 
     def test_token_tag_push_followed_by_explicit_typed_dispatch(self):
         source = WORKFLOW.read_text(encoding='utf-8')
