@@ -4,13 +4,14 @@ import os
 import shutil
 import subprocess
 import sys
+import argparse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def bundle_directory(target=None):
-    return ROOT / 'dist' / ('OrangeNotes.app' if (target or sys.platform) == 'darwin' else 'OrangeNotes')
+def bundle_directory(target=None, output_directory=None):
+    return Path(output_directory or ROOT / 'dist') / ('OrangeNotes.app' if (target or sys.platform) == 'darwin' else 'OrangeNotes')
 
 
 def mac_icon():
@@ -53,20 +54,25 @@ def package_bundle(folder, target=None, *, prepared=False):
     name = 'OrangeNotes-' + platform.system() + '-' + platform.machine()
     # tar preserves executable permissions on Linux. ditto preserves macOS bundle metadata.
     if target == 'darwin':
-        archive = str(ROOT / 'dist' / (name + '.zip'))
+        archive = str(folder.parent / (name + '.zip'))
         subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(folder), archive], check=True)
         return archive
-    return shutil.make_archive(str(ROOT / 'dist' / name),
+    return shutil.make_archive(str(folder.parent / name),
                                'gztar' if target.startswith('linux') else 'zip',
                                root_dir=folder.parent, base_dir=folder.name)
 
 
-def main():
+def main(argv=None):
     if sys.maxsize <= 2**32:
         raise SystemExit('Qt 6 requires a supported 64-bit build environment.')
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--clean', action='store_true')
+    parser.add_argument('--dist-dir', type=Path, default=ROOT / 'dist')
+    options = parser.parse_args(argv)
+    output_directory = options.dist_dir.resolve()
     args = [sys.executable, '-m', 'PyInstaller', '--noconfirm',
             '--onedir', '--windowed', '--name', 'OrangeNotes',
-            '--paths', str(ROOT), '--distpath', str(ROOT / 'dist'),
+            '--paths', str(ROOT), '--distpath', str(output_directory),
             '--workpath', str(ROOT / 'build'), '--specpath', str(ROOT / 'build'),
             '--copy-metadata', 'PySide6_Essentials', '--copy-metadata', 'shiboken6',
             '--collect-data', 'tzdata',
@@ -77,7 +83,7 @@ def main():
     elif sys.platform == 'darwin':
         args += ['--icon', str(mac_icon()), '--osx-bundle-identifier', 'org.orangenotes.desktop']
     args.append(str(ROOT / 'app/main.py'))
-    if '--clean' in sys.argv:
+    if options.clean:
         args.insert(3, '--clean')
     env = os.environ.copy()
     if sys.platform == 'win32':
@@ -93,14 +99,14 @@ def main():
     native_spec=importlib.util.spec_from_file_location('orange_notes_release_native',Path(__file__).resolve().with_name('release_native.py'))
     native=importlib.util.module_from_spec(native_spec)
     native_spec.loader.exec_module(native)
-    folder=bundle_directory()
+    folder=bundle_directory(output_directory=output_directory)
     prepare_bundle(folder)
     native.sign_bundle(folder)
     archive = package_bundle(folder, prepared=True)
     if sys.platform=='darwin':
-        native.mac_dmg(folder,ROOT/'dist'/('OrangeNotes-macOS-'+platform.machine()+'.dmg'))
+        native.mac_dmg(folder,output_directory/('OrangeNotes-macOS-'+platform.machine()+'.dmg'))
     if sys.platform.startswith('linux'):
-        native.linux_appimage(folder,ROOT/'dist'/('OrangeNotes-Linux-'+platform.machine()+'.AppImage'))
+        native.linux_appimage(folder,output_directory/('OrangeNotes-Linux-'+platform.machine()+'.AppImage'))
     print(archive)
 
 

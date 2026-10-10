@@ -128,7 +128,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           test "$(id -u)" -ne 0
-          python tools/package_deb.py dist/OrangeNotes dist/OrangeNotes-Linux-x64.deb
+          python tools/package_deb.py dist/OrangeNotes dist/OrangeNotes-Linux-x64.deb --version 0.1.2
           python tools/verify_deb.py dist/OrangeNotes-Linux-x64.deb
       - name: macOS frozen GUI startup
         if: runner.os == 'macOS'

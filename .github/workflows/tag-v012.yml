@@ -1,0 +1,54 @@
+name: Tag verified v0.1.2 release source
+on:
+  push:
+    branches: [main]
+    paths: [release_notes.md]
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: tag-v0.1.2
+  cancel-in-progress: false
+jobs:
+  tag:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Create immutable annotated release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags
+          if [ "$(git rev-parse origin/main)" != "$RELEASE_SHA" ]; then
+            echo 'Release commit is no longer the latest main; refusing to tag.'
+            exit 1
+          fi
+          test -s release_notes.md
+          if git rev-parse --verify refs/tags/v0.1.2 >/dev/null 2>&1; then
+            test "$(git cat-file -t refs/tags/v0.1.2)" = tag
+            if [ "$(git rev-parse 'refs/tags/v0.1.2^{commit}')" != "$RELEASE_SHA" ]; then
+              echo 'Existing v0.1.2 points to another commit; refusing to replace it.'
+              exit 1
+            fi
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a v0.1.2 "$RELEASE_SHA" -m 'Release v0.1.2'
+            git push origin refs/tags/v0.1.2
+          fi
+      - name: Dispatch native builds for exact tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Pushes authenticated with GITHUB_TOKEN do not trigger another workflow.
+          # Explicit dispatch runs the package matrix from the immutable tagged source.
+          printf '%s\n' '{"ref":"v0.1.2","inputs":{"flatpak":true,"native_macos_notifications":false}}' > "$RUNNER_TEMP/native-build-dispatch.json"
+          gh api --method POST "repos/$GH_REPO/actions/workflows/build.yml/dispatches" --input "$RUNNER_TEMP/native-build-dispatch.json"

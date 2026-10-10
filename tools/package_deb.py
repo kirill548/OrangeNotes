@@ -39,7 +39,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('folder')
     parser.add_argument('destination')
-    parser.add_argument('--version', default='0.1.0')
+    parser.add_argument('--version', default='0.1.2')
     parser.add_argument('--architecture', default='amd64', choices=['amd64', 'arm64'])
     args = parser.parse_args()
     package(args.folder, args.destination, args.version, args.architecture)

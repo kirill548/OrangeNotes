@@ -4,7 +4,7 @@
 
 ## Скачать приложение
 
-[Последний релиз](https://github.com/kirill548/OrangeNotes/releases/latest) · [Релиз v0.1.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.1)
+[Последний релиз](https://github.com/kirill548/OrangeNotes/releases/latest) · [Релиз v0.1.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.2)
 
 Выберите пакет для своей системы: Windows x64, Linux x64, macOS Intel или Apple Silicon. Для Windows распакуйте весь архив и запустите `OrangeNotes.exe`, сохранив соседние файлы. Инструкции для остальных систем: [DISTRIBUTION.md](DISTRIBUTION.md).
 
@@ -59,7 +59,7 @@ python tools/run_regression.py
 - [Установка, переносимость и ограничения](DISTRIBUTION.md)
 - [Архитектура ИИ-помощника](docs/AI_ASSISTANT_ARCHITECTURE.md)
 - [Начальные работы следующего этапа](docs/DEVELOPMENT_v0.1.2.md)
-- [Изменения v0.1.1](RELEASE_NOTES_v0.1.1.md)
+- [Изменения v0.1.2](release_notes.md)
 - [Нативные проверки уведомлений](tools/NATIVE_NOTIFICATION_TESTS.md)
 - [Сообщить о проблеме или предложить функцию](https://github.com/kirill548/OrangeNotes/issues)
 
