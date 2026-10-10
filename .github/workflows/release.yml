@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
-    if: github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-22.04
     env:
       GH_TOKEN: ${{ github.token }}
@@ -24,6 +24,26 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
+      - name: Resolve verified tagged build for manual or recovery publication
+        if: github.event_name != 'workflow_run'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_SHA=$(git rev-parse 'refs/tags/v0.1.2^{commit}')
+          export BUILD_SHA
+          gh api "repos/$GH_REPO/actions/workflows/build.yml/runs?head_sha=$BUILD_SHA&status=success&per_page=100" > "$RUNNER_TEMP/verified-runs.json"
+          BUILD_RUN=$(python - <<'PY'
+          import json, os
+          from pathlib import Path
+          runs = json.loads((Path(os.environ['RUNNER_TEMP']) / 'verified-runs.json').read_text())['workflow_runs']
+          matches = [r for r in runs if r['head_sha'] == os.environ['BUILD_SHA'] and r['head_repository']['full_name'] == os.environ['GH_REPO'] and r['event'] in ('push', 'workflow_dispatch') and r['conclusion'] == 'success']
+          if not matches:
+              raise SystemExit('No verified native build for the exact release tag')
+          print(matches[0]['id'])
+          PY
+          )
+          echo "BUILD_SHA=$BUILD_SHA" >> "$GITHUB_ENV"
+          echo "BUILD_RUN=$BUILD_RUN" >> "$GITHUB_ENV"
       - name: Gate exact stable tag and four successful native package jobs
         id: gate
         shell: bash
@@ -50,7 +70,7 @@ jobs:
         if: steps.gate.outputs.ready == 'true'
         with:
           github-token: ${{ github.token }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ env.BUILD_RUN }}
           pattern: OrangeNotes-*
           path: downloaded
       - name: Prepare exact source, packages and checksums
