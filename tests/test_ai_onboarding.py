@@ -37,13 +37,22 @@ class ModelSetupTests(unittest.TestCase):
         with self.assertRaises(LocalAIError): ModelManager({'base_url': 'https://external.example'})
 
     def test_pull_only_missing_allowlisted_models(self):
-        manager = ModelManager({})
-        states = [{'available': True, 'missing_models': [REQUIRED_MODELS[1]]},
-                  {'available': True, 'missing_models': []}]
-        with patch.object(manager, 'detect', side_effect=states), patch('app.services.ai_onboarding._pull') as pull:
-            result = manager.pull_missing()
-        self.assertEqual(pull.call_args.args[1], REQUIRED_MODELS[1])
-        self.assertEqual(result['status'], 'installed')
+        manager = ModelManager({'_managed_root':'unused-managed-root'})
+        with patch('app.services.ai_pack_manager.AIPackManager') as factory:
+            pack=factory.return_value
+            pack.scan.return_value=[{'name':REQUIRED_MODELS[0]}]
+            pack.switch_active_model.return_value={'base_url':'http://127.0.0.1:12345','model':REQUIRED_MODELS[0]}
+            with patch.object(manager,'detect',return_value={'available':True,'missing_models':[]}):
+                result=manager.pull_missing()
+            self.assertEqual(pack.download.call_args.args[0],REQUIRED_MODELS[1])
+        self.assertTrue(result['managed_pack'])
+        self.assertEqual(result['status'],'installed')
+
+    def test_external_ollama_is_never_mutated(self):
+        manager=ModelManager({})
+        with patch('app.services.ai_onboarding._pull') as pull, self.assertRaises(LocalAIError):
+            manager.pull_missing()
+        pull.assert_not_called()
 
     def test_pull_rejects_unapproved_or_unavailable_service(self):
         manager = ModelManager({})
@@ -85,10 +94,12 @@ class ModelSetupTests(unittest.TestCase):
                 manager.connect_pack(root)
 
     def test_pull_cannot_report_success_while_model_is_still_missing(self):
-        manager = ModelManager({})
-        state = {'available': True, 'missing_models': [REQUIRED_MODELS[0]]}
-        with patch.object(manager, 'detect', return_value=state), patch('app.services.ai_onboarding._pull'), self.assertRaisesRegex(LocalAIError, 'пока не появились'):
-            manager.pull_missing()
+        manager=ModelManager({'_managed_root':'unused-managed-root'})
+        with patch('app.services.ai_pack_manager.AIPackManager') as factory:
+            factory.return_value.scan.return_value=[]
+            factory.return_value.switch_active_model.return_value={'base_url':'http://127.0.0.1:12345','model':REQUIRED_MODELS[0]}
+            with patch.object(manager,'detect',return_value={'available':True,'missing_models':[REQUIRED_MODELS[1]]}), self.assertRaisesRegex(LocalAIError,'пока не появились'):
+                manager.pull_missing()
 
     def test_existing_server_never_claims_selected_pack_is_active(self):
         manager = ModelManager({})

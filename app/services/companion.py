@@ -1,5 +1,6 @@
 """Evidence-grounded dialogue over the selected local workspace."""
 import json
+from pathlib import Path
 import re
 import threading
 import time
@@ -33,6 +34,9 @@ class CompanionEngine:
         client=self.client_factory(base_url=config.get('base_url','http://127.0.0.1:11434'),
                                    model=config.get('model','qwen3:4b'))
         client.runtime_root=config.get('runtime_root') or None
+        if config.get('managed_pack'):
+            from app.services.ai_pack_runtime import ManagedPackRuntime
+            client.managed_runtime=ManagedPackRuntime(Path(self.path).parent/'ai_packs',client.runtime_root)
         return client
 
     def status(self,config=None):

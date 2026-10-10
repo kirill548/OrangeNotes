@@ -157,17 +157,23 @@ class ModelManager:
         return {**self.detect(cancel_event), 'runtime_root': self.runtime_root}
 
     def pull_missing(self, cancel_event=None, progress=None):
-        state = self.detect(cancel_event)
-        if not state['available']:
-            raise LocalAIError('Сначала подключите локальный Ollama или готовый ИИ-комплект.')
-        missing = state['missing_models']
-        if any(model not in REQUIRED_MODELS for model in missing):
-            raise LocalAIError('Автоматически устанавливаются только проверенные модели Qwen3.')
-        deadline = time.monotonic() + SETUP_TIMEOUT
-        for model in missing:
-            self.client._check_cancel(cancel_event)
-            _pull(self.client, model, cancel_event, progress, deadline)
-        result = self.detect(cancel_event)
-        if result['missing_models']:
+        # Reading an external Ollama is allowed; mutation is never allowed.
+        root=self.config.get('_managed_root')
+        if not root:
+            raise LocalAIError('Скачивание разрешено только в комплект приложения. Откройте «Модели приложения».')
+        from app.services.ai_pack_manager import AIPackManager
+        manager=AIPackManager(root,self.config)
+        installed={item['name'] for item in manager.scan()}
+        requested=(self.client.model,self.config.get('embedding_model',REQUIRED_MODELS[1]))
+        if any(name not in REQUIRED_MODELS for name in requested):
+            raise LocalAIError('В мастере доступны только проверенные модели Qwen3. Другие модели добавьте в настройках.')
+        missing=[name for name in requested if name not in installed]
+        for name in missing:manager.download(name,cancel_event,progress)
+        config=manager.switch_active_model(self.client.model,cancel_event)
+        self.config=config
+        self.client=OllamaClient(config['base_url'],config['model'])
+        result=self.detect(cancel_event)
+        if result.get('missing_models'):
             raise LocalAIError('Модели пока не появились в локальном сервисе. Повторите проверку.')
-        return {**result, 'status': 'ready' if not missing else 'installed'}
+        return {**result,'managed_pack':True,'base_url':config['base_url'],
+                'status':'installed' if missing else 'ready'}

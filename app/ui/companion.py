@@ -12,13 +12,13 @@ from urllib.parse import urlsplit
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QDateTime, QTimer, Slot, QPropertyAnimation, QEasingCurve
 from app.utils.shortcuts import shortcut, shortcut_label
 from PySide6.QtGui import QShortcut, QKeySequence
-from PySide6.QtWidgets import (QCheckBox,QComboBox,QDialog,QDateTimeEdit,QFormLayout,QHBoxLayout,QLabel,QLineEdit,QMessageBox,QPlainTextEdit,QPushButton,QScrollArea,QVBoxLayout,QWidget)
+from PySide6.QtWidgets import (QCheckBox,QComboBox,QDialog,QDateTimeEdit,QFormLayout,QHBoxLayout,QLabel,QLineEdit,QMessageBox,QPlainTextEdit,QPushButton,QScrollArea,QVBoxLayout,QWidget,QTabWidget)
 from app.services.memory_store import MemoryStore
 from app.widgets.companion_mascot import companion_icon
 
 _ACTIVE_DIALOGS=set()
 DEFAULT_CONFIG={'provider':'ollama','base_url':'http://127.0.0.1:11434','model':'qwen3:4b','embedding_model':'qwen3-embedding:0.6b',
-                'runtime_root':'','ai_pack_path':'','onboarding_seen':False}
+                'runtime_root':'','ai_pack_path':'','onboarding_seen':False,'managed_pack':False}
 
 
 def _engine_factory(path):
@@ -45,6 +45,7 @@ def validate_config(config):
         if not isinstance(result[key],str) or len(result[key])>4096 or '\x00' in result[key]:
             raise ValueError('Проверьте путь к ИИ-комплекту.')
     if type(result['onboarding_seen']) is not bool:raise ValueError('Неверный статус первой настройки.')
+    if type(result['managed_pack']) is not bool:raise ValueError('Неверный статус ИИ-комплекта.')
     return result
 
 
@@ -78,7 +79,7 @@ class _RequestThread(QThread):
                 if warning:self.advisory.emit(self.request_id,warning)
             if self.kind in ('detect','pack','pull'):
                 from app.services.ai_onboarding import ModelManager
-                manager=ModelManager(self.config)
+                manager=ModelManager({**self.config,'_managed_root':str(Path(self.path).parent/'ai_packs')})
                 if self.kind=='pack':response=manager.connect_pack(self.query,self.cancel_event)
                 elif self.kind=='pull':response=manager.pull_missing(self.cancel_event,lambda value:self.progress.emit(self.request_id,value))
                 else:response=manager.detect(self.cancel_event)
@@ -239,7 +240,7 @@ class CompanionDialog(QDialog):
         self._welcome()
 
     @property
-    def busy(self):return self._thread is not None or getattr(self,'_pending_render',False) or bool(self._onboarding_dialog and self._onboarding_dialog.busy)
+    def busy(self):return getattr(self,'_pending_pack_probe',False) or self._thread is not None or getattr(self,'_pending_render',False) or bool(self._onboarding_dialog and self._onboarding_dialog.busy) or bool(self._settings_dialog and getattr(self._settings_dialog,'pack_tab',None) and self._settings_dialog.pack_tab.busy)
 
     def showEvent(self,event):
         super().showEvent(event)
@@ -676,6 +677,8 @@ class CompanionDialog(QDialog):
             if memory:memory.close()
 
     def cancel(self):
+        if self._settings_dialog and getattr(self._settings_dialog,'pack_tab',None) and self._settings_dialog.pack_tab.busy:
+            self._settings_dialog.pack_tab.cancel();return
         if self._onboarding_dialog and self._onboarding_dialog.busy:
             self._onboarding_dialog.cancel();return
         if not self.busy:return
@@ -706,11 +709,15 @@ class CompanionDialog(QDialog):
     def request_close(self):self.close()
 
     def closeEvent(self,event):
+        self._pending_pack_probe=False
         if self.metrics_collector is not None and self._metrics_identity is not None:
             self.metrics_collector.abort(self._metrics_identity);self._metrics_identity=None
         self._discard_stream_preview()
         self._set_typing(False)
         self._scroll_animation.stop()
+        if self._settings_dialog and getattr(self._settings_dialog,'pack_tab',None) and self._settings_dialog.pack_tab.busy:
+            self._closing=True;_ACTIVE_DIALOGS.add(self);self._settings_dialog.close()
+            self.hide();event.ignore();return
         if self._onboarding_dialog and self._onboarding_dialog.busy:
             self._closing=True;_ACTIVE_DIALOGS.add(self)
             self._onboarding_dialog.close()
@@ -729,8 +736,24 @@ class CompanionDialog(QDialog):
         if self.busy:return
         if self._settings_dialog and self._settings_dialog.isVisible():self._settings_dialog.raise_();return
         if self._settings_dialog:self._settings_dialog.deleteLater();self._settings_dialog=None
-        dialog=QDialog(self);dialog.setWindowTitle('Локальный помощник');dialog.setMinimumWidth(460)
-        outer=QVBoxLayout(dialog)
+        from app.widgets.ai_pack_settings import AIPackSettingsDialog,AIPackSettingsTab
+        from app.services.ai_pack_manager import AIPackManager
+        dialog=AIPackSettingsDialog(self);dialog.setWindowTitle('Локальный помощник');dialog.setMinimumWidth(460)
+        shell=QVBoxLayout(dialog);tabs=QTabWidget();shell.addWidget(tabs)
+        connection=QWidget();outer=QVBoxLayout(connection);tabs.addTab(connection,'Подключение')
+        pack_tab=AIPackSettingsTab(AIPackManager(self.database_path.parent/'ai_packs',self.config),dialog)
+        dialog.pack_tab=pack_tab;tabs.addTab(pack_tab,'Модели приложения')
+        pack_tab.idle.connect(dialog.finish_pending_close)
+        def pack_idle():
+            if self._closing and not self.busy:self.close();self.shutdown_ready.emit()
+        pack_tab.idle.connect(pack_idle)
+        def configured(config):
+            try:self._save_config(config)
+            except (OSError,ValueError) as error:pack_tab.status.setText(str(error));return
+            self._history=[];self._pending_query='';self._clear_sources();self._clear_draft();self._welcome()
+            model.setText(self.config['model']);address.setText(self.config['base_url'])
+            provider.setCurrentIndex(max(0,provider.findData(self.config['provider'])))
+        pack_tab.configured.connect(configured)
         heading=QLabel('Настройка локального ИИ');heading.setStyleSheet('font-size:18px;font-weight:600;');outer.addWidget(heading)
         explanation=QLabel('Поиск по заметкам работает сразу, даже без ИИ-комплекта. Для разговора и поиска по смыслу нужен отдельный готовый комплект моделей. '
                            'Подключите папку с распакованным комплектом или скачайте модели через мастер настройки. '
@@ -746,12 +769,24 @@ class CompanionDialog(QDialog):
         dialog.result_label=QLabel('Комплект ещё не проверен. Модель разговора: '+self.config['model']+'. Модель памяти: '+self.config['embedding_model']+'.');dialog.result_label.setTextFormat(Qt.PlainText);dialog.result_label.setWordWrap(True);outer.addWidget(dialog.result_label)
         if self._connection_status:dialog.result_label.setText(self.connection_banner.text())
         buttons=QHBoxLayout();probe=QPushButton('Проверить ИИ-комплект');save=QPushButton('Сохранить');close=QPushButton('Закрыть');buttons.addWidget(probe);buttons.addStretch();buttons.addWidget(save);buttons.addWidget(close);outer.addLayout(buttons)
-        def fields():return validate_config({**self.config,'provider':provider.currentData(),'model':model.text(),'base_url':address.text()})
+        def fields():
+            values={**self.config,'provider':provider.currentData(),'model':model.text(),'base_url':address.text()}
+            if model.text().strip()!=self.config['model'] or address.text().strip().rstrip('/')!=self.config['base_url']:
+                values['managed_pack']=False;values['ai_pack_path']='';values['runtime_root']=''
+            return validate_config(values)
         def apply():
+            if pack_tab.busy:return
             try:self._save_config(fields())
             except (OSError,ValueError) as error:dialog.result_label.setText(str(error));return
             self.status.setText('Настройки сохранены.');dialog.close()
         def check():
+            if pack_tab.busy:
+                if pack_tab._worker.operation=='scan' and not getattr(self,'_pending_pack_probe',False):
+                    self._pending_pack_probe=True
+                    pack_tab.idle.connect(check,Qt.SingleShotConnection)
+                return
+            self._pending_pack_probe=False
+            if self._closing:return
             try:config=fields()
             except ValueError as error:dialog.result_label.setText(str(error));return
             if self._start(kind='status',config=config):dialog.result_label.setText('Проверяю модель…')

@@ -61,6 +61,13 @@ def resource_advisory():
 
 def ensure_runtime(client,cancel_event=None,runtime_root=None):
     global _process
+    from app.services.ai_pack_runtime import ManagedPackRuntime, PackRuntimeError
+    managed=getattr(client,'managed_runtime',None)
+    if isinstance(managed,ManagedPackRuntime):
+        from app.services.local_ai import LocalAIError
+        try:client.base_url=managed.ensure(cancel_event)
+        except PackRuntimeError as error:raise LocalAIError(str(error)) from error
+        return True
     override=runtime_root or getattr(client,'runtime_root',None)
     if not isinstance(override,(str,os.PathLike)):
         if runtime_root is not None:raise ValueError('Проверьте путь к ИИ-комплекту.')

@@ -128,6 +128,8 @@ class AIOnboardingWizard(QDialog):
             self.config=dict(self._pending_config)
             self.config['provider']='ollama'
             if status.get('runtime_root'):self.config['runtime_root']=status['runtime_root']
+            if status.get('managed_pack'):
+                self.config['managed_pack']=True;self.config['base_url']=status['base_url']
         self._apply_status(status)
 
     def _finished(self):
@@ -148,7 +150,7 @@ class AIOnboardingWizard(QDialog):
     def cancel(self):
         if self._thread:
             self._thread.cancel_event.set();self.cancel_button.setEnabled(False)
-            self.status_label.setText('Отменяю операцию. Уже загруженные части могут остаться в Ollama для продолжения.')
+            self.status_label.setText('Отменяю операцию. Новые неполные файлы комплекта будут очищены после остановки загрузки.')
 
     def skip(self):
         if self.busy:
