@@ -9,6 +9,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
+import sys
 import uuid
 
 
@@ -40,20 +41,49 @@ class AIPackStorage:
         self._operations = {}
 
     @staticmethod
-    def _links(path):
+    def _links(path, *, allow_system_alias=False):
         try:
             info = path.lstat()
         except FileNotFoundError:
             return
         if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
+            if allow_system_alias and AIPackStorage._darwin_system_alias(path, info):
+                return
             raise StorageSafetyError('Links and Windows reparse points are forbidden')
+
+    @staticmethod
+    def _darwin_system_alias(path, info):
+        """Accept only Apple's root-owned /var -> /private/var alias.
+
+        Verify the literal target and every target ancestor without following
+        additional links. User-controlled aliases never receive this exception.
+        """
+        if sys.platform != 'darwin' or path != Path('/var'):
+            return False
+        if not stat.S_ISLNK(info.st_mode) or getattr(info, 'st_uid', None) != 0:
+            return False
+        try:
+            target = os.readlink(path)
+            if target not in ('private/' + path.name, '/private/' + path.name):
+                return False
+            destination = Path('/private') / path.name
+            for directory in (destination, *destination.parents):
+                metadata = directory.lstat()
+                if (not stat.S_ISDIR(metadata.st_mode)
+                        or getattr(metadata, 'st_uid', None) != 0
+                        or metadata.st_mode & 0o022):
+                    return False
+        except OSError:
+            return False
+        return True
 
     def _safe(self, path):
         path = Path(path)
         if not path.is_absolute():
             path = self.root / path
         for ancestor in (path, *path.parents):
-            self._links(ancestor)
+            self._links(ancestor, allow_system_alias=(ancestor != self.root
+                        and self.root.is_relative_to(ancestor)))
         if not path.resolve().is_relative_to(self.root.resolve()):
             raise StorageSafetyError('Path is outside managed storage')
         return path
