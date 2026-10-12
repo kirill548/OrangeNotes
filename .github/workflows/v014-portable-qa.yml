@@ -1,6 +1,13 @@
 name: v0.1.4 native portable STT and packages
 on:
   workflow_dispatch:
+  push:
+    branches: [ci/v014-dev]
+    paths:
+      - .github/workflows/v014-portable-qa.yml
+      - app/services/stt_installer.py
+      - tools/stt_native_smoke.py
+      - tools/build.py
 permissions:
   contents: read
 jobs:
