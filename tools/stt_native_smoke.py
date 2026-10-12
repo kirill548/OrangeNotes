@@ -45,7 +45,8 @@ def main():
         raise
     finally:
         args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    # Hosted Windows stdout may use cp1252; keep the console report portable.
+    print(json.dumps(report, ensure_ascii=True, indent=2))
 
 
 if __name__ == '__main__':
