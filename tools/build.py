@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import argparse
+import plistlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +39,12 @@ def prepare_bundle(folder, target=None):
     component_root = folder / 'Contents/MacOS' if target == 'darwin' else folder
     for component in ('ai', 'stt'):
         (component_root / component).mkdir(parents=True, exist_ok=True)
+    if target == 'darwin':
+        plist_path = folder / 'Contents/Info.plist'
+        metadata = plistlib.loads(plist_path.read_bytes()) if plist_path.exists() else {}
+        metadata['NSMicrophoneUsageDescription'] = (
+            'Микрофон нужен для голосового ввода заметок. Аудио распознаётся на Вашем компьютере.')
+        plist_path.write_bytes(plistlib.dumps(metadata))
     shutil.copy2(ROOT / 'DISTRIBUTION.md', resources / 'README.txt')
     licenses = ROOT / 'licenses'
     if licenses.exists():

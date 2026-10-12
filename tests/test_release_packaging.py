@@ -2,6 +2,7 @@
 import importlib.util
 import tempfile
 import unittest
+import plistlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -38,6 +39,18 @@ class ReleasePackagingTests(unittest.TestCase):
         self.assertEqual(archive.call_args.args[1], 'gztar')
         self.assertIn('Terminal=false', (folder / 'OrangeNotes.desktop').read_text())
         self.assertTrue((folder / 'OrangeNotes.png').is_file())
+
+    def test_macos_microphone_purpose_preserves_existing_metadata(self):
+        folder = self.module.bundle_directory('darwin')
+        plist = folder / 'Contents/Info.plist'
+        plist.parent.mkdir(parents=True)
+        plist.write_bytes(plistlib.dumps({'CFBundleIdentifier': 'org.orangenotes.desktop',
+                                         'CFBundleVersion': '0.1.4'}))
+        self.module.prepare_bundle(folder, 'darwin')
+        metadata = plistlib.loads(plist.read_bytes())
+        self.assertEqual(metadata['CFBundleIdentifier'], 'org.orangenotes.desktop')
+        self.assertEqual(metadata['CFBundleVersion'], '0.1.4')
+        self.assertIn('Микрофон', metadata['NSMicrophoneUsageDescription'])
 
     def test_32_bit_runtime_rejected_before_any_build(self):
         with patch.object(self.module.sys, 'maxsize', 2**31 - 1), patch.object(self.module.subprocess, 'run') as run:
