@@ -34,3 +34,7 @@ htmlcov/
 *.key
 # Live benchmark outputs may contain private prompts/context
 ai_benchmark_live.json
+
+# Portable downloaded engines, model weights and private AI configuration
+/ai/
+/stt/

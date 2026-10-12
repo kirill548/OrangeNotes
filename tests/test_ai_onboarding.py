@@ -12,6 +12,14 @@ from app.services.local_ai import LocalAIError, LocalAICancelled
 
 
 class ModelSetupTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.app_root = Path(temporary.name)
+        (self.app_root / 'ai').mkdir()
+        guard = patch('app.services.app_paths.get_app_dir', return_value=self.app_root)
+        guard.start(); self.addCleanup(guard.stop)
+
     def test_detect_never_starts_or_pulls(self):
         manager = ModelManager({})
         with patch.object(manager.client, 'probe', return_value={'available': False, 'models': [], 'model_ready': False, 'error': 'offline'}), patch('app.services.ai_onboarding.ensure_runtime') as start, patch('app.services.ai_onboarding._pull') as pull:
@@ -63,19 +71,19 @@ class ModelSetupTests(unittest.TestCase):
 
     def test_connect_pack_accepts_parent_and_runtime_directory(self):
         manager = ModelManager({})
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(dir=self.app_root / 'ai') as tmp:
             root = Path(tmp); exe = root/'runtime/ollama/ollama.exe'; exe.parent.mkdir(parents=True); exe.touch()
             models = root/'runtime/models'; models.mkdir()
             for selected in (root, root/'runtime'):
                 with patch.object(manager.client, 'probe', return_value={'available': False}), patch('app.services.ai_onboarding.runtime_candidates', return_value=[(exe, models)]), patch('app.services.ai_onboarding.ensure_runtime', return_value=True) as start, patch.object(manager, 'detect', return_value={'available': True}):
                     result = manager.connect_pack(selected)
-                self.assertEqual(result['runtime_root'], str(root.resolve()))
+                self.assertEqual(result['runtime_root'], root.resolve().relative_to(self.app_root.resolve()).as_posix())
                 self.assertEqual(start.call_args.kwargs['runtime_root'], root.resolve())
 
     def test_pack_candidates_are_canonicalized_before_containment(self):
         import os
         manager = ModelManager({})
-        with tempfile.TemporaryDirectory(dir=Path.cwd()) as tmp:
+        with tempfile.TemporaryDirectory(dir=self.app_root / 'ai') as tmp:
             root = Path(tmp)
             exe = root/'runtime/ollama/ollama.exe'; exe.parent.mkdir(parents=True); exe.touch()
             models = root/'runtime/models'; models.mkdir()
@@ -83,11 +91,11 @@ class ModelSetupTests(unittest.TestCase):
             relative_models = Path(os.path.relpath(models, Path.cwd()))
             with patch.object(manager.client, 'probe', return_value={'available': False}), patch('app.services.ai_onboarding.runtime_candidates', return_value=[(relative_exe, relative_models)]), patch('app.services.ai_onboarding.ensure_runtime', return_value=True), patch.object(manager, 'detect', return_value={'available': True}):
                 result = manager.connect_pack(root)
-            self.assertEqual(result['runtime_root'], str(root.resolve()))
+            self.assertEqual(result['runtime_root'], root.resolve().relative_to(self.app_root.resolve()).as_posix())
 
     def test_pack_permission_error_is_actionable(self):
         manager = ModelManager({})
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(dir=self.app_root / 'ai') as tmp:
             root = Path(tmp); exe = root/'runtime/ollama/ollama.exe'; exe.parent.mkdir(parents=True); exe.touch()
             models = root/'runtime/models'; models.mkdir()
             with patch.object(manager.client, 'probe', return_value={'available': False}), patch('app.services.ai_onboarding.runtime_candidates', return_value=[(exe, models)]), patch('app.services.ai_onboarding.ensure_runtime', side_effect=PermissionError()), self.assertRaisesRegex(LocalAIError, 'правом записи'):
@@ -103,7 +111,7 @@ class ModelSetupTests(unittest.TestCase):
 
     def test_existing_server_never_claims_selected_pack_is_active(self):
         manager = ModelManager({})
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(dir=self.app_root / 'ai') as tmp:
             root = Path(tmp); exe = root/'runtime/ollama/ollama.exe'; exe.parent.mkdir(parents=True); exe.touch()
             models = root/'runtime/models'; models.mkdir()
             with patch.object(manager.client, 'probe', return_value={'available': True}), patch('app.services.ai_onboarding.runtime_candidates', return_value=[(exe, models)]), patch('app.services.ai_onboarding.ensure_runtime') as start, self.assertRaisesRegex(LocalAIError, 'уже запущен'):
@@ -120,7 +128,7 @@ class ModelSetupTests(unittest.TestCase):
 
     def test_bad_pack_never_starts_server(self):
         manager = ModelManager({})
-        with tempfile.TemporaryDirectory() as tmp, patch('app.services.ai_onboarding.ensure_runtime') as start, self.assertRaises(LocalAIError):
+        with tempfile.TemporaryDirectory(dir=self.app_root / 'ai') as tmp, patch('app.services.ai_onboarding.ensure_runtime') as start, self.assertRaises(LocalAIError):
             manager.connect_pack(tmp)
         start.assert_not_called()
 

@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 MARKER = '.orange-notes-install.json'
 PROTECTED = {'notes.db', 'notes.sqlite3', 'settings.json', 'ai_settings.json',
-             'ai_packs', 'models', 'ollama_profile', 'runtime'}
+             'ai_packs', 'models', 'ollama_profile', 'runtime', 'ai', 'stt'}
 
 
 def default_database_path():
@@ -242,7 +242,11 @@ def deploy_bundle(bundle, target, platform_name=None, *, verify=None):
         if any(not name.startswith(prefix) for name in actual):
             raise ValueError('Unexpected files outside previous bundle')
         previous_inventory = [name[len(prefix):] for name in actual]
-        if previous.get('version') != 1 or actual != sorted(expected) or _payload_contains_user_data(package / previous_bundle, previous_inventory):
+        mutable_prefixes = (previous_bundle + '/ai/', previous_bundle + '/stt/', previous_bundle + '/Contents/MacOS/ai/', previous_bundle + '/Contents/MacOS/stt/')
+        immutable_actual = [name for name in actual if not name.startswith(mutable_prefixes)]
+        immutable_expected = [name for name in sorted(expected) if not name.startswith(mutable_prefixes)]
+        immutable_inventory = [name[len(prefix):] for name in immutable_actual]
+        if previous.get('version') != 1 or immutable_actual != immutable_expected or _payload_contains_user_data(package / previous_bundle, immutable_inventory):
             raise ValueError('Managed package contains unexpected files; move user data outside package/ first')
     elif marker.exists():
         raise ValueError('Incomplete install manifest; inspect target before updating')
@@ -256,6 +260,20 @@ def deploy_bundle(bundle, target, platform_name=None, *, verify=None):
         if _files(stage) != [bundle.name + '/' + name for name in inventory]:
             raise RuntimeError('Staged inventory verification failed')
         if package.exists():
+            old_root = package / previous_bundle
+            relative_root = Path('Contents/MacOS') if platform_name == 'darwin' else Path('.')
+            for component in ('ai', 'stt'):
+                old_component = old_root / relative_root / component
+                new_component = stage / bundle.name / relative_root / component
+                if old_component.exists():
+                    if old_component.is_symlink() or getattr(old_component, 'is_junction', lambda: False)():
+                        raise ValueError('Portable components must not be linked')
+                    if any(path.is_symlink() or getattr(path, 'is_junction', lambda: False)() for path in old_component.rglob('*')):
+                        raise ValueError('Portable components must not contain links')
+                    _files(old_component)  # Reject symlinks/junctions before any copy.
+                    if new_component.exists() and any(new_component.iterdir()):
+                        raise ValueError('New build must not overwrite portable components')
+                    shutil.copytree(old_component, new_component, dirs_exist_ok=True)
             package.rename(backup)
         stage.rename(package)
         swapped = True

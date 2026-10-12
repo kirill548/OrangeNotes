@@ -55,6 +55,20 @@ class LocalDeploymentTests(unittest.TestCase):
         for name, value in preserved.items():
             self.assertEqual((self.target / name).read_bytes(), value)
 
+    def test_update_preserves_portable_components(self):
+        installed = self.install()
+        values = {'ai/ai_settings.json': b'{"runtime_root":"ai"}',
+                  'ai/models/model.bin': b'weights', 'stt/whisper-cli.exe': b'engine',
+                  'stt/ggml-tiny.bin': b'voice weights'}
+        for name, value in values.items():
+            path = installed / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(value)
+        (self.source / 'OrangeNotes.exe').write_bytes(b'updated executable')
+        self.install()
+        for name, value in values.items():
+            self.assertEqual((installed / name).read_bytes(), value)
+
     def test_unmanaged_existing_package_is_never_overwritten(self):
         existing = self.target / 'package'
         existing.mkdir()

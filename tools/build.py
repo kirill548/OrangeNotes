@@ -35,6 +35,9 @@ def prepare_bundle(folder, target=None):
     target = target or sys.platform
     resources = folder / 'Contents/Resources' if target == 'darwin' else folder
     resources.mkdir(parents=True, exist_ok=True)
+    component_root = folder / 'Contents/MacOS' if target == 'darwin' else folder
+    for component in ('ai', 'stt'):
+        (component_root / component).mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / 'DISTRIBUTION.md', resources / 'README.txt')
     licenses = ROOT / 'licenses'
     if licenses.exists():

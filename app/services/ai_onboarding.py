@@ -5,6 +5,7 @@ import time
 
 from app.services.local_ai import OllamaClient, LocalAIError
 from app.services.local_runtime import ensure_runtime, runtime_candidates
+from app.services.app_paths import ai_dir, resolve_app_path, portable_app_path
 
 REQUIRED_MODELS = ('qwen3:4b', 'qwen3-embedding:0.6b')
 SETUP_TIMEOUT = 30 * 60
@@ -135,7 +136,12 @@ class ModelManager:
                 'transport': 'NDJSON stream=true'}
 
     def connect_pack(self, path, cancel_event=None):
-        root = Path(path).expanduser().resolve()
+        try:
+            root = resolve_app_path(Path(path).expanduser()).resolve()
+            if not root.is_relative_to(ai_dir().resolve()):
+                raise ValueError('outside AI directory')
+        except ValueError as exc:
+            raise LocalAIError('Перенесите ИИ-комплект в папку ai внутри приложения и выберите эту папку.') from exc
         if root.name == 'runtime':
             root = root.parent
         candidates = [(Path(exe).resolve(), Path(models).resolve()) for exe, models in runtime_candidates(root)]
@@ -153,7 +159,7 @@ class ModelManager:
         if not started:
             self.client._check_cancel(cancel_event)
             raise LocalAIError('Не удалось запустить ИИ-комплект. Проверьте права папки и совместимость ОС.')
-        self.runtime_root = str(root)
+        self.runtime_root = portable_app_path(root)
         return {**self.detect(cancel_event), 'runtime_root': self.runtime_root}
 
     def pull_missing(self, cancel_event=None, progress=None):

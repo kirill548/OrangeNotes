@@ -178,13 +178,17 @@ class AIPackSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.pack_tab = None
+        self.stt_tab = None
         self._close_pending = False
 
     def reject(self): self.close()
 
     def closeEvent(self, event):
-        if self.pack_tab and self.pack_tab.busy:
-            self._close_pending = True; self.pack_tab.cancel(); event.ignore()
+        busy_tabs = [tab for tab in (self.pack_tab, self.stt_tab) if tab and tab.busy]
+        if busy_tabs:
+            self._close_pending = True
+            for tab in busy_tabs:tab.cancel()
+            event.ignore()
         else:
             self._close_pending=False
             event.accept()

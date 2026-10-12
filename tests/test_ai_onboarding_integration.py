@@ -122,7 +122,8 @@ class OnboardingIntegrationTests(unittest.TestCase):
         dialog = self.dialog()
         wizard = self.wizard(dialog)
         self.status.update(available=True, model_ready=True, embedding_ready=True, missing_models=[])
-        pack = str(Path(self.temp.name) / 'AI-pack')
+        from app.services.app_paths import ai_dir, portable_app_path
+        pack = str(ai_dir() / 'AI-pack')
         wizard.pack_path.setText(pack)
         wizard.pack_button.click()
         self.wait(lambda: not wizard.busy)
@@ -130,7 +131,7 @@ class OnboardingIntegrationTests(unittest.TestCase):
         self.assertFalse(dialog.settings_path.exists())
         wizard.finish_button.click()
         saved = json.loads(dialog.settings_path.read_text(encoding='utf-8'))
-        self.assertEqual(saved['ai_pack_path'], pack)
+        self.assertEqual(saved['ai_pack_path'], portable_app_path(pack))
         self.assertTrue(saved['onboarding_seen'])
         self.assertEqual(saved['provider'], 'ollama')
         self.assertIn('ИИ подключён', dialog.status.text())

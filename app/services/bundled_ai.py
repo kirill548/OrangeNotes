@@ -10,6 +10,7 @@ import tempfile
 
 from app.services.ai_pack_storage import AIPackStorage
 from app.services.runtime_profiles import RUNTIME_PROFILES
+from app.services.app_paths import portable_app_path
 
 MANIFEST = 'bundle_manifest.json'
 
@@ -118,7 +119,7 @@ _RESUME_MARKER='.notes-complete-seed'
 def _complete_config(manifest, destination):
     return {'provider':'ollama', 'model':manifest['model'], 'managed_pack':True,
             'runtime_profile':manifest.get('runtime_profile', 'default'),
-            'runtime_root':str(destination), 'ai_pack_path':str(destination),
+            'runtime_root':portable_app_path(destination), 'ai_pack_path':portable_app_path(destination),
             'onboarding_seen':True, 'base_url':'http://127.0.0.1:11434',
             'embedding_model':manifest.get('embedding_model', 'qwen3-embedding:0.6b')}
 
@@ -152,7 +153,7 @@ def _resume_complete(manifest, destination, cancel_event):
 def install_complete_seed(seed, data_root, cancel_event=None):
     """Run in a worker. Never overwrite user configuration or an existing store."""
     manifest = validate_pack(seed,cancel_event=cancel_event)
-    destination = Path(data_root)/'ai_packs'
+    destination = Path(data_root)/'ai'
     safety = AIPackStorage(destination)
     safety._safe(destination)
     if cancel_event is not None and cancel_event.is_set():

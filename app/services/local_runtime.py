@@ -7,6 +7,7 @@ import threading
 import time
 import platform
 import re
+from app.services.app_paths import get_app_dir, ai_dir, resolve_app_path
 
 _lock=threading.Lock()
 _process=None
@@ -24,7 +25,7 @@ def runtime_candidates(root, target=None, machine=None):
     else:
         return []  # Never launch an incompatible x64 binary on an unknown CPU.
     names=['ollama.exe'] if target=='win32' else ([f'ollama-darwin-{arch}','ollama'] if target=='darwin' else [f'ollama-linux-{arch}','ollama'])
-    roots=[root/'runtime']
+    roots=[root/'ai/runtime', root/'runtime']
     if target=='darwin' and root.name=='MacOS':roots.insert(0,root.parent/'Resources/runtime')
     if not getattr(sys,'frozen',False) and len(root.parents)>1:roots.append(root.parents[1]/'work')
     return [(r/'ollama'/name,r/('ai_models' if r.name=='work' else 'models')) for r in roots for name in names]
@@ -76,14 +77,22 @@ def ensure_runtime(client,cancel_event=None,runtime_root=None):
         return not bool(runtime_root)
     if client.base_url!='http://127.0.0.1:11434':
         return False
-    root=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else Path(__file__).resolve().parents[2]
+    root=ai_dir()
     if override:
-        root=Path(override).resolve()
+        root=resolve_app_path(override).resolve()
         if root.name=='runtime':root=root.parent
     candidates=runtime_candidates(root)
-    if override:
-        candidates=[(Path(exe).resolve(),Path(models).resolve()) for exe,models in candidates]
-        candidates=[(exe,models) for exe,models in candidates if exe.is_relative_to(root) and models.is_relative_to(root)]
+    safe_candidates=[]
+    boundary=ai_dir().resolve()
+    for executable, model_directory in candidates:
+        try:
+            executable=resolve_app_path(executable).resolve()
+            model_directory=resolve_app_path(model_directory).resolve()
+        except ValueError:
+            continue
+        if executable.is_relative_to(boundary) and model_directory.is_relative_to(boundary):
+            safe_candidates.append((executable,model_directory))
+    candidates=safe_candidates
     selected=next(((exe,models) for exe,models in candidates if exe.is_file()),None)
     if not selected:
         return False

@@ -13,6 +13,7 @@ import urllib.request
 from app.services.ai_pack_storage import AIPackStorage
 from app.services.local_runtime import runtime_candidates
 from app.services.runtime_profiles import runtime_environment
+from app.services.app_paths import get_app_dir, resolve_app_path
 
 
 class PackRuntimeError(RuntimeError):
@@ -97,9 +98,7 @@ class ManagedPackRuntime:
         runtime_environment({}, runtime_profile)
         self.runtime_profile = runtime_profile
         self.root = Path(os.path.abspath(os.fspath(root)))
-        self.runtime_root = Path(runtime_root) if runtime_root is not None else (
-            Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False)
-            else Path(__file__).resolve().parents[2])
+        self.runtime_root = resolve_app_path(runtime_root) if runtime_root is not None else self.root
         self._key = os.path.normcase(str(self.root.resolve()))
 
     def _check(self):

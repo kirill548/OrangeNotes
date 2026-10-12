@@ -6,8 +6,23 @@ from .local_stt import MAX_PCM_BYTES, SAMPLE_RATE, WhisperCppAdapter
 
 try:
     from PySide6.QtMultimedia import QAudioFormat, QAudioSource, QMediaDevices
-except ImportError:
+except (ImportError, OSError):
     QAudioFormat = QAudioSource = QMediaDevices = None
+
+
+def audio_diagnostics():
+    """Worker-safe capability report; no recording or permission request."""
+    if QMediaDevices is None or QAudioSource is None:
+        return dict(backend_available=False, microphone_available=False,
+                    message='Аудиокомпоненты недоступны в этой сборке. Можно ввести текст вручную.')
+    try:
+        microphone = QMediaDevices.defaultAudioInput()
+        available = not microphone.isNull()
+        return dict(backend_available=True, microphone_available=available,
+                    message='Микрофон доступен' if available else 'Микрофон не найден или отключён. Можно ввести текст вручную.')
+    except (ImportError, OSError, RuntimeError):
+        return dict(backend_available=False, microphone_available=False,
+                    message='Не удалось получить доступ к микрофону. Проверьте аудиоустройства и разрешение на запись.')
 
 
 class VoiceInputController(QObject):
@@ -96,7 +111,12 @@ class VoiceInputController(QObject):
 
     def _audio_state(self, _state):
         if self._source is not None and self._state == 'recording':
-            error = self._source.error()
+            try:
+                error = self._source.error()
+            except (RuntimeError, OSError):
+                self.cancel()
+                self.error.emit('Запись прервалась. Проверьте микрофон и разрешение на запись.')
+                return
             # Enum comparison via value keeps compatibility across Qt releases.
             if getattr(error, 'value', 0) != 0:
                 self.cancel()
@@ -106,7 +126,13 @@ class VoiceInputController(QObject):
         if self._device is None or self._state != 'recording':
             return
         remaining = MAX_PCM_BYTES - len(self._pcm)
-        self._pcm.extend(bytes(self._device.read(min(65536, remaining))))
+        try:
+            chunk = bytes(self._device.read(min(65536, remaining)))
+        except (RuntimeError, OSError):
+            self.cancel()
+            self.error.emit('Запись прервалась. Проверьте микрофон и разрешение на запись.')
+            return
+        self._pcm.extend(chunk[:remaining])
         if len(self._pcm) >= MAX_PCM_BYTES:
             self.stop()
 
@@ -120,8 +146,14 @@ class VoiceInputController(QObject):
             except (RuntimeError, TypeError):
                 pass
         if source is not None:
-            source.stop()
-            source.deleteLater()
+            try:
+                source.stop()
+            except (RuntimeError, OSError):
+                pass
+            try:
+                source.deleteLater()
+            except RuntimeError:
+                pass
 
     def stop(self):
         if self._state != 'recording':
@@ -129,7 +161,12 @@ class VoiceInputController(QObject):
         # Drain what is already available, bounded independently of device claims.
         if self._device is not None:
             remaining = MAX_PCM_BYTES - len(self._pcm)
-            self._pcm.extend(bytes(self._device.read(remaining)))
+            try:
+                self._pcm.extend(bytes(self._device.read(remaining))[:remaining])
+            except (RuntimeError, OSError):
+                self.cancel()
+                self.error.emit('Запись прервалась. Проверьте микрофон и разрешение на запись.')
+                return
         self._release_audio()
         pcm = bytes(self._pcm[:len(self._pcm) // 2 * 2])
         self._pcm.clear()

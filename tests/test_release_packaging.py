@@ -26,6 +26,8 @@ class ReleasePackagingTests(unittest.TestCase):
             archive = self.module.package_bundle(folder, 'darwin')
         self.assertEqual(folder.name, 'OrangeNotes.app')
         self.assertTrue((folder / 'Contents/Resources/README.txt').is_file())
+        self.assertTrue((folder / 'Contents/MacOS/ai').is_dir())
+        self.assertTrue((folder / 'Contents/MacOS/stt').is_dir())
         self.assertEqual(run.call_args.args[0][:3], ['ditto', '-c', '-k'])
         self.assertTrue(archive.endswith('.zip'))
 
@@ -49,7 +51,7 @@ class ReleasePackagingTests(unittest.TestCase):
         with patch.object(self.module.shutil, 'make_archive'):
             self.module.package_bundle(folder, 'win32')
         self.assertFalse((folder / 'private.sqlite3').exists())
-        self.assertEqual(sorted(p.name for p in folder.iterdir()), ['README.txt'])
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ['README.txt', 'ai', 'stt'])
 
 
 if __name__ == '__main__':

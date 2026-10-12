@@ -8,6 +8,19 @@ import pytest
 from app.services.local_stt import MAX_PCM_BYTES, STTError, WhisperCppAdapter
 
 
+def test_component_paths_survive_application_relocation(tmp_path, monkeypatch):
+    from app.services import app_paths
+    first = tmp_path / 'first'
+    second = tmp_path / 'second'
+    monkeypatch.setattr(app_paths, 'get_app_dir', lambda: first)
+    stored = app_paths.portable_app_path(app_paths.stt_dir() / 'ggml-tiny.bin')
+    assert stored == 'stt/ggml-tiny.bin'
+    assert app_paths.ai_dir() == first / 'ai'
+    monkeypatch.setattr(app_paths, 'get_app_dir', lambda: second)
+    assert app_paths.resolve_app_path(stored) == second / 'stt/ggml-tiny.bin'
+    assert app_paths.ai_dir() == second / 'ai'
+
+
 def test_packaging_collects_qt_multimedia_hook():
     source = (Path(__file__).resolve().parents[1] / 'tools/build.py').read_text(encoding='utf-8')
     tree = ast.parse(source)
@@ -53,3 +66,22 @@ def test_invalid_pcm_never_launches_engine(tmp_path, pcm, monkeypatch):
     monkeypatch.setattr('app.services.local_stt.subprocess.Popen', forbidden)
     with pytest.raises(STTError, match='неверный формат'):
         WhisperCppAdapter(engine, model).transcribe(pcm)
+
+
+def test_installed_components_remain_ready_after_whole_folder_move(tmp_path):
+    import shutil
+    from app.services.stt_installer import STTManager
+    source = tmp_path / 'selected'
+    source.mkdir()
+    engine = source / 'whisper-cli'
+    model = source / 'tiny.bin'
+    engine.write_bytes(b'engine fixture')
+    model.write_bytes(b'model fixture')
+    original = tmp_path / 'Orange Notes'
+    manager = STTManager(original / 'stt')
+    assert manager.save_manual_paths(engine, model)['ready']
+    relocated = tmp_path / 'Перенесённая папка'
+    shutil.move(str(original), str(relocated))
+    moved = STTManager(relocated / 'stt')
+    assert moved.status()['ready']
+    assert all(path.is_relative_to(relocated) for path in moved.component_paths())

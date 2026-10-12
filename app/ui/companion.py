@@ -17,6 +17,7 @@ from app.services.memory_store import MemoryStore
 from app.widgets.companion_mascot import companion_icon
 from app.utils.app_icon import application_icon
 from app.services.audio_capture import VoiceInputController
+from app.services.app_paths import get_app_dir, ai_dir, stt_dir, resolve_app_path, portable_app_path, check_app_writable
 
 
 class _AssistantAvatarMargin(QWidget):
@@ -118,7 +119,7 @@ class _RequestThread(QThread):
             if self.kind in ('detect','pack','pull'):
                 from app.services.ai_onboarding import ModelManager
                 bundled_config=None
-                if (self.kind=='detect' and not (Path(self.path).parent/'ai_settings.json').exists()
+                if (self.kind=='detect' and not (ai_dir()/'ai_settings.json').exists()
                     and not self.config.get('runtime_root') and not self.config.get('managed_pack')
                     and not self.config.get('ai_pack_path')
                     and self.config.get('base_url','http://127.0.0.1:11434')=='http://127.0.0.1:11434'):
@@ -130,12 +131,12 @@ class _RequestThread(QThread):
                         executable_root=Path(sys.executable).parent
                         seed=find_complete_seed(executable_root.parent.parent if sys.platform=='darwin' else executable_root,cancel_event=self.cancel_event)
                     if seed is not None:
-                        bundled_config=install_complete_seed(seed[0],Path(self.path).parent,self.cancel_event)
+                        bundled_config=install_complete_seed(seed[0],get_app_dir(),self.cancel_event)
                         from app.services.ai_pack_runtime import ManagedPackRuntime
-                        runtime=ManagedPackRuntime(Path(self.path).parent/'ai_packs',bundled_config['runtime_root'])
+                        runtime=ManagedPackRuntime(ai_dir(),bundled_config['runtime_root'])
                         bundled_config['base_url']=runtime.ensure(self.cancel_event)
                         self.config={**self.config,**bundled_config}
-                manager=ModelManager({**self.config,'_managed_root':str(Path(self.path).parent/'ai_packs')})
+                manager=ModelManager({**self.config,'_managed_root':str(ai_dir())})
                 if self.kind=='pack':response=manager.connect_pack(self.query,self.cancel_event)
                 elif self.kind=='pull':response=manager.pull_missing(self.cancel_event,lambda value:self.progress.emit(self.request_id,value))
                 else:response=manager.detect(self.cancel_event)
@@ -199,7 +200,7 @@ class CompanionDialog(QDialog):
         self._closing=False
         self._settings_dialog=None
         self.source_buttons=[]
-        self.settings_path=self.database_path.parent/'ai_settings.json'
+        self.settings_path=ai_dir()/'ai_settings.json'
         self.config=self._load_config()
         self._sync_metrics_config()
         self._pending_config=dict(self.config)
@@ -315,8 +316,10 @@ class CompanionDialog(QDialog):
         self.microphone_button=QPushButton('🎙');self.microphone_button.setAccessibleName('Голосовой ввод');self.microphone_button.setFixedWidth(48)
         self.microphone_button.setToolTip('Надиктовать текст. Запись остаётся на компьютере. Нажмите ещё раз, чтобы распознать; «Отменить» — чтобы удалить запись.')
         self.microphone_button.clicked.connect(self._toggle_voice);voice_row.addWidget(self.microphone_button);layout.addLayout(voice_row)
-        stt_root=self.database_path.parent/'stt'
-        self.voice_input=VoiceInputController(parent=self,model_path=stt_root/'ggml-tiny.bin',executable_path=stt_root/('whisper-cli.exe' if os.name=='nt' else 'whisper-cli'))
+        from app.services.stt_installer import STTManager
+        self.stt_manager=STTManager(stt_dir())
+        executable,voice_model=self.stt_manager.component_paths()
+        self.voice_input=VoiceInputController(parent=self,model_path=voice_model,executable_path=executable)
         self.voice_input.text_ready.connect(self._voice_text_ready)
         self.voice_input.state_changed.connect(self._voice_state_changed)
         self.voice_input.error.connect(self._voice_error)
@@ -340,6 +343,11 @@ class CompanionDialog(QDialog):
         if self._voice_active:
             self.voice_input.stop();return
         if self.busy:return
+        if getattr(self.voice_input,'adapter',None) is not None and not self.voice_input.adapter.available:
+            self.status.setText('Скачать голосовой ввод в папку приложения')
+            self.show_settings()
+            if self._settings_dialog:self._settings_dialog.tabs.setCurrentWidget(self._settings_dialog.stt_tab)
+            return
         self._voice_active=True;self._voice_discard=False;self._voice_scope=self.workspace_id
         self.send_button.setEnabled(False);self.cancel_button.setEnabled(True)
         try:self.voice_input.start()
@@ -375,7 +383,10 @@ class CompanionDialog(QDialog):
         if self._closing:self.close();self.shutdown_ready.emit();_ACTIVE_DIALOGS.discard(self)
 
     @property
-    def busy(self):return self._voice_active or getattr(self,'_pending_pack_probe',False) or self._thread is not None or getattr(self,'_pending_render',False) or bool(self._onboarding_dialog and self._onboarding_dialog.busy) or bool(self._settings_dialog and getattr(self._settings_dialog,'pack_tab',None) and self._settings_dialog.pack_tab.busy)
+    def busy(self):return self._voice_active or getattr(self,'_pending_pack_probe',False) or self._thread is not None or getattr(self,'_pending_render',False) or bool(self._onboarding_dialog and self._onboarding_dialog.busy) or self._settings_busy()
+
+    def _settings_busy(self):
+        return bool(self._settings_dialog and any(getattr(self._settings_dialog,name,None) and getattr(self._settings_dialog,name).busy for name in ('pack_tab','stt_tab')))
 
     def showEvent(self,event):
         super().showEvent(event)
@@ -458,15 +469,21 @@ class CompanionDialog(QDialog):
                 candidates=[root/'runtime/models',root.parents[1]/'work/ai_models']
                 if any((path/'manifests/registry.ollama.ai/library/qwen3/4b').is_file() for path in candidates):
                     validated['model']=DEFAULT_CONFIG['model']
+            for key in ('runtime_root','ai_pack_path'):
+                if validated[key]:validated[key]=str(resolve_app_path(validated[key]))
             return validated
         except (OSError,ValueError):return dict(DEFAULT_CONFIG)
 
     def _save_config(self,config):
         config=validate_config(config)
         temporary=None
+        persisted=dict(config)
+        for key in ('runtime_root','ai_pack_path'):
+            if persisted[key]:persisted[key]=portable_app_path(persisted[key])
         try:
+            check_app_writable(self.settings_path.parent)
             with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',prefix='.ai-settings-',suffix='.json',dir=self.settings_path.parent,delete=False) as handle:
-                temporary=Path(handle.name);json.dump(config,handle,ensure_ascii=False,indent=2)
+                temporary=Path(handle.name);json.dump(persisted,handle,ensure_ascii=False,indent=2)
             os.replace(temporary,self.settings_path);temporary=None
         finally:
             if temporary is not None:temporary.unlink(missing_ok=True)
@@ -919,8 +936,11 @@ class CompanionDialog(QDialog):
     def cancel(self):
         if self._voice_active:
             self._cancel_voice();self.status.setText('Запись отменена');return
-        if self._settings_dialog and getattr(self._settings_dialog,'pack_tab',None) and self._settings_dialog.pack_tab.busy:
-            self._settings_dialog.pack_tab.cancel();return
+        if self._settings_busy():
+            for name in ('pack_tab','stt_tab'):
+                tab=getattr(self._settings_dialog,name,None)
+                if tab and tab.busy:tab.cancel()
+            return
         if self._onboarding_dialog and self._onboarding_dialog.busy:
             self._onboarding_dialog.cancel();return
         if not self.busy:return
@@ -960,7 +980,7 @@ class CompanionDialog(QDialog):
         self._discard_stream_preview()
         self._set_typing(False)
         self._scroll_animation.stop()
-        if self._settings_dialog and getattr(self._settings_dialog,'pack_tab',None) and self._settings_dialog.pack_tab.busy:
+        if self._settings_busy():
             self._closing=True;_ACTIVE_DIALOGS.add(self);self._settings_dialog.close()
             self.hide();event.ignore();return
         if self._onboarding_dialog and self._onboarding_dialog.busy:
@@ -989,14 +1009,23 @@ class CompanionDialog(QDialog):
         from app.widgets.ai_pack_settings import AIPackSettingsDialog,AIPackSettingsTab
         from app.services.ai_pack_manager import AIPackManager
         dialog=AIPackSettingsDialog(self);dialog.setWindowTitle('Локальный помощник');dialog.setMinimumWidth(460)
-        shell=QVBoxLayout(dialog);tabs=QTabWidget();shell.addWidget(tabs)
+        shell=QVBoxLayout(dialog);tabs=QTabWidget();dialog.tabs=tabs;shell.addWidget(tabs)
         connection=QWidget();outer=QVBoxLayout(connection);tabs.addTab(connection,'Подключение')
-        pack_tab=AIPackSettingsTab(AIPackManager(self.database_path.parent/'ai_packs',self.config),dialog)
+        pack_tab=AIPackSettingsTab(AIPackManager(ai_dir(),self.config),dialog)
         dialog.pack_tab=pack_tab;tabs.addTab(pack_tab,'Модели приложения')
+        from app.ui.stt_settings import STTSettingsTab
+        stt_tab=STTSettingsTab(self.stt_manager,dialog);dialog.stt_tab=stt_tab;tabs.addTab(stt_tab,'Голосовой ввод')
+        def refresh_voice():
+            from app.services.local_stt import WhisperCppAdapter
+            executable,voice_model=self.stt_manager.component_paths()
+            self.voice_input.adapter=WhisperCppAdapter(executable,voice_model)
+        stt_tab.configured.connect(refresh_voice)
+        stt_tab.idle.connect(dialog.finish_pending_close)
         pack_tab.idle.connect(dialog.finish_pending_close)
         def pack_idle():
             if self._closing and not self.busy:self.close();self.shutdown_ready.emit()
         pack_tab.idle.connect(pack_idle)
+        stt_tab.idle.connect(pack_idle)
         def configured(config):
             try:self._save_config(config)
             except (OSError,ValueError) as error:pack_tab.status.setText(str(error));return
@@ -1030,6 +1059,14 @@ class CompanionDialog(QDialog):
             except (OSError,ValueError) as error:dialog.result_label.setText(str(error));return
             self.status.setText('Настройки сохранены.');dialog.close()
         def check():
+            if stt_tab.busy:
+                if not getattr(self,'_pending_pack_probe',False):
+                    self._pending_pack_probe=True
+                    def resume_check():
+                        self._pending_pack_probe=False
+                        check()
+                    stt_tab.idle.connect(resume_check,Qt.SingleShotConnection)
+                return
             if pack_tab.busy:
                 if pack_tab._worker.operation=='scan' and not getattr(self,'_pending_pack_probe',False):
                     self._pending_pack_probe=True
