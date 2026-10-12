@@ -12,7 +12,12 @@ xvfb-run -a dbus-run-session -- bash -euo pipefail <<'NATIVE_SESSION'
   ready=0
   for attempt in {1..50}; do
     kill -0 "$daemon" 2>/dev/null || { echo "Dunst exited before readiness" >&2; exit 2; }
-    if gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.GetCapabilities >/dev/null 2>&1; then ready=1; break; fi
+    # Asking Notifications directly before our daemon owns the name can
+    # auto-activate a second Dunst and make the explicitly launched one exit.
+    # Query the bus first: NameHasOwner never activates notification services.
+    if gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner org.freedesktop.Notifications | grep -q 'true'; then
+      if gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.GetCapabilities >/dev/null 2>&1; then ready=1; break; fi
+    fi
     sleep .1
   done
   test "$ready" = 1 || { echo "D-Bus notification daemon readiness timed out" >&2; exit 2; }

@@ -60,6 +60,13 @@ class LinuxNotifications:
                      '--icon=' + str(resource_path('app/assets/app.png')), '--urgency=critical',
                      '--expire-time=0', '--wait', '--print-id', '--action=done=Выполнено',
                      '--action=snooze=Отложить на 10 минут', '--', str(title), html.escape(str(body))]
+        # Older libnotify prints its acknowledgement with stdio but does not
+        # flush stdout before --wait. A pipe then hides the ID until dismissal.
+        # GNU coreutils makes the child line-buffered without dropping actions
+        # or interpreting a process launch as notification acceptance.
+        line_buffer = shutil.which('stdbuf')
+        if line_buffer:
+            arguments = [line_buffer, '--output=L', '--error=L', *arguments]
         try:
             process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         except OSError as error:
