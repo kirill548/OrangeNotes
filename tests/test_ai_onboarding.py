@@ -82,15 +82,19 @@ class ModelSetupTests(unittest.TestCase):
 
     def test_pack_candidates_are_canonicalized_before_containment(self):
         import os
+        from contextlib import chdir
         manager = ModelManager({})
         with tempfile.TemporaryDirectory(dir=self.app_root / 'ai') as tmp:
             root = Path(tmp)
             exe = root/'runtime/ollama/ollama.exe'; exe.parent.mkdir(parents=True); exe.touch()
             models = root/'runtime/models'; models.mkdir()
-            relative_exe = Path(os.path.relpath(exe, Path.cwd()))
-            relative_models = Path(os.path.relpath(models, Path.cwd()))
-            with patch.object(manager.client, 'probe', return_value={'available': False}), patch('app.services.ai_onboarding.runtime_candidates', return_value=[(relative_exe, relative_models)]), patch('app.services.ai_onboarding.ensure_runtime', return_value=True), patch.object(manager, 'detect', return_value={'available': True}):
-                result = manager.connect_pack(root)
+            # GitHub Windows keeps the checkout on D: and temp files on C:.
+            # Exercise relative candidates from their application directory.
+            with chdir(self.app_root):
+                relative_exe = Path(os.path.relpath(exe, Path.cwd()))
+                relative_models = Path(os.path.relpath(models, Path.cwd()))
+                with patch.object(manager.client, 'probe', return_value={'available': False}), patch('app.services.ai_onboarding.runtime_candidates', return_value=[(relative_exe, relative_models)]), patch('app.services.ai_onboarding.ensure_runtime', return_value=True), patch.object(manager, 'detect', return_value={'available': True}):
+                    result = manager.connect_pack(root)
             self.assertEqual(result['runtime_root'], root.resolve().relative_to(self.app_root.resolve()).as_posix())
 
     def test_pack_permission_error_is_actionable(self):

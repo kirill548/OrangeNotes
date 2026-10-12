@@ -31,7 +31,11 @@ def main(executable):
                 time.sleep(3)
                 if process.poll() is not None or not database.is_file():
                     log.seek(0)
-                    raise RuntimeError('Frozen GUI failed to start: ' + log.read())
+                    details = log.read()
+                    qt_log = database.parent / 'startup_qt.log'
+                    if qt_log.exists():
+                        details += '\nQt: ' + qt_log.read_text(encoding='utf-8', errors='replace')[-12000:]
+                    raise RuntimeError(f'Frozen GUI failed to start (exit={process.poll()}): ' + details)
                 with sqlite3.connect(database) as connection:
                     assert connection.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
                     assert connection.execute("SELECT name FROM sqlite_master WHERE name='notes'").fetchone()
