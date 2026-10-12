@@ -10,6 +10,8 @@ class StyledDialog(QDialog):
     def __init__(self,title,subtitle,parent=None,symbol='note'):
         super().__init__(parent,Qt.Dialog|Qt.FramelessWindowHint|Qt.NoDropShadowWindowHint)
         self.setWindowTitle(title)
+        from app.utils.app_icon import application_icon
+        self.setWindowIcon(application_icon())
         self.setModal(False)
         self.setWindowModality(Qt.NonModal)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -41,7 +43,7 @@ class StyledDialog(QDialog):
         shadow=QGraphicsDropShadowEffect(self.surface);shadow.setBlurRadius(18);shadow.setOffset(0,3);shadow.setColor(Qt.lightGray);self.surface.setGraphicsEffect(shadow)
         layout=QVBoxLayout(self.surface);layout.setContentsMargins(20,20,20,16);layout.setSpacing(14)
         self.header=QWidget();self.header.setObjectName('helpHeader');header=QHBoxLayout(self.header);header.setContentsMargins(0,0,0,0);header.setSpacing(12)
-        mark=QLabel();mark.setPixmap(icon(symbol,'#ff890b',36).pixmap(36,36));header.addWidget(mark,0,Qt.AlignTop)
+        mark=QLabel();mark.setObjectName('applicationBrandIcon');mark.setPixmap(application_icon().pixmap(36,36));header.addWidget(mark,0,Qt.AlignTop)
         titles=QVBoxLayout();titles.setSpacing(4)
         title=self._label(title,bold=True);title.setObjectName('helpTitle')
         title_font=QFont(title.font());title_font.setPointSizeF(max(16,title_font.pointSizeF()*1.5));title.setFont(title_font)
@@ -87,6 +89,12 @@ class StyledDialog(QDialog):
 
     def mouseReleaseEvent(self,event):
         self._drag_position=None;super().mouseReleaseEvent(event)
+
+
+class AboutDialog(StyledDialog):
+    def __init__(self, parent=None):
+        super().__init__('О программе', 'Orange Notes', parent)
+        self._card('note', 'Orange Notes', [('Ваши записи под рукой', 'Заметки, напоминания и локальный помощник. Данные хранятся на вашем устройстве.')])
 
 
 class HelpDialog(StyledDialog):

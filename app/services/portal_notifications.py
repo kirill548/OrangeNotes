@@ -20,7 +20,8 @@ class PortalNotifications:
 
     def show(self,title,body,event_id,token):
         # Explicit GVariant strings prevent injection through note text.
-        payload="{'title': <"+json.dumps(str(title),ensure_ascii=False)+">, 'body': <"+json.dumps(str(body),ensure_ascii=False)+">}"
+        # Portal GIcon serialization is (sv); Flatpak exports this themed PNG.
+        payload="{'title': <"+json.dumps(str(title),ensure_ascii=False)+">, 'body': <"+json.dumps(str(body),ensure_ascii=False)+">, 'icon': <('themed', <['org.orangenotes.OrangeNotes']>)>}"
         self._call('AddNotification','event-'+str(int(event_id)),payload)
         return {'submitted':True,'deliveryVerified':True,'historyVerified':False,
                 'verification':'Portal accepted request; desktop controls visible display'}

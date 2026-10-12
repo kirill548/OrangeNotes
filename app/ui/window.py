@@ -51,20 +51,8 @@ class Window(QMainWindow):
         self._attention_count=0
         self.setWindowTitle('Orange Notes')
         self.resize(1250, 800)
-        pix = QPixmap(64,64)
-        pix.fill(Qt.transparent)
-        painter = QPainter(pix)
-        painter.setBrush(QColor('#ed7926'))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(4,4,56,56,14,14)
-        painter.setPen(QColor('white'))
-        painter.setFont(QFont('Segoe UI',28,QFont.Bold))
-        painter.drawText(pix.rect(),Qt.AlignCenter,'N')
-        painter.end()
-        self.icon = QIcon(pix)
-        from app.utils.runtime_paths import resource_path
-        icon_path=resource_path('app/assets/app.ico')
-        if icon_path.is_file():self.icon=QIcon(str(icon_path))
+        from app.utils.app_icon import application_icon
+        self.icon = application_icon()
         self.setWindowIcon(self.icon)
         build(self)
         from app.widgets.companion_mascot import MiniCompanion
@@ -310,7 +298,7 @@ class Window(QMainWindow):
             item.setSizeHint(QSize(0,125 if upcoming else 115))
             key=(row['title'],plain[:150],reminder_text,bool(row['favorite']),row['icon_name'])
             if self._card_keys.get(row['id'])!=key:
-                self.notes.setItemWidget(item,card(row['title'] or 'Без названия',plain,reminder_text,row['favorite'],on_favorite=lambda nid=row['id']:self.card_favorite(nid),icon_name=row['icon_name']))
+                self.notes.setItemWidget(item,card(row['title'] or 'Без названия',plain,reminder_text,row['favorite'],on_favorite=lambda nid=row['id']:self.card_favorite(nid),icon_name=row['icon_name'],on_activate=lambda nid=row['id']:self.activate_note_card(nid)))
                 self._card_keys[row['id']]=key
             if row['id']==self.current:
                 selected = item
@@ -325,6 +313,23 @@ class Window(QMainWindow):
         self.count.setText(f'Заметок: {self.notes.count()} · {ordering}')
         self.empty.setVisible(self.notes.count()==0)
         self.empty.setText('Ничего не найдено. Измените поиск или фильтр.' if query or self.filter.currentIndex() else 'Корзина пуста.' if kind=='trash' else 'Начните день с чистого листа. Откройте предложения или добавьте заметку в мой день. Завтра этот список начнётся заново; заметки сохранятся.' if kind=='myday' else 'Заметок пока нет. Нажмите +, чтобы создать заметку.')
+
+    def activate_note_card(self,note_id):
+        # Item widgets consume mouse presses; select explicitly rather than
+        # relying on ignored child events propagating to QListWidget's viewport.
+        item=next((self.notes.item(i) for i in range(self.notes.count()) if self.notes.item(i).data(Qt.UserRole)==note_id),None)
+        if item is None: return
+        previous=self.notes.currentItem()
+        if item is previous:
+            if self.current!=note_id: self.select_note(item,previous)
+        else:
+            # Mouse selection must not scroll a partially visible card to the
+            # top. Keyboard selection retains Qt's normal ensure-visible behavior.
+            scrollbar=self.notes.verticalScrollBar()
+            position=scrollbar.value()
+            self.notes.setCurrentItem(item)
+            self.notes.doItemsLayout()
+            scrollbar.setValue(position)
 
     def select_note(self,item,previous=None):
         if not item: return
@@ -361,6 +366,7 @@ class Window(QMainWindow):
         self.editor.setEnabled(True)
         self.editor_stack.setCurrentIndex(1)
         self.title.setText(row['title'])
+        self.title.setCursorPosition(0)
         self.body.setHtml(row['body'])
         self.favorite.setChecked(bool(row['favorite']))
         self.folder.clear()
@@ -461,7 +467,7 @@ class Window(QMainWindow):
                 rows=self.store.rows('SELECT * FROM notes WHERE id=? AND deleted=0',(note_id,))
                 if not rows: return
                 source=rows[0]
-                new_id=self.store.db.execute('INSERT INTO notes(title,body,folder_id,updated_at,icon_name) VALUES (?,?,?,?,?)',((source['title'] or 'Без названия')+' — копия',source['body'],source['folder_id'],datetime.now().isoformat(timespec='seconds'),source['icon_name'])).lastrowid
+                new_id=self.store.db.execute('INSERT INTO notes(title,body,folder_id,updated_at,icon_name,workspace_id) VALUES (?,?,?,?,?,?)',((source['title'] or 'Без названия')+' — копия',source['body'],source['folder_id'],datetime.now().isoformat(timespec='seconds'),source['icon_name'],source['workspace_id'])).lastrowid
                 self.store.db.execute('INSERT INTO note_tags(note_id,tag_id) SELECT ?,tag_id FROM note_tags WHERE note_id=?',(new_id,note_id))
         except sqlite3.Error:
             QMessageBox.warning(self,'Не удалось дублировать заметку','База данных недоступна. Исходная заметка не изменена.')
@@ -600,6 +606,15 @@ class Window(QMainWindow):
         self._help_dialog.show()
         self._help_dialog.raise_()
         self._help_dialog.activateWindow()
+
+    def show_about(self):
+        from app.ui.help_dialog import AboutDialog
+        dialog = getattr(self, '_about_dialog', None)
+        if dialog is None:
+            dialog = self._about_dialog = AboutDialog(self)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def show_command_palette(self):
         if self._command_dialog is not None:
@@ -999,6 +1014,9 @@ class Window(QMainWindow):
         if not self.current: return
         if not self.close_reminder_panel(): return
         note_id=self.current
+        visible_ids=[self.notes.item(i).data(Qt.UserRole) for i in range(self.notes.count())]
+        index=visible_ids.index(note_id) if note_id in visible_ids else 0
+        neighbors=list(reversed(visible_ids[:index]))+visible_ids[index+1:]
         if not self.save(refresh=False): return
         rows=self.store.rows('SELECT deleted FROM notes WHERE id=?',(note_id,))
         if not rows: return
@@ -1013,7 +1031,16 @@ class Window(QMainWindow):
         if deleted and self._undo and self._undo[0]==note_id:
             self._undo=None
             self.undo_button.hide()
-        self.clear_editor()
+        self.clear_editor(refresh=False)
+        self.refresh_list()
+        available={self.notes.item(i).data(Qt.UserRole) for i in range(self.notes.count())}
+        target=next((nid for nid in neighbors if nid in available),None)
+        if target is not None:
+            self.activate_note_card(target)
+            # Removing an item can make Qt retain the same current item without
+            # emitting currentItemChanged. Explicitly synchronize the editor.
+            if self.current!=target or self.editor_stack.currentIndex()!=1:
+                self.load_note(target)
 
     def restore(self):
         if self.current:

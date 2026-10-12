@@ -86,7 +86,8 @@ class OnboardingIntegrationTests(unittest.TestCase):
     def test_first_open_detects_without_launch_or_download_off_gui_thread(self):
         dialog = self.dialog()
         wizard = self.wizard(dialog)
-        self.assertIn('не подключён', dialog.connection_banner.text())
+        self.assertEqual('Поиск без ИИ', dialog.connection_banner.text())
+        self.assertIn('не подключён', dialog.connection_banner.toolTip())
         self.assertFalse(wizard.pull_button.isEnabled())
         self.assertEqual([call[0] for call in self.calls], ['construct', 'detect'])
         self.assertNotEqual(self.calls[1][2], self.main_thread)
@@ -110,8 +111,9 @@ class OnboardingIntegrationTests(unittest.TestCase):
         self.status.update(available=True, model_ready=True)
         dialog = self.dialog()
         self.assertIsNone(dialog._onboarding_dialog)
-        self.assertIn('NDJSON stream=true', dialog.connection_banner.text())
-        self.assertIn('поиск по смыслу ещё не настроен', dialog.connection_banner.text())
+        self.assertEqual('ИИ готов', dialog.connection_banner.text())
+        self.assertIn('NDJSON stream=true', dialog.connection_banner.toolTip())
+        self.assertIn('поиск по смыслу ещё не настроен', dialog.connection_banner.toolTip())
         dialog.show_settings()
         self.assertIn('NDJSON', dialog._settings_dialog.result_label.text())
 

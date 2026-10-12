@@ -53,8 +53,8 @@ QScrollBar::handle:vertical {background:#dedbd5;border-radius:3px;min-height:30p
 QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical {height:0;}
 QComboBox::drop-down {border:0;width:22px;}
 QPushButton:focus,QToolButton:focus,QLineEdit:focus,QComboBox:focus,QTextEdit:focus {border:1px solid #e77613;}
-QListWidget:focus {border:1px solid #e77613;}
-QListWidget::item:focus {border:1px solid #e77613;}
+QListWidget:focus {border:0; outline:0;}
+QListWidget#cards::item:focus {outline:0;}
 QSplitter::handle {background:#eeece8; width:1px;}
 QWidget#reminderPanel {background:#fff; border-left:1px solid #ede9e3;}
 QCalendarWidget QWidget {font-size:12px;}
@@ -218,7 +218,8 @@ def build(window):
     layout.addWidget(toolbar)
     toolbar.setAccessibleName('Форматирование и действия заметки')
     toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
-    for name,label in [('checklist','Чек-лист'),('toggle_check','Отметить пункт')]:
+    w.editor_actions['duplicate_note'].setToolTip('Создать отдельную копию текста, папки и меток. Напоминания не копируются. · Ctrl+Shift+D')
+    for name,label in [('checklist','Чек-лист'),('toggle_check','Отметить пункт'),('duplicate_note','Создать копию')]:
         action=w.editor_actions[name]
         action.setText(label)
         button=toolbar.widgetForAction(action)
@@ -367,8 +368,14 @@ def build(window):
 
 class NoteCard(QWidget):
     def mousePressEvent(self,event):
-        if event.button()==Qt.LeftButton and self.star.geometry().contains(event.position().toPoint()) and self.on_favorite:
-            self.on_favorite()
+        if event.button()==Qt.LeftButton:
+            if self.star.geometry().contains(event.position().toPoint()) and self.on_favorite:
+                self.on_favorite()
+            elif self.on_activate:
+                self.on_activate()
+            else:
+                event.ignore()
+                return
             event.accept()
             return
         event.ignore()
@@ -394,7 +401,7 @@ class NoteCard(QWidget):
             self.when.setText(self.when.fontMetrics().elidedText(self.full_reminder,Qt.ElideRight,width))
 
 
-def card(title,plain,reminder,favorite,on_favorite=None,icon_name=None):
+def card(title,plain,reminder,favorite,on_favorite=None,icon_name=None,on_activate=None):
     widget = NoteCard()
     widget.setObjectName('card')
     row = QHBoxLayout(widget)
@@ -450,8 +457,9 @@ def card(title,plain,reminder,favorite,on_favorite=None,icon_name=None):
     star.setFixedWidth(18)
     widget.star=star
     widget.on_favorite=on_favorite
+    widget.on_activate=on_activate
     star.setToolTip('Убрать из избранного' if favorite else 'Добавить в избранное')
     for child in widget.findChildren(QLabel):
         child.setAttribute(Qt.WA_TransparentForMouseEvents)
-    widget.setAttribute(Qt.WA_TransparentForMouseEvents,on_favorite is None)
+    widget.setAttribute(Qt.WA_TransparentForMouseEvents,on_favorite is None and on_activate is None)
     return widget

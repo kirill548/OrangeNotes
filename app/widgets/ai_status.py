@@ -12,6 +12,8 @@ class AIStatusStatusBarWidget(QPushButton):
               'grounding': '#d69e2e', 'disabled': '#929aa5'}
     LABELS = {'idle': 'Готов', 'active': 'Генерация',
               'grounding': 'Проверка фактов', 'disabled': 'Отключён'}
+    VISIBLE_LABELS = {'idle': 'ИИ готов', 'active': 'ИИ отвечает',
+                      'grounding': 'ИИ проверяет факты', 'disabled': 'ИИ отключён'}
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -69,13 +71,9 @@ class AIStatusStatusBarWidget(QPushButton):
         total = self._number(metrics.get('vram_total_bytes'))
         def milliseconds(value):
             return f'{value:.0f} мс' if value is not None else 'N/A'
-        text = f'ИИ · {self.LABELS[self.state]} · {mode_text}'
-        if latency is not None:
-            text += f' · {milliseconds(latency)}'
-        if mode == 'gpu':
-            text += f' · {utilization:.0f}%' if utilization is not None and utilization <= 100 else ' · N/A'
-            if used is not None:text += f' · {used / 1024**3:.1f} ГиБ'
-        self.setText(text)
+        # Keep the everyday status compact; measured diagnostics remain available
+        # on hover without competing with the note editor.
+        self.setText(self.VISIBLE_LABELS[self.state])
         memory = f'{used / 1024**2:.0f} МиБ' if used is not None else 'N/A'
         if total is not None and used is not None:
             memory += f' / {total / 1024**2:.0f} МиБ'

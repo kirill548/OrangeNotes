@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from app.services.ai_pack_storage import AIPackStorage, StorageSafetyError
-from app.services.ai_pack_runtime import ManagedPackRuntime, PackRuntimeError, _registry
+from app.services.ai_pack_runtime import ManagedPackRuntime, PackRuntimeError, _registry, _launch_profiles
 
 
 class PackRuntimeTests(unittest.TestCase):
@@ -19,6 +19,7 @@ class PackRuntimeTests(unittest.TestCase):
 
     def tearDown(self):
         _registry.clear()
+        _launch_profiles.clear()
         self.temp.cleanup()
 
     def test_foreign_listener_never_receives_unload(self):
@@ -71,6 +72,25 @@ class PackRuntimeTests(unittest.TestCase):
         with patch('app.services.ai_pack_runtime._listener_pids', return_value={123}), patch.object(ManagedPackRuntime, '_request'), patch('app.services.ai_pack_runtime.subprocess.Popen') as spawn:
             self.assertEqual(ManagedPackRuntime(self.root).ensure(), 'http://127.0.0.1:45678')
             spawn.assert_not_called()
+
+    def test_safe_profile_reaches_owned_child_without_global_changes(self):
+        runtime = ManagedPackRuntime(self.root, runtime_profile='vulkan-safe')
+        exe = Path(self.temp.name) / 'ollama'
+        exe.write_text('fake')
+        with patch('app.services.ai_pack_runtime.runtime_candidates', return_value=[(exe, self.root)]), patch('app.services.ai_pack_runtime.subprocess.Popen', return_value=self.process) as spawn, patch('app.services.ai_pack_runtime._listener_pids', return_value={123}), patch.object(runtime, '_request'):
+            runtime.ensure()
+            self.assertEqual(spawn.call_args.kwargs['env']['OLLAMA_VULKAN'], 'true')
+            self.assertEqual(_launch_profiles[runtime._key], 'vulkan-safe')
+
+    def test_profile_change_cannot_silently_reuse_an_existing_child(self):
+        _registry[self.runtime._key] = (self.process, 45678)
+        _launch_profiles[self.runtime._key] = 'default'
+        runtime = ManagedPackRuntime(self.root, runtime_profile='vulkan-safe')
+        with patch('app.services.ai_pack_runtime.subprocess.Popen') as spawn:
+            with self.assertRaises(PackRuntimeError):
+                runtime.ensure()
+            spawn.assert_not_called()
+            self.process.terminate.assert_not_called()
 
     def test_foreign_listener_during_startup_stops_only_child(self):
         exe = Path(self.temp.name) / 'ollama'

@@ -34,10 +34,10 @@ class NDJSONContracts(unittest.TestCase):
             budgets.append(client.deadline)
             return {'message':{'content':'bounded'},'done_reason':'stop'}
         start=time.monotonic()
-        with patch.object(client,'_ensure_installed_local',side_effect=preflight),patch.object(client,'_stream_request',side_effect=stream):
+        with patch('app.services.local_ai.time.monotonic',return_value=start),patch.object(client,'_ensure_installed_local',side_effect=preflight),patch.object(client,'_stream_request',side_effect=stream):
             self.assertEqual(client.chat_stream([{'role':'user','content':'x'}]),'bounded')
         self.assertEqual(budgets[0],budgets[1])
-        self.assertLessEqual(budgets[0]-start,30.01)
+        self.assertEqual(budgets[0]-start,30)
         self.assertIsNone(client.deadline)
         client.deadline=start-1
         with self.assertRaises(LocalAIError):client.chat_stream([{'role':'user','content':'x'}])

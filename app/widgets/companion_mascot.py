@@ -5,7 +5,7 @@ from collections import deque
 from app.utils.runtime_paths import resource_path
 from PySide6.QtCore import Qt, QRect, QRectF, QSize, QPoint, QEvent, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QIcon, QPixmap, QFontMetrics
-from PySide6.QtWidgets import QPushButton, QWidget, QLabel, QVBoxLayout
+from PySide6.QtWidgets import QPushButton, QWidget, QLabel, QVBoxLayout, QStyle, QStyleOptionButton
 
 
 def _bee_pixmap():
@@ -45,6 +45,21 @@ class CompanionLauncher(QPushButton):
         self.setToolTip('Задайте вопрос о своих заметках или обсудите идею')
         self.setCursor(Qt.PointingHandCursor)
         self.setStyleSheet('QPushButton {text-align:left;background:#fff5e9;border:1px solid #ffe0bb;border-radius:16px;padding:8px;color:#70451e;font-size:13px;} QPushButton:hover {background:#ffebd2;border-color:#ffad55;} QPushButton:focus {border:2px solid #ff890b;}')
+
+    def sizeHint(self):
+        # Native button hints can measure a multiline label as one long line.
+        # Measure the displayed lines separately while retaining style padding.
+        self.ensurePolished()
+        metrics = self.fontMetrics()
+        lines = self.text().split('\n')
+        content = QSize(max(metrics.horizontalAdvance(line) for line in lines),
+                        metrics.height() * len(lines))
+        if not self.icon().isNull():
+            content.setWidth(content.width() + self.iconSize().width() + 4)
+            content.setHeight(max(content.height(), self.iconSize().height()))
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        return self.style().sizeFromContents(QStyle.CT_PushButton, option, content, self).expandedTo(self.minimumSize())
 
 
 class MiniCompanion(QWidget):

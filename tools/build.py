@@ -67,9 +67,24 @@ def main(argv=None):
         raise SystemExit('Qt 6 requires a supported 64-bit build environment.')
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--clean', action='store_true')
-    parser.add_argument('--dist-dir', type=Path, default=ROOT / 'dist')
+    parser.add_argument('--edition', choices=('lite', 'complete'), default='lite')
+    parser.add_argument('--ai-pack', type=Path, help='Verified native Ollama seed for Complete')
+    parser.add_argument('--dist-dir', type=Path, default=None)
     options = parser.parse_args(argv)
-    output_directory = options.dist_dir.resolve()
+    output_directory = (options.dist_dir or (ROOT/'dist/complete' if options.edition=='complete' else ROOT/'dist')).resolve()
+    pack_manifest = None
+    if options.edition == 'complete':
+        if options.ai_pack is None:
+            parser.error('--edition complete requires --ai-pack')
+        pack_root=options.ai_pack.resolve()
+        for generated in (ROOT/'build', bundle_directory(output_directory=output_directory)):
+            generated=generated.resolve()
+            if pack_root.is_relative_to(generated) or generated.is_relative_to(pack_root):
+                parser.error('--ai-pack must not overlap generated build or bundle directories')
+        from app.services.bundled_ai import validate_pack
+        pack_manifest = validate_pack(options.ai_pack)
+    elif options.ai_pack is not None:
+        parser.error('--ai-pack is only supported by Complete')
     args = [sys.executable, '-m', 'PyInstaller', '--noconfirm',
             '--onedir', '--windowed', '--name', 'OrangeNotes',
             '--paths', str(ROOT), '--distpath', str(output_directory),
@@ -101,12 +116,23 @@ def main(argv=None):
     native_spec.loader.exec_module(native)
     folder=bundle_directory(output_directory=output_directory)
     prepare_bundle(folder)
+    resources = folder / 'Contents/Resources' if sys.platform == 'darwin' else folder
+    import json
+    (resources/'edition.json').write_text(json.dumps({'edition':options.edition, 'model':(pack_manifest or {}).get('model')}), encoding='utf-8')
+    if pack_manifest is not None:
+        shutil.copytree(options.ai_pack, resources/'bundled_ai')
     native.sign_bundle(folder)
     archive = package_bundle(folder, prepared=True)
+    if options.edition == 'complete':
+        original=Path(archive)
+        suffix=''.join(original.suffixes)
+        renamed=original.with_name(original.name[:-len(suffix)]+'-Complete'+suffix)
+        original.replace(renamed)
+        archive=str(renamed)
     if sys.platform=='darwin':
-        native.mac_dmg(folder,output_directory/('OrangeNotes-macOS-'+platform.machine()+'.dmg'))
+        native.mac_dmg(folder,output_directory/('OrangeNotes-macOS-'+platform.machine()+('-Complete' if options.edition=='complete' else '')+'.dmg'))
     if sys.platform.startswith('linux'):
-        native.linux_appimage(folder,output_directory/('OrangeNotes-Linux-'+platform.machine()+'.AppImage'))
+        native.linux_appimage(folder,output_directory/('OrangeNotes-Linux-'+platform.machine()+('-Complete' if options.edition=='complete' else '')+'.AppImage'))
     print(archive)
 
 

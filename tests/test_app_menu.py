@@ -3,6 +3,7 @@ import os
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 import tempfile
 import unittest
+import time
 from pathlib import Path
 from unittest.mock import patch
 from PySide6.QtCore import Qt, QTimer
@@ -38,14 +39,35 @@ class AppMenuTests(unittest.TestCase):
         self.store.db.close()
         self.tmp.cleanup()
 
+    def test_long_title_opens_at_start_and_typing_keeps_cursor(self):
+        note_id = self.store.create_note()
+        title = 'Начало заголовка ' + 'длинный текст ' * 30
+        self.store.db.execute('UPDATE notes SET title=? WHERE id=?', (title, note_id))
+        self.store.db.commit()
+        self.window.load_note(note_id)
+        self.app.processEvents()
+        self.assertEqual(self.window.title.text(), title)
+        self.assertEqual(self.window.title.cursorPosition(), 0)
+        self.window.title.setCursorPosition(8)
+        self.window.title.insert('X')
+        self.assertEqual(self.window.title.cursorPosition(), 9)
+
     def popup(self,callback):
         errors=[]
+        completed=[]
         def inspect():
             try:callback(self.window.app_menu_button.menu())
             except Exception as error:errors.append(error)
-            finally:self.window.app_menu_button.menu().hide()
+            finally:
+                self.window.app_menu_button.menu().hide()
+                completed.append(True)
         QTimer.singleShot(30,inspect)
         QTest.mouseClick(self.window.app_menu_button,Qt.LeftButton)
+        # Qt 6.12 opens QToolButton popups asynchronously; wait for the actual
+        # inspection rather than assuming mouseClick owns a nested menu loop.
+        deadline=time.monotonic()+1
+        while not completed and time.monotonic()<deadline:QTest.qWait(10)
+        self.assertTrue(completed,'Menu inspection must run after the popup opens')
         if errors:raise errors[0]
 
     def test_real_click_escape_keeps_maximized_window(self):

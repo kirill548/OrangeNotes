@@ -12,6 +12,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 
 from app.database.store import Store, plain_body
+from app.services.synonym_dictionary import SynonymDictionary
 
 
 def _normal(value):
@@ -31,7 +32,8 @@ def _opaque_identifiers(value):
     tokens = re.findall(r'[a-zа-я0-9_\-]+', _normal(value))
     identifiers = {token for token in tokens if
                    (len(re.findall(r'\d', token)) >= 4 and len(re.findall(r'[a-zа-я]', token)) >= 3)
-                   or (token.isdigit() and len(token) >= 6)}
+                   or (token.isdigit() and len(token) >= 6)
+                   or bool(re.fullmatch(r'[a-z][a-z0-9]*_[a-z0-9_]+', token))}
     identifiers.update(re.findall(r'(?<![\w])(?:[a-zа-я]{1,6}-?\d{2,12})(?![\w])', _normal(value)))
     # Preserve exact phone matching across spaces, parentheses and separators.
     for phone in re.findall(r'(?<![\w])\+?\d[\d ()-]{4,}\d(?![\w])', value):
@@ -84,6 +86,7 @@ class MemoryStore:
         self.fts_available = False
         try:
             self._initialize()
+            self.synonyms = SynonymDictionary(self.db)
         except Exception:
             self.close()
             raise
@@ -151,6 +154,15 @@ class MemoryStore:
     def list_workspaces(self):
         return [dict(row) for row in self.store.rows('SELECT id,name,kind FROM workspaces ORDER BY id')]
 
+    def list_synonyms(self, workspace_id=1):
+        return self.synonyms.list_groups(self._workspace(workspace_id))
+
+    def set_synonyms(self, name, terms, workspace_id=1):
+        self.synonyms.set_group(self._workspace(workspace_id), name, terms)
+
+    def delete_synonyms(self, name, workspace_id=1):
+        return self.synonyms.delete_group(self._workspace(workspace_id), name)
+
     def _workspace(self,workspace_id):
         if type(workspace_id) is not int or not self.store.rows('SELECT 1 FROM workspaces WHERE id=?',(workspace_id,)):
             raise ValueError('Выберите существующее пространство: личное или рабочее.')
@@ -168,12 +180,77 @@ class MemoryStore:
                 self.db.execute('DELETE FROM memory_fts WHERE note_id=?',(note_id,))
                 self.db.execute('DELETE FROM memory_literal_fts WHERE note_id=?',(note_id,))
 
-    def sync(self,workspace_id=1,include_trash=False,_snapshots=None):
+    def list_context_notes(self, query='', workspace_id=1, include_archive=False,
+                           include_trash=False, limit=50):
+        """Picker metadata only: never fetch bodies from another scope."""
+        workspace_id = self._workspace(workspace_id)
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise ValueError('Лимит выбора заметок должен быть от 1 до 50.')
+        if not isinstance(query, str) or len(query) > 1000:
+            raise ValueError('Некорректный запрос выбора заметок.')
+        escaped = _normal(query).replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        rows = self.store.rows('''SELECT id,title,workspace_id,deleted,archived,updated_at
+            FROM notes WHERE workspace_id=? AND (? OR deleted=0)
+                AND (? OR archived=0) AND orange_search_normalize(title) LIKE ? ESCAPE '\\'
+            ORDER BY updated_at DESC,id DESC LIMIT ?''',
+            (workspace_id, int(include_trash), int(include_archive), '%'+escaped+'%', limit))
+        return [dict(row, title=row['title'] or 'Без названия',
+                     state='trash' if row['deleted'] else 'archive' if row['archived'] else 'active')
+                for row in rows]
+
+    def attachment_sources(self, note_ids, workspace_id=1, include_archive=False,
+                           include_trash=False, query=''):
+        """Explicit pins are current scoped snapshots, never historical search hits.
+
+        Validate the entire selection before indexing any of it. Unknown, moved,
+        archived or deleted pins fail closed rather than returning a partial set.
+        """
+        workspace_id = self._workspace(workspace_id)
+        if not isinstance(note_ids, (list, tuple)) or len(note_ids) > 8:
+            raise ValueError('Можно прикрепить не больше 8 заметок.')
+        if any(type(value) is not int or value <= 0 for value in note_ids) or len(set(note_ids)) != len(note_ids):
+            raise ValueError('Некорректные идентификаторы прикреплённых заметок.')
+        if not isinstance(query, str) or len(query) > 100000:
+            raise ValueError('Некорректный запрос к прикреплённым заметкам.')
+        if not note_ids:
+            return []
+        self.sync(workspace_id, include_trash, _note_ids=note_ids,
+                  _attachment_archive=include_archive)
+        sources = []
+        for identity in note_ids:
+            version = self.store.rows('SELECT v.revision FROM memory_index_state i JOIN note_versions v ON v.id=i.version_id WHERE i.note_id=?', (identity,))
+            current = self.resolve(identity, version[0]['revision'], workspace_id,
+                                   include_trash, include_archive) if version else None
+            if current is None:
+                raise ValueError('Прикреплённая заметка недоступна в выбранном пространстве.')
+            body = current['body']
+            positions = range(0, max(1, len(body)), self.CHUNK_SIZE-self.CHUNK_OVERLAP)
+            # Do not truncate long notes to their first page; evaluate bounded
+            # overlapping fragments across the entire current plaintext body.
+            position = max(positions, key=lambda offset: self._score(query, current['title'], body[offset:offset+self.CHUNK_SIZE]))
+            chunk = body[position:position+self.CHUNK_SIZE]
+            sources.append(dict(current, title=current['title'] or 'Без названия',
+                                chunk=chunk, excerpt=chunk, offset=position,
+                                source_kind='attachment', score=1.0,
+                                search_stage='attachment'))
+        return sources
+
+    def sync(self,workspace_id=1,include_trash=False,_snapshots=None,
+             _note_ids=None,_attachment_archive=False):
         workspace_id=self._workspace(workspace_id)
         changed=0
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
-            rows=self.store.rows('SELECT id,title,body,workspace_id,updated_at,deleted,archived FROM notes WHERE workspace_id=? AND (? OR deleted=0)',(workspace_id,int(include_trash)))
+            if _note_ids is None:
+                rows=self.store.rows('SELECT id,title,body,workspace_id,updated_at,deleted,archived FROM notes WHERE workspace_id=? AND (? OR deleted=0)',(workspace_id,int(include_trash)))
+            else:
+                placeholders=','.join('?' for _ in _note_ids)
+                rows=self.store.rows(f'''SELECT id,title,body,workspace_id,updated_at,deleted,archived
+                    FROM notes WHERE workspace_id=? AND (? OR deleted=0)
+                        AND (? OR archived=0) AND id IN ({placeholders})''',
+                    (workspace_id,int(include_trash),int(_attachment_archive),*_note_ids))
+                if len(rows)!=len(_note_ids):
+                    raise ValueError('Прикреплённая заметка недоступна в выбранном пространстве.')
             for note in rows:
                 digest=_hash(note['title'],note['body'])
                 if _snapshots is not None:
@@ -283,6 +360,16 @@ class MemoryStore:
                  and (not requested_identifiers or requested_identifiers.intersection(
                      _opaque_identifiers(row['title']+' '+row['chunk'])))]
         stage='literal' if literal else 'fallback'
+        aliases = self.synonyms.expand(query, workspace_id) if not literal and not requested_identifiers else []
+        alias_terms = {_stem(word) for alias in aliases for word in _words(alias)}
+        synonym_candidates = set()
+        if alias_terms and self.fts_available:
+            # Parameterized, quoted MATCH; dictionary entries contain letters only.
+            alias_match = ' OR '.join('"' + term + '"' for term in sorted(alias_terms))
+            synonym_candidates = {(row['id'], row['position']) for row in self.store.rows(
+                candidate_sql + ''' AND (c.note_id,c.version_id,c.position) IN (
+                    SELECT note_id,version_id,position FROM memory_literal_fts WHERE memory_literal_fts MATCH ?)''',
+                parameters + (alias_match,))}
         if literal:
             rows=literal
         elif match:
@@ -290,6 +377,10 @@ class MemoryStore:
             # No LIMIT on literal candidates: precision and recall stay unchanged.
             rows=self.store.rows(candidate_sql,parameters)
             rows=[row for row in rows if hashes.get(row['id'])==row['content_hash']]
+        if synonym_candidates:
+            # Fast indexed candidates are evaluated first; retain the remaining
+            # corpus for existing typo/dense recall rather than silently pruning it.
+            rows.sort(key=lambda row: (row['id'], row['position']) not in synonym_candidates)
         provider=self.embedding_provider if embedding_provider is None else embedding_provider
         dense=self._dense_scores(query,rows,provider,embedding_model) if provider and not literal and not requested_identifiers else {}
         dense_threshold=self._dense_threshold(embedding_model)
@@ -312,6 +403,11 @@ class MemoryStore:
             if current is None or current['content_hash']!=row['content_hash']:
                 continue
             score=self._score(query,row['title'],row['chunk'])
+            if aliases:
+                # Rank verified lexical aliases; never apply them to identifier queries.
+                # FTS-less runtimes use the same scorer and retain identical results.
+                alias_score=max((self._literal_score(alias,row['title'],row['chunk']) for alias in aliases),default=0)
+                score=max(score,alias_score * 0.5)
             similarity=dense.get((row['version_id'],row['position']),0)
             evidence = _normal(row['title'] + ' ' + row['chunk'])
             approximate=[]
@@ -332,6 +428,8 @@ class MemoryStore:
                     'updated_at':row['updated_at'],'score':round(score,4),'offset':row['position'],
                     'version_id':row['version_id'],'retrieval':'hybrid' if provider and not literal else self.retrieval_mode,
                     'dense_similarity':similarity}
+            if aliases and alias_score:
+                result['synonym_matches'] = [alias for alias in aliases if self._literal_score(alias,row['title'],row['chunk'])]
             if bodies[row['id']] is None: bodies[row['id']]=' '.join(plain_body(note_snapshots[row['id']]['body']).split())
             result['body']=bodies[row['id']]
             if approximate:

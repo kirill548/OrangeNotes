@@ -26,7 +26,8 @@ class AIPackManager:
         self.storage = AIPackStorage(self.root/'models')
         if runtime is None:
             from app.services.ai_pack_runtime import ManagedPackRuntime
-            runtime = ManagedPackRuntime(self.root, self.config.get('runtime_root') or None)
+            runtime = ManagedPackRuntime(self.root, self.config.get('runtime_root') or None,
+                                         runtime_profile=self.config.get('runtime_profile', 'default'))
         self.runtime = runtime
         with _LOCK_GUARD:
             self._lock = _LOCKS.setdefault(str(self.root.resolve()), threading.Lock())

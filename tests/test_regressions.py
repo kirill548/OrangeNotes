@@ -11,8 +11,9 @@ from contextlib import closing
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import Qt, QTime, QCoreApplication, QEvent, QTimer
+from PySide6.QtGui import QTextDocument
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QToolBar
 from app.database.store import Store
 from app.ui.window import Window
 
@@ -125,6 +126,38 @@ class UserRegressions(unittest.TestCase):
         QTimer.singleShot(30,lambda:pick('Автоматически'))
         w.icon_button.click()
         self.assertIsNone(self.store.rows('SELECT icon_name FROM notes WHERE id=?',(w.current,))[0][0])
+
+    def test_copy_keeps_work_workspace_tags_and_excludes_reminder(self):
+        w = self.window
+        action = w.editor_actions['duplicate_note']
+        self.assertEqual(action.text(), 'Создать копию')
+        self.assertIn('Напоминания не копируются', action.toolTip())
+        button = next(toolbar.widgetForAction(action) for toolbar in w.findChildren(QToolBar)
+                      if toolbar.widgetForAction(action) is not None)
+        self.assertEqual(button.toolButtonStyle(), Qt.ToolButtonTextBesideIcon)
+        w.new_note()
+        source_id = w.current
+        self.store.execute('UPDATE notes SET workspace_id=2 WHERE id=?', (source_id,))
+        tag_id = self.store.execute('INSERT INTO tags(name) VALUES (?)', ('Клиент',)).lastrowid
+        self.store.execute('INSERT INTO note_tags(note_id,tag_id) VALUES (?,?)', (source_id, tag_id))
+        self.store.save_reminder(source_id, 'once', '2030-10-15T12:00:00', [], [])
+        w.load_note(source_id)
+        w.title.setText('Рабочий созвон')
+        w.body.setPlainText('Проверить договор')
+        w.duplicate_note()
+        copy_id = w.current
+        self.assertNotEqual(copy_id, source_id)
+        copied = self.store.rows('SELECT * FROM notes WHERE id=?', (copy_id,))[0]
+        self.assertEqual(copied['workspace_id'], 2)
+        self.assertEqual(copied['title'], 'Рабочий созвон — копия')
+        original = self.store.rows('SELECT body FROM notes WHERE id=?', (source_id,))[0]
+        self.assertEqual(copied['body'], original['body'])
+        document = QTextDocument()
+        document.setHtml(copied['body'])
+        self.assertEqual(document.toPlainText(), 'Проверить договор')
+        self.assertEqual(self.store.rows('SELECT tag_id FROM note_tags WHERE note_id=?', (copy_id,))[0][0], tag_id)
+        self.assertIsNone(self.store.reminder(copy_id))
+        self.assertIsNotNone(self.store.reminder(source_id))
 
     def test_existing_database_icon_migration_preserves_note(self):
         path=Path(self.directory.name)/'legacy.db'

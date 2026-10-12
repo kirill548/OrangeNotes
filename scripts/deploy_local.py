@@ -5,6 +5,7 @@ The target contains a managed package/ directory; all other files are preserved.
 Running instances must be closed before updating (they are never force killed).
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,8 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 MARKER = '.orange-notes-install.json'
 PROTECTED = {'notes.db', 'notes.sqlite3', 'settings.json', 'ai_settings.json',
              'ai_packs', 'models', 'ollama_profile', 'runtime'}
@@ -177,6 +180,27 @@ def executable_path(bundle, platform_name=None):
                      else 'OrangeNotes.exe' if platform_name == 'win32' else 'OrangeNotes')
 
 
+
+def _payload_contains_user_data(bundle, inventory):
+    """Only a fully verified read-only Complete seed can contain model assets."""
+    bundle = Path(bundle)
+    seed_prefix = None
+    locations = (bundle / 'bundled_ai', bundle / '_internal/bundled_ai',
+                 bundle / 'Contents/Resources/bundled_ai')
+    if any(path.exists() for path in locations):
+        from app.services.bundled_ai import find_complete_seed
+        seed = find_complete_seed(bundle)
+        if seed is None:
+            raise ValueError('Invalid Complete seed')
+        seed_prefix = seed[0].relative_to(bundle).as_posix() + '/'
+    def hard_user_state(name):
+        return any(part.lower() in {'notes.db', 'notes.sqlite3', 'settings.json', 'ai_settings.json'}
+                   or part.lower().endswith(('.db', '.db-wal', '.db-shm', '.sqlite', '.sqlite-wal',
+                                             '.sqlite-shm', '.sqlite3', '.sqlite3-wal', '.sqlite3-shm'))
+                   for part in Path(name).parts)
+    return any(hard_user_state(name) or (_protected(name) and not
+               (seed_prefix and name.startswith(seed_prefix))) for name in inventory)
+
 def deploy_bundle(bundle, target, platform_name=None, *, verify=None):
     """Stage and atomically swap our payload, retaining a rollback copy on errors."""
     bundle, target = Path(bundle), Path(target).absolute()
@@ -195,7 +219,7 @@ def deploy_bundle(bundle, target, platform_name=None, *, verify=None):
     if not executable_path(bundle, platform_name).is_file():
         raise ValueError('Missing bundled executable')
     inventory = _files(bundle)
-    if any(_protected(name) for name in inventory):
+    if _payload_contains_user_data(bundle, inventory):
         raise ValueError('Build contains user data; deployment refused')
     target.mkdir(parents=True, exist_ok=True)
     package = target / 'package'
@@ -208,7 +232,14 @@ def deploy_bundle(bundle, target, platform_name=None, *, verify=None):
         previous = json.loads(marker.read_text(encoding='utf-8'))
         actual = _files(package)
         expected = previous.get('files', [])
-        if previous.get('version') != 1 or actual != sorted(expected) or any(_protected(n) for n in actual):
+        previous_bundle = previous.get('bundle', '')
+        if not isinstance(previous_bundle, str) or not previous_bundle or Path(previous_bundle).name != previous_bundle:
+            raise ValueError('Invalid previous bundle path')
+        prefix = previous_bundle + '/'
+        if any(not name.startswith(prefix) for name in actual):
+            raise ValueError('Unexpected files outside previous bundle')
+        previous_inventory = [name[len(prefix):] for name in actual]
+        if previous.get('version') != 1 or actual != sorted(expected) or _payload_contains_user_data(package / previous_bundle, previous_inventory):
             raise ValueError('Managed package contains unexpected files; move user data outside package/ first')
     elif marker.exists():
         raise ValueError('Incomplete install manifest; inspect target before updating')
@@ -255,22 +286,56 @@ def deploy_bundle(bundle, target, platform_name=None, *, verify=None):
     return package / bundle.name
 
 
+
+def snapshot_user_state(target):
+    """Hash portable databases/configurations before swapping executable payloads."""
+    target = Path(target)
+    names = ('notes.db', 'notes.sqlite3', 'settings.json', 'ai_settings.json')
+    result = {}
+    for name in names:
+        for suffix in ('', '-wal', '-shm') if name.endswith(('.db', '.sqlite3')) else ('',):
+            path = target / (name + suffix)
+            if path.is_symlink() or getattr(path, 'is_junction', lambda: False)():
+                raise ValueError('Linked user state cannot be verified safely: ' + str(path))
+            if path.is_file():
+                digest = hashlib.sha256()
+                with path.open('rb') as source:
+                    for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                        digest.update(chunk)
+                result[path.name] = digest.hexdigest()
+    return result
+
+
+def verify_user_state(target, before):
+    if snapshot_user_state(target) != before:
+        raise RuntimeError('User state changed during deployment; inspect database/settings before retrying')
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--target', type=Path, default=ROOT / 'work/local-install')
+    parser.add_argument('--edition', choices=('lite', 'complete'), default='lite')
+    parser.add_argument('--ai-pack', type=Path, help='Verified private AI-pack seed required for Complete builds')
     parser.add_argument('--bundle', type=Path, help='Use an already built bundle instead of building')
     parser.add_argument('--no-launch', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--database', type=Path, help='Optional explicit database for isolated smoke testing')
     args = parser.parse_args(argv)
-    output_directory = ROOT / 'work/deploy-local/dist'
+    output_directory = ROOT / ('work/deploy-local/dist' if args.edition == 'lite' else 'work/deploy-local/complete/dist')
+    build_command = [sys.executable, '-u', str(ROOT / 'tools/build.py'), '--clean',
+                     '--dist-dir', str(output_directory), '--edition', args.edition]
+    if args.ai_pack:
+        build_command += ['--ai-pack', str(args.ai_pack.resolve())]
     bundle = args.bundle or output_directory / ('OrangeNotes.app' if sys.platform == 'darwin' else 'OrangeNotes')
     if args.dry_run:
-        print('Build: ' + str(ROOT / 'tools/build.py') + ' --clean --dist-dir ' + str(output_directory))
+        print('Build: ' + ' '.join(build_command))
         print('Install: ' + str(bundle) + ' -> ' + str(args.target / 'package'))
         print('User data: preserved outside managed package/; no running process is stopped')
         return 0
     try:
+        if args.edition == 'complete' and not args.bundle and not args.ai_pack:
+            raise ValueError('Complete build requires --ai-pack with a verified runtime and models')
+        if args.edition == 'lite' and args.ai_pack:
+            raise ValueError('--ai-pack is only valid for Complete builds')
         assert_application_closed(args.database)
         target = args.target.absolute()
         if target.is_relative_to(ROOT) and any(part in {'build', '__pycache__', '.pytest_cache'}
@@ -281,7 +346,7 @@ def main(argv=None):
         if resolved_target == resolved_bundle or resolved_target.is_relative_to(resolved_bundle) or resolved_bundle.is_relative_to(resolved_target):
             raise ValueError('Build source and install target must be separate')
         if not args.bundle:
-            if bundle.exists() and any(_protected(name) for name in _files(bundle)):
+            if bundle.exists() and _payload_contains_user_data(bundle, _files(bundle)):
                 raise ValueError('User data found in dist bundle; clean build refused')
             clean_workspace(ROOT, preserve=[args.target])
             logs = ROOT / 'work/deploy-local'
@@ -289,8 +354,7 @@ def main(argv=None):
             log = logs / ('deploy-' + time.strftime('%Y%m%d-%H%M%S') + '.log')
             with log.open('w', encoding='utf-8') as output:
                 try:
-                    subprocess.run([sys.executable, '-u', str(ROOT / 'tools/build.py'), '--clean',
-                                    '--dist-dir', str(output_directory)],
+                    subprocess.run(build_command,
                                    cwd=ROOT, stdout=output, stderr=subprocess.STDOUT, check=True)
                 except subprocess.CalledProcessError as error:
                     raise RuntimeError('Build failed; see ' + str(log)) from error
@@ -308,7 +372,17 @@ def main(argv=None):
             if process.poll() is not None:
                 raise RuntimeError('Application exited during startup: ' + str(process.returncode))
             print('Launch accepted; PID ' + str(process.pid) + '. Verify the visible window manually.')
-        installed = deploy_bundle(bundle, args.target, verify=None if args.no_launch else launch)
+        from app.services.bundled_ai import find_complete_seed
+        seed = find_complete_seed(bundle)
+        if (args.edition == 'complete') != (seed is not None):
+            raise ValueError('Bundle does not match requested Lite/Complete edition')
+        before = snapshot_user_state(args.target)
+        def verify_install(installed):
+            verify_user_state(args.target, before)
+            if not args.no_launch:
+                launch(installed)
+        installed = deploy_bundle(bundle, args.target, verify=verify_install)
+        print('Portable database/settings integrity: verified before launch')
         print('Installed: ' + str(installed))
         return 0
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:

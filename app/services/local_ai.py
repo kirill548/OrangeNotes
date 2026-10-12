@@ -34,6 +34,29 @@ _dialogue_properties['source_ids']['maxItems'] = 0
 _dialogue_properties['quotes']['maxItems'] = 0
 
 
+def memory_response_schema(allow_inference=False):
+    """Constrain memory replies to evidence or the canonical refusal.
+
+    This grammar constrains structure, not truth: source/quote/revision checks
+    remain mandatory after generation. Positive evidence is still a choice.
+    """
+    schema = deepcopy(_ANSWER_SCHEMA)
+    item = schema['properties']['segments']['items']
+    refusal = deepcopy(item)
+    props = refusal['properties']
+    props['kind'] = {'type': 'string', 'const': 'question'}
+    props['text'] = {'type': 'string', 'const': 'В ваших заметках нет информации об этом'}
+    props['source_ids']['maxItems'] = 0
+    props['quotes']['maxItems'] = 0
+    evidence = deepcopy(item)
+    props = evidence['properties']
+    props['kind']['enum'] = ['fact', 'inference'] if allow_inference else ['fact']
+    props['source_ids']['minItems'] = 1
+    props['quotes']['minItems'] = 1
+    schema['properties']['segments']['items'] = {'anyOf': [refusal, evidence]}
+    return schema
+
+
 class LocalAIError(RuntimeError):
     pass
 
@@ -159,7 +182,19 @@ class OllamaClient:
         self._ensure_installed_local(self.model)
         payload={'model':self.model,'messages':messages,'stream':bool(stream),'think':False,'options':{'temperature':0.2,'num_ctx':8192,'num_predict':1024}}
         if json_mode:
-            payload['format']=deepcopy(_DIALOGUE_SCHEMA if json_mode=='dialogue' else _ANSWER_SCHEMA)
+            if json_mode == 'tools':
+                from app.services.assistant_actions import TOOL_DEFINITIONS
+                payload['format'] = {'type': 'object', 'additionalProperties': False,
+                    'required': ['tool_calls'], 'properties': {'tool_calls': {'type': 'array',
+                    'minItems': 1, 'maxItems': 1, 'items': {'anyOf': [
+                    {'type': 'object', 'additionalProperties': False, 'required': ['name', 'arguments'],
+                     'properties': {'name': {'const': tool['function']['name']},
+                                    'arguments': deepcopy(tool['function']['parameters'])}}
+                    for tool in TOOL_DEFINITIONS]}}}}
+            else:
+                payload['format']=(memory_response_schema(json_mode=='memory_inference')
+                               if json_mode in ('memory','memory_inference') else
+                               deepcopy(_DIALOGUE_SCHEMA if json_mode=='dialogue' else _ANSWER_SCHEMA))
             if json_mode=='dialogue' and re.search(r'\b(?:список|перечень|чек.?лист)\b',messages[-1]['content'].casefold()):
                 # Require actual item segments rather than a syntactically valid
                 # introduction-only answer. Evidence mode keeps its own schema.

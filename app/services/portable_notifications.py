@@ -9,6 +9,8 @@ import sys
 import threading
 import time
 
+from app.utils.runtime_paths import resource_path
+
 _mac_delegate_type = None
 
 def notification_transport(database_path=None):
@@ -54,7 +56,8 @@ class LinuxNotifications:
             raise OSError('Очередь активных уведомлений заполнена; событие будет доставлено позже.')
         if self.legacy_client:
             return self._show_legacy(title, body, event_id)
-        arguments = [self.executable, '--app-name=Orange Notes', '--urgency=critical',
+        arguments = [self.executable, '--app-name=Orange Notes',
+                     '--icon=' + str(resource_path('app/assets/app.png')), '--urgency=critical',
                      '--expire-time=0', '--wait', '--print-id', '--action=done=Выполнено',
                      '--action=snooze=Отложить на 10 минут', '--', str(title), html.escape(str(body))]
         try:
@@ -95,7 +98,7 @@ class LinuxNotifications:
             executable, 'call', '--session', '--dest', 'org.freedesktop.Notifications',
             '--object-path', '/org/freedesktop/Notifications', '--method',
             'org.freedesktop.Notifications.Notify',
-            json.dumps('Orange Notes'), '0', json.dumps(''),
+            json.dumps('Orange Notes'), '0', json.dumps(str(resource_path('app/assets/app.png'))),
             json.dumps(str(title), ensure_ascii=False),
             json.dumps(html.escape(str(body)), ensure_ascii=False),
             '[]', "{'urgency': <byte 2>, 'resident': <true>}", '0'],

@@ -85,7 +85,7 @@ def main(argv=None):
             ctypes.windll.user32.MessageBoxW(None,str(error),'Orange Notes: неполная сборка',0x10)
         return 1
     from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
-    from PySide6.QtGui import QFont, QPalette, QColor, QIcon, QDesktopServices
+    from PySide6.QtGui import QFont, QPalette, QColor, QDesktopServices
     from PySide6.QtCore import QLocale, QLockFile, QTimer, QUrl, QCoreApplication, qInstallMessageHandler
     if plugin_directory:
         QCoreApplication.setLibraryPaths([str(plugin_directory)])
@@ -105,10 +105,8 @@ def main(argv=None):
     from app.ui.localization import install_russian_dialogs
     install_russian_dialogs(app)
     app.setApplicationName('Orange Notes')
-    from app.utils.runtime_paths import resource_path
-    app_icon = resource_path('app/assets/app.ico')
-    if app_icon.is_file():
-        app.setWindowIcon(QIcon(str(app_icon)))
+    from app.utils.app_icon import application_icon
+    app.setWindowIcon(application_icon())
     app.setStyle('Fusion')
     app.setFont(QFont('Segoe UI',10))
     palette = QPalette()

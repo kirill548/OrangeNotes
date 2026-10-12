@@ -63,6 +63,8 @@ class ApplicationMenu(QMenu):
         from app.utils.shortcuts import shortcut_label
         self.addAction(icon('search','#6d7786',18),'Быстрые действия · '+shortcut_label('Ctrl+K'),window.show_command_palette)
         self.help_action=self.addAction(icon('book','#6d7786',18),'Помощь и горячие клавиши',window.show_help)
+        from app.utils.app_icon import application_icon
+        self.about_action=self.addAction(application_icon(),'О программе',lambda: window.show_about())
         self.status_action=self.addAction(icon('bell','#6d7786',18),'Состояние напоминаний',window.reminder_status)
         self.add_heading('Данные')
         self.export_action=self.addAction(icon('share','#6d7786',18),'Экспорт заметки',window.export_note)

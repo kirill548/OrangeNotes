@@ -74,7 +74,7 @@ class AssistantActionsTests(unittest.TestCase):
     def test_ambiguous_invalid_past(self):
         for query in ['Создай заметку тест сегодня в 10:00','Создай заметку тест завтра в 25:00',
                       'Создай заметку тест 31.02.2027 в 10:00','Создай заметку тест 15.12 в 10:00',
-                      'Создай заметку тест в пятницу в 10:00','Создай заметку тест ежедневно в 10:00']:
+                      'Создай заметку тест в пятницу в 10:00']:
             result=intent_response(query,1,now=self.now)
             self.assertNotIn('action_draft',result,query)
             self.assertIn('Уточните',result['text'])

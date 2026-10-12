@@ -2,6 +2,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.services.ai_pack_manager import AIPackManager
@@ -31,12 +32,25 @@ class FakeRuntime:
 
 class PackManagerTests(unittest.TestCase):
     def setUp(self):
+        # Runtime/cancellation cases must not depend on the host's free space.
+        space = patch('app.services.ai_pack_manager.shutil.disk_usage',
+                      return_value=SimpleNamespace(free=100 * 1024**3))
+        space.start()
+        self.addCleanup(space.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / 'pack'
         self.runtime = FakeRuntime()
         self.manager = AIPackManager(self.root, {'model': 'external:latest'}, self.runtime)
         self.manager.storage.initialize()
+
+    def test_insufficient_space_never_starts_runtime_or_download(self):
+        with patch('app.services.ai_pack_manager.shutil.disk_usage',
+                   return_value=SimpleNamespace(free=0)), patch('app.services.ai_onboarding._pull') as pull:
+            with self.assertRaisesRegex(LocalAIError, 'Недостаточно свободного места'):
+                self.manager.download('qwen3:4b')
+        pull.assert_not_called()
+        self.assertEqual(self.runtime.events, [])
 
     def test_switch_changes_config_after_runtime_success_and_marks_scan_active(self):
         add_model(self.manager.storage.root, 'qwen3:4b', ['a' * 64])

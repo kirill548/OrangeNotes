@@ -12,6 +12,7 @@ import urllib.request
 
 from app.services.ai_pack_storage import AIPackStorage
 from app.services.local_runtime import runtime_candidates
+from app.services.runtime_profiles import runtime_environment
 
 
 class PackRuntimeError(RuntimeError):
@@ -19,6 +20,7 @@ class PackRuntimeError(RuntimeError):
 
 
 _registry = {}
+_launch_profiles = {}
 _lock = threading.RLock()
 
 
@@ -91,7 +93,9 @@ def _listener_pids(port):
 
 
 class ManagedPackRuntime:
-    def __init__(self, root, runtime_root=None):
+    def __init__(self, root, runtime_root=None, runtime_profile='default'):
+        runtime_environment({}, runtime_profile)
+        self.runtime_profile = runtime_profile
         self.root = Path(os.path.abspath(os.fspath(root)))
         self.runtime_root = Path(runtime_root) if runtime_root is not None else (
             Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False)
@@ -164,8 +168,11 @@ class ManagedPackRuntime:
             self._check()
             state = _registry.get(self._key)
             self._record(state)
+            if state is not None and state[0].poll() is None and _launch_profiles.get(self._key, 'default') != self.runtime_profile:
+                raise PackRuntimeError('Stop the owned runtime before changing its launch profile')
             if state is None or state[0].poll() is not None:
                 _registry.pop(self._key, None)
+                _launch_profiles.pop(self._key, None)
                 if self._record_path.exists():
                     self._record_path.unlink()
                 candidates = runtime_candidates(self.runtime_root.parent if self.runtime_root.name == 'runtime' else self.runtime_root)
@@ -181,7 +188,7 @@ class ManagedPackRuntime:
                 profile = self.root / 'ollama_profile'
                 AIPackStorage(profile).initialize()
                 self._check()
-                env = os.environ.copy()
+                env = runtime_environment(os.environ, self.runtime_profile)
                 env.update(OLLAMA_HOST=f'127.0.0.1:{port}', OLLAMA_MODELS=str(models),
                            OLLAMA_NO_CLOUD='1', HOME=str(profile), USERPROFILE=str(profile),
                            XDG_CONFIG_HOME=str(profile / 'config'), XDG_CACHE_HOME=str(profile / 'cache'))
@@ -196,12 +203,14 @@ class ManagedPackRuntime:
                     raise
                 state = (process, port)
                 _registry[self._key] = state
+                _launch_profiles[self._key] = self.runtime_profile
                 try:
                     self._write_record(process.pid, port)
                 except Exception:
                     process.terminate()
                     process.wait(timeout=5)
                     _registry.pop(self._key, None)
+                    _launch_profiles.pop(self._key, None)
                     raise
             try:
                 deadline = time.monotonic() + 30
@@ -261,6 +270,7 @@ class ManagedPackRuntime:
                 return
             if state[0].poll() is not None:
                 _registry.pop(self._key, None)
+                _launch_profiles.pop(self._key, None)
                 if self._record_path.exists():
                     self._record_path.unlink()
                 return
@@ -273,6 +283,7 @@ class ManagedPackRuntime:
                 state[0].wait(timeout=5)
 
             _registry.pop(self._key, None)
+            _launch_profiles.pop(self._key, None)
             if self._record_path.exists():
                 self._record_path.unlink()
 

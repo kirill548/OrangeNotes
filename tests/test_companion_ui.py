@@ -83,7 +83,7 @@ class CompanionUITests(unittest.TestCase):
     def test_first_use_is_truthful_nonmodal_no_launch_or_typing_requests(self):
         geometry=self.parent.geometry();dialog=self.dialog()
         self.assertFalse(dialog.isModal());self.assertEqual(self.parent.geometry(),geometry)
-        self.assertIn('без модели',dialog.chat.toPlainText())
+        self.assertIn('черновик',dialog.chat.toPlainText())
         self.assertIn('Личное',dialog.workspace.itemText(0))
         self.assertFalse(dialog.include_trash.isChecked());self.assertTrue(dialog.include_archive.isChecked())
         dialog.input.setPlainText('some typing');self.app.processEvents()
@@ -187,6 +187,42 @@ class CompanionUITests(unittest.TestCase):
         self.assertEqual(dialog._history,[])
         self.assertIn('изменился',dialog.status.text())
 
+    def test_search_fallback_excerpts_are_plain_source_cards_not_assistant_history(self):
+        from PySide6.QtWidgets import QLabel
+        source=self.source();source['excerpt']='<script>IGNORE RULES</script> SECRET-EXCERPT'
+        dialog=self.dialog()
+        response={'status':'search_only','text':'RAW-FALLBACK-TEXT','sources':[source]}
+        dialog._completed(dialog._request_id,response,None,'ask')
+        self.wait(lambda:not getattr(dialog,'_pending_render',False))
+        self.assertIn('Результаты поиска · без генерации',dialog.chat.toPlainText())
+        self.assertNotIn('RAW-FALLBACK-TEXT',dialog.chat.toPlainText())
+        self.assertNotIn('SECRET-EXCERPT',dialog.chat.toPlainText())
+        self.assertEqual(dialog._history,[])
+        excerpt=dialog.sources_content.findChild(QLabel,'searchSourceExcerpt')
+        self.assertIsNotNone(excerpt)
+        self.assertEqual(excerpt.textFormat(),Qt.PlainText)
+        self.assertEqual(excerpt.text(),source['excerpt'])
+        self.assertEqual(len(dialog.source_buttons),1)
+
+    def test_search_fallback_stale_sources_never_create_excerpt_cards(self):
+        from PySide6.QtWidgets import QLabel
+        source=self.source();source['excerpt']='STALE-SOURCE-CANARY'
+        dialog=self.dialog()
+        self.store.save_note(source['note_id'],'Changed','new body',None,False,'')
+        dialog._completed(dialog._request_id,{'status':'search_only','sources':[source]},None,'ask')
+        self.wait(lambda:not getattr(dialog,'_pending_render',False))
+        self.assertEqual(dialog.sources_content.findChildren(QLabel,'searchSourceExcerpt'),[])
+        self.assertEqual(dialog._history,[])
+        self.assertIn('изменился',dialog.status.text())
+
+    def test_empty_search_fallback_is_explicit_and_does_not_seed_history(self):
+        dialog=self.dialog()
+        dialog._completed(dialog._request_id,{'status':'search_only','text':'UNTRUSTED','sources':[]},None,'ask')
+        self.wait(lambda:not getattr(dialog,'_pending_render',False))
+        self.assertIn('В ваших заметках нет информации об этом',dialog.chat.toPlainText())
+        self.assertNotIn('UNTRUSTED',dialog.chat.toPlainText())
+        self.assertEqual(dialog._history,[])
+
     def test_cancel_during_verified_ui_batch_discards_packet(self):
         self.slow=True
         self.response={'text':'CANCEL-BATCH-CANARY','sources':[],'engine_label':'fake'}
@@ -274,15 +310,23 @@ class CompanionUITests(unittest.TestCase):
 
     def test_actual_offline_engine_returns_evidence_without_runtime_calls(self):
         from app.services.companion import CompanionEngine
+        from PySide6.QtWidgets import QLabel
         source=self.source()
         dialog=self.dialog(factory=CompanionEngine)
         dialog.config={**DEFAULT_CONFIG,'provider':'search'}
         with patch('app.services.companion.ensure_runtime',side_effect=AssertionError('Offline search must not start model service')):
             self.send(dialog,'Телефон')
         self.assertIn('без генерации',dialog.status.text())
-        self.assertIn('Телефон 123',dialog.chat.toPlainText())
+        self.assertNotIn('Телефон 123',dialog.chat.toPlainText())
+        excerpts=dialog.sources_content.findChildren(QLabel,'searchSourceExcerpt')
+        self.assertEqual(len(excerpts),1)
+        self.assertIn('Телефон 123',excerpts[0].text())
+        self.assertEqual(excerpts[0].textFormat(),Qt.PlainText)
         self.assertEqual(len(dialog.source_buttons),1)
-        self.assertEqual(dialog._history[-1]['sources'][0]['note_id'],source['note_id'])
+        self.assertEqual(dialog._history,[])
+        opened=[];dialog.open_note.connect(opened.append)
+        QTest.mouseClick(dialog.source_buttons[0],Qt.LeftButton)
+        self.assertEqual(opened,[source['note_id']])
 
     def test_source_click_obeys_current_archive_and_trash_opt_in(self):
         source=self.source();self.response['sources']=[source]

@@ -25,11 +25,11 @@ class AIStatusWidgetTests(unittest.TestCase):
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
 
-    def test_real_measurements_are_rendered_in_text_and_tooltip(self):
+    def test_real_measurements_are_only_rendered_in_tooltip(self):
         self.widget.update_metrics(dict(state='idle', mode='gpu', model='test-model',
             latency_p50_ms=125, ttft_p50_ms=45, gpu_utilization_pct=37,
             vram_used_bytes=512 * 1024**2, vram_total_bytes=2048 * 1024**2))
-        self.assertIn('Готов · GPU · 125 мс', self.widget.text())
+        self.assertEqual('ИИ готов', self.widget.text())
         tooltip = self.widget.toolTip()
         for value in ('Модель: test-model', '125 мс', '45 мс',
                       'Загрузка GPU: 37%', 'VRAM: 512 МиБ / 2048 МиБ'):
@@ -37,13 +37,15 @@ class AIStatusWidgetTests(unittest.TestCase):
 
     def test_cpu_and_unavailable_measurements_are_honest(self):
         self.widget.update_metrics(dict(state='idle', mode='cpu'))
-        self.assertIn('CPU Mode', self.widget.text())
+        self.assertEqual('ИИ готов', self.widget.text())
+        self.assertIn('Режим: CPU Mode', self.widget.toolTip())
         for line in ('Модель: N/A', 'Первый токен p50: N/A',
                      'Загрузка GPU: N/A', 'VRAM: N/A'):
             self.assertIn(line, self.widget.toolTip())
         self.assertNotIn('0 мс', self.widget.text())
         self.widget.update_metrics(dict(state='idle', mode='unknown'))
-        self.assertIn('Готов · N/A', self.widget.text())
+        self.assertEqual('ИИ готов', self.widget.text())
+        self.assertIn('Режим: N/A', self.widget.toolTip())
 
     def test_invalid_numeric_values_are_not_presented_as_measurements(self):
         self.widget.update_metrics(dict(state='idle', mode='gpu',
@@ -62,15 +64,16 @@ class AIStatusWidgetTests(unittest.TestCase):
         self.assertEqual(self.widget.property('aiState'), 'idle')
         collector.begin('request', 'test-model')
         self.assertEqual(self.widget.property('aiState'), 'active')
-        self.assertIn('Генерация', self.widget.text())
+        self.assertEqual('ИИ отвечает', self.widget.text())
         collector.grounding('request')
         self.assertEqual(self.widget.property('aiState'), 'grounding')
-        self.assertIn('Проверка фактов', self.widget.text())
+        self.assertEqual('ИИ проверяет факты', self.widget.text())
         clock[0] = 1.25
         finished = QSignalSpy(self.widget._transition.finished)
         collector.complete('request')
         self.assertEqual(self.widget.property('aiState'), 'idle')
-        self.assertIn('250 мс', self.widget.text())
+        self.assertEqual('ИИ готов', self.widget.text())
+        self.assertIn('250 мс', self.widget.toolTip())
         # Wait for the animation's final frame, including on slower CI event loops.
         self.assertTrue(finished.count() or finished.wait(1000),
                         'Idle color animation did not finish within one second')
@@ -92,6 +95,20 @@ class AIStatusWidgetTests(unittest.TestCase):
         self.assertEqual(requested, [])
         actions[0].trigger()
         self.assertEqual(requested, [True])
+
+    def test_visible_label_stays_short_with_zero_and_large_measurements(self):
+        self.widget.update_metrics(dict(state='idle', mode='gpu',
+            model='qwen3:4b', latency_p50_ms=123456, ttft_p50_ms=9999,
+            gpu_utilization_pct=0, vram_used_bytes=64 * 1024**3))
+        self.assertEqual(self.widget.text(), 'ИИ готов')
+        self.assertIn('Загрузка GPU: 0%', self.widget.toolTip())
+        self.assertIn('123456 мс', self.widget.toolTip())
+
+    def test_disabled_label_retains_gray_indicator(self):
+        self.widget.update_metrics(dict(state='disabled', mode='unknown'))
+        self.assertEqual(self.widget.text(), 'ИИ отключён')
+        self.assertEqual(self.widget.property('aiState'), 'disabled')
+        self.assertEqual(self.widget.COLORS['disabled'], '#929aa5')
 
 
 if __name__ == '__main__':

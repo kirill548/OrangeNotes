@@ -137,11 +137,20 @@ class WheelTimeEdit(QTimeEdit):
     def __init__(self, value, parent=None):
         super().__init__(value,parent)
         self.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        # The outer spin box owns padding/background. Styling its internal
+        # QLineEdit as a second rounded input breaks Qt 6.12 geometry.
+        self.lineEdit().setStyleSheet('QLineEdit {padding:0;border:0;border-radius:0;background:transparent;}')
         self.setToolTip('Нажмите, чтобы выбрать часы и минуты прокруткой')
         self.lineEdit().installEventFilter(self)
         action=self.lineEdit().addAction(icon('chevron_down','#939ba5',16),QLineEdit.TrailingPosition)
         action.setToolTip('Выбрать время прокруткой')
         action.triggered.connect(lambda:pick_time(self))
+        # Keep the actual editable child readable after application-wide style
+        # repolishing, which can recalculate NoButtons geometry while hidden.
+        text_width = self.lineEdit().fontMetrics().horizontalAdvance('23:59')
+        self.lineEdit().setMinimumWidth(text_width + 32)
+        # Include the trailing action in the compact editor's width budget.
+        self.setMinimumWidth(max(110, self.sizeHint().width()))
 
     def eventFilter(self,watched,event):
         if watched is self.lineEdit() and event.type()==QEvent.MouseButtonPress and event.button()==Qt.LeftButton and not self.isReadOnly():

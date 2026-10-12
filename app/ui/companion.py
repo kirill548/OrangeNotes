@@ -11,14 +11,48 @@ from urllib.parse import urlsplit
 
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QDateTime, QTimer, Slot, QPropertyAnimation, QEasingCurve
 from app.utils.shortcuts import shortcut, shortcut_label
-from PySide6.QtGui import QShortcut, QKeySequence
+from PySide6.QtGui import QShortcut, QKeySequence, QPainter
 from PySide6.QtWidgets import (QCheckBox,QComboBox,QDialog,QDateTimeEdit,QFormLayout,QHBoxLayout,QLabel,QLineEdit,QMessageBox,QPlainTextEdit,QPushButton,QScrollArea,QVBoxLayout,QWidget,QTabWidget)
 from app.services.memory_store import MemoryStore
 from app.widgets.companion_mascot import companion_icon
+from app.utils.app_icon import application_icon
+
+
+class _AssistantAvatarMargin(QWidget):
+    """Paint the local bee avatar alongside plain text, never parse model HTML."""
+    def paintEvent(self, event):
+        chat=self.parent()
+        painter=QPainter(self)
+        for y in chat.assistant_avatar_positions():
+            chat.avatar_icon.paint(painter,3,round(y),20,20)
+
+
+class BrandedChatEdit(QPlainTextEdit):
+    """Keep grounding rollback and source excerpts strictly plain text."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.avatar_icon=companion_icon()
+        self.avatar_margin=_AssistantAvatarMargin(self)
+        self.setViewportMargins(28,0,0,0)
+        self.updateRequest.connect(lambda rect,dy:self.avatar_margin.update())
+        self.textChanged.connect(self.avatar_margin.update)
+
+    def assistant_avatar_positions(self):
+        block=self.firstVisibleBlock()
+        while block.isValid():
+            top=self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
+            if top>self.viewport().height():break
+            if block.isVisible() and block.text()=='Помощник':yield top
+            block=block.next()
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        rect=self.contentsRect()
+        self.avatar_margin.setGeometry(rect.left(),rect.top(),28,rect.height())
 
 _ACTIVE_DIALOGS=set()
 DEFAULT_CONFIG={'provider':'ollama','base_url':'http://127.0.0.1:11434','model':'qwen3:4b','embedding_model':'qwen3-embedding:0.6b',
-                'runtime_root':'','ai_pack_path':'','onboarding_seen':False,'managed_pack':False}
+                'runtime_root':'','ai_pack_path':'','onboarding_seen':False,'managed_pack':False,'runtime_profile':'default'}
 
 
 def _engine_factory(path):
@@ -46,6 +80,8 @@ def validate_config(config):
             raise ValueError('Проверьте путь к ИИ-комплекту.')
     if type(result['onboarding_seen']) is not bool:raise ValueError('Неверный статус первой настройки.')
     if type(result['managed_pack']) is not bool:raise ValueError('Неверный статус ИИ-комплекта.')
+    from app.services.runtime_profiles import RUNTIME_PROFILES
+    if result['runtime_profile'] not in RUNTIME_PROFILES:raise ValueError('Неизвестный профиль запуска ИИ.')
     return result
 
 
@@ -54,7 +90,7 @@ class _RequestThread(QThread):
     advisory=Signal(int,str)
     progress=Signal(int,object)
 
-    def __init__(self,request_id,factory,path,query,workspace_id,mode,history,config,include_archive,include_trash,cancel_event,kind='ask'):
+    def __init__(self,request_id,factory,path,query,workspace_id,mode,history,config,include_archive,include_trash,cancel_event,kind='ask',attached_note_ids=()):
         super().__init__()
         self.request_id=request_id
         self.factory=factory
@@ -68,6 +104,7 @@ class _RequestThread(QThread):
         self.include_trash=include_trash
         self.cancel_event=cancel_event
         self.kind=kind
+        self.attached_note_ids=tuple(attached_note_ids)
 
     def run(self):
         engine=None
@@ -79,10 +116,29 @@ class _RequestThread(QThread):
                 if warning:self.advisory.emit(self.request_id,warning)
             if self.kind in ('detect','pack','pull'):
                 from app.services.ai_onboarding import ModelManager
+                bundled_config=None
+                if (self.kind=='detect' and not (Path(self.path).parent/'ai_settings.json').exists()
+                    and not self.config.get('runtime_root') and not self.config.get('managed_pack')
+                    and not self.config.get('ai_pack_path')
+                    and self.config.get('base_url','http://127.0.0.1:11434')=='http://127.0.0.1:11434'):
+                    from app.services.bundled_ai import find_complete_seed, install_complete_seed
+                    from app.utils.runtime_paths import resource_path
+                    import sys
+                    seed=find_complete_seed(resource_path(''),cancel_event=self.cancel_event)
+                    if seed is None and getattr(sys,'frozen',False):
+                        executable_root=Path(sys.executable).parent
+                        seed=find_complete_seed(executable_root.parent.parent if sys.platform=='darwin' else executable_root,cancel_event=self.cancel_event)
+                    if seed is not None:
+                        bundled_config=install_complete_seed(seed[0],Path(self.path).parent,self.cancel_event)
+                        from app.services.ai_pack_runtime import ManagedPackRuntime
+                        runtime=ManagedPackRuntime(Path(self.path).parent/'ai_packs',bundled_config['runtime_root'])
+                        bundled_config['base_url']=runtime.ensure(self.cancel_event)
+                        self.config={**self.config,**bundled_config}
                 manager=ModelManager({**self.config,'_managed_root':str(Path(self.path).parent/'ai_packs')})
                 if self.kind=='pack':response=manager.connect_pack(self.query,self.cancel_event)
                 elif self.kind=='pull':response=manager.pull_missing(self.cancel_event,lambda value:self.progress.emit(self.request_id,value))
                 else:response=manager.detect(self.cancel_event)
+                if bundled_config is not None:response['_bundled_config']=bundled_config
             else:
                 engine=self.factory(self.path)
             if self.kind=='status':
@@ -91,6 +147,8 @@ class _RequestThread(QThread):
                 stream_options={}
                 if getattr(engine,'supports_stream_segments',False):
                     stream_options['on_segment']=lambda packet:self.progress.emit(self.request_id,packet)
+                if getattr(engine,'supports_note_context',False):
+                    stream_options['attached_note_ids']=self.attached_note_ids
                 response=engine.ask(self.query,self.workspace_id,mode=self.mode,
                                     include_archive=self.include_archive,include_trash=self.include_trash,
                                     history=self.history,config=self.config,cancel_event=self.cancel_event,**stream_options)
@@ -145,6 +203,7 @@ class CompanionDialog(QDialog):
         try:self.workspaces=memory.list_workspaces()
         finally:memory.close()
         self.setWindowTitle('Помощник Nopen')
+        self.setWindowIcon(application_icon())
         self.setModal(False)
         self.setWindowModality(Qt.NonModal)
         self.setMinimumSize(520,480)
@@ -165,57 +224,80 @@ class CompanionDialog(QDialog):
         mascot=QLabel();mascot.setPixmap(companion_icon().pixmap(QSize(48,48)));header.addWidget(mascot)
         headings=QVBoxLayout()
         title=QLabel('Помощник по заметкам');title.setStyleSheet('font-size:18px;font-weight:600;');headings.addWidget(title)
-        subtitle=QLabel('Вспомнить важное. Обсудить идею. Найти следующий шаг.');subtitle.setWordWrap(True);headings.addWidget(subtitle)
+        subtitle=QLabel('Спросите, найдите заметку или создайте напоминание.');subtitle.setWordWrap(True);headings.addWidget(subtitle)
         header.addLayout(headings,1)
         self.new_chat_button=QPushButton('Новый разговор');self.new_chat_button.clicked.connect(self.new_conversation);header.addWidget(self.new_chat_button)
         layout.addLayout(header)
         connection=QHBoxLayout()
-        self.connection_banner=QLabel('Локальный ИИ-помощник ещё не проверен. Поиск доступен сразу.')
+        self.connection_banner=QLabel('Проверяю ИИ…')
         self.connection_banner.setTextFormat(Qt.PlainText);self.connection_banner.setWordWrap(True)
         self.connection_banner.setStyleSheet('background:#fff0dc;border-radius:8px;padding:8px;color:#86520c;')
         connection.addWidget(self.connection_banner,1)
-        self.setup_button=QPushButton('Настроить');self.setup_button.clicked.connect(self.show_onboarding);connection.addWidget(self.setup_button)
+        self.setup_button=QPushButton('Настройки ИИ');self.setup_button.clicked.connect(self.show_settings);connection.addWidget(self.setup_button)
         layout.addLayout(connection)
         controls=QHBoxLayout()
-        controls.addWidget(QLabel('Где искать'))
+        controls.addWidget(QLabel('Пространство'))
         self.workspace=QComboBox()
         self.workspace_combo=self.workspace
+        self.workspace.setToolTip('Помощник использует только заметки выбранного пространства.')
         for item in self.workspaces:self.workspace.addItem(item['name'],item['id'])
         controls.addWidget(self.workspace,1)
+        self.attach_notes_button=QPushButton('Прикрепить заметки');self.attach_notes_button.setCheckable(True)
+        controls.addWidget(self.attach_notes_button)
+        self.search_options_button=QPushButton('Параметры');self.search_options_button.setCheckable(True)
+        controls.addWidget(self.search_options_button);layout.addLayout(controls)
+        self.advanced_panel=QWidget();advanced=QVBoxLayout(self.advanced_panel);advanced.setContentsMargins(0,0,0,0)
+        advanced_row=QHBoxLayout();advanced_row.addWidget(QLabel('Режим'))
         self.mode=QComboBox()
         for label,value in [('Найти в заметках','memory'),('Обсудить','discuss'),('Проверить','audit'),('Подготовить черновик','draft')]:self.mode.addItem(label,value)
-        self.mode.setCurrentIndex(self.mode.findData('discuss'))
-        controls.addWidget(self.mode,1)
-        self.settings_button=QPushButton('Подключение ИИ');self.settings_button.clicked.connect(self.show_settings);controls.addWidget(self.settings_button)
-        layout.addLayout(controls)
-        self.mode_hint=QLabel();self.mode_hint.setWordWrap(True);self.mode_hint.setTextFormat(Qt.PlainText)
-        self.mode_hint.setStyleSheet('color:#7e8793;font-size:12px;');layout.addWidget(self.mode_hint)
+        self.mode.setCurrentIndex(self.mode.findData('discuss'));advanced_row.addWidget(self.mode,1)
+        self.settings_button=QPushButton('Настройки ИИ');self.settings_button.clicked.connect(self.show_settings);self.settings_button.hide()
+        self.synonyms_button=QPushButton('Синонимы');self.synonyms_button.setToolTip('Настроить свои слова для поиска в выбранном пространстве')
+        self.synonyms_button.clicked.connect(self.show_synonyms);advanced_row.addWidget(self.synonyms_button);advanced.addLayout(advanced_row)
+        self.mode_hint=QLabel();self.mode_hint.setWordWrap(True);self.mode_hint.setTextFormat(Qt.PlainText);self.mode_hint.hide()
         self.mode.currentIndexChanged.connect(self._mode_changed);self._mode_changed()
-        self.scope_hint=QLabel();self.scope_hint.setWordWrap(True);self.scope_hint.setStyleSheet('color:#7e8793;font-size:12px;');layout.addWidget(self.scope_hint)
+        self.scope_hint=QLabel();self.scope_hint.setWordWrap(True);self.scope_hint.hide()
         options=QHBoxLayout()
         self.include_archive=QCheckBox('Включать архив');self.include_archive.setChecked(True)
         self.include_trash=QCheckBox('Искать в корзине');self.include_trash.setChecked(False)
-        options.addWidget(self.include_archive);options.addWidget(self.include_trash);options.addStretch();layout.addLayout(options)
-        self.fuzzy_identifiers=QCheckBox('Искать похожие номера при опечатке')
-        self.fuzzy_identifiers.setChecked(True)
-        self.fuzzy_identifiers.setToolTip('Только если точных совпадений нет. Похожие номера будут показаны отдельно, без утверждения, что это нужная запись.')
-        layout.addWidget(self.fuzzy_identifiers)
-        self.chat=QPlainTextEdit();self.chat.setReadOnly(True);self.chat.setAccessibleName('Разговор с помощником');layout.addWidget(self.chat,1)
+        options.addWidget(self.include_archive);options.addWidget(self.include_trash);options.addStretch();advanced.addLayout(options)
+        self.fuzzy_identifiers=QCheckBox('Искать похожие номера при опечатке');self.fuzzy_identifiers.setChecked(True)
+        self.fuzzy_identifiers.setToolTip('Только если точных совпадений нет. Похожие номера показываются отдельно.')
+        advanced.addWidget(self.fuzzy_identifiers);layout.addWidget(self.advanced_panel);self.advanced_panel.hide()
+        self.search_options_button.toggled.connect(self.advanced_panel.setVisible)
+        from app.widgets.note_context_pins import NoteContextPins
+        self.context_pins=NoteContextPins(self.store,self)
+        self.context_pins.set_scope(self.workspace_id,self.include_archive.isChecked(),self.include_trash.isChecked())
+        self.include_archive.toggled.connect(self._context_policy_changed)
+        self.include_trash.toggled.connect(self._context_policy_changed)
+        layout.addWidget(self.context_pins);self.context_pins.hide()
+        self.attach_notes_button.toggled.connect(self._toggle_context_panel)
+        self.context_pins.changed.connect(self._context_pins_changed)
+        self.chat=BrandedChatEdit();self.chat.setReadOnly(True);self.chat.setAccessibleName('Разговор с помощником');layout.addWidget(self.chat,1)
         self._scroll_animation=QPropertyAnimation(self.chat.verticalScrollBar(),b'value',self)
         self._scroll_animation.setDuration(100)
         self._scroll_animation.setEasingCurve(QEasingCurve.OutCubic)
         self.chat.verticalScrollBar().sliderPressed.connect(self._scroll_animation.stop)
         self.chat.verticalScrollBar().actionTriggered.connect(lambda action:self._scroll_animation.stop())
+        self.help_actions_panel=QWidget();self.help_actions_layout=QHBoxLayout(self.help_actions_panel)
+        self.help_actions_layout.setContentsMargins(0,0,0,0);self.help_action_buttons=[]
+        self.help_actions_panel.hide();layout.addWidget(self.help_actions_panel)
         self._action_draft=None
         self.draft_panel=QWidget();draft_layout=QVBoxLayout(self.draft_panel);draft_layout.setContentsMargins(0,0,0,0)
-        draft_layout.addWidget(QLabel('Проверьте заметку перед созданием'))
+        draft_header=QHBoxLayout()
+        self.draft_brand=QLabel();self.draft_brand.setPixmap(application_icon().pixmap(QSize(24,24)))
+        self.draft_brand.setAccessibleName('Orange Notes');draft_header.addWidget(self.draft_brand)
+        self.draft_heading=QLabel('Проверьте заметку перед созданием');draft_header.addWidget(self.draft_heading,1);draft_layout.addLayout(draft_header)
+        self.draft_recurrence=QLabel();self.draft_recurrence.setTextFormat(Qt.PlainText);self.draft_recurrence.setWordWrap(True);draft_layout.addWidget(self.draft_recurrence)
+        draft_layout.addWidget(QLabel('Название'))
         self.draft_title=QLineEdit();self.draft_title.setAccessibleName('Название новой заметки');draft_layout.addWidget(self.draft_title)
+        draft_layout.addWidget(QLabel('Текст'))
         self.draft_body=QPlainTextEdit();self.draft_body.setMaximumHeight(100);self.draft_body.setAccessibleName('Текст новой заметки');draft_layout.addWidget(self.draft_body)
         row=QHBoxLayout();self.draft_reminder=QCheckBox('Напомнить');row.addWidget(self.draft_reminder)
         self.draft_time=QDateTimeEdit();self.draft_time.setDisplayFormat('dd.MM.yyyy HH:mm');self.draft_time.setCalendarPopup(True);row.addWidget(self.draft_time)
         self.draft_create=QPushButton('Создать заметку');self.draft_create.clicked.connect(self._commit_draft);row.addWidget(self.draft_create)
         discard=QPushButton('Убрать');discard.clicked.connect(self._clear_draft);row.addWidget(discard);draft_layout.addLayout(row)
-        self.draft_reminder.toggled.connect(self.draft_time.setEnabled);self.draft_panel.hide();layout.addWidget(self.draft_panel)
+        self.draft_reminder.toggled.connect(self.draft_time.setEnabled);self.draft_panel.hide();self.draft_area=QScrollArea();self.draft_area.setWidgetResizable(True);self.draft_area.setWidget(self.draft_panel);self.draft_area.setMinimumHeight(190);self.draft_area.setMaximumHeight(340);self.draft_area.hide();layout.addWidget(self.draft_area)
         self.sources_area=QScrollArea();self.sources_area.setWidgetResizable(True);self.sources_area.setMaximumHeight(140)
         self.sources_content=QWidget();self.sources_layout=QVBoxLayout(self.sources_content);self.sources_layout.setContentsMargins(0,0,2,0);self.sources_layout.setSpacing(5)
         self.sources_area.setWidget(self.sources_content);self.sources_area.hide();layout.addWidget(self.sources_area)
@@ -244,6 +326,8 @@ class CompanionDialog(QDialog):
 
     def showEvent(self,event):
         super().showEvent(event)
+        if not self.busy:
+            self.context_pins.refresh()
         if self._auto_detect and not self._detected_once:
             self._detected_once=True
             QTimer.singleShot(0,self._detect_first_open)
@@ -268,7 +352,9 @@ class CompanionDialog(QDialog):
             if not response.get('embedding_ready'):message+=' · поиск по смыслу ещё не настроен'
             if self.config.get('provider')=='search':message='Локальный ИИ найден. Сейчас выбран поиск без модели; нажмите «Настроить», чтобы включить разговор.'
         else:message='Локальный ИИ-помощник не подключён. Поиск и создание заметок доступны без модели.'
-        self.connection_banner.setText(message)
+        self.connection_banner.setToolTip(message)
+        self.connection_banner.setText('ИИ готов' if response.get('model_ready') and self.config.get('provider')!='search' else 'Поиск без ИИ')
+        self.connection_banner.setStyleSheet('background:#eaf7ee;border-radius:8px;padding:8px;color:#286b42;' if response.get('model_ready') and self.config.get('provider')!='search' else 'background:#fff0dc;border-radius:8px;padding:8px;color:#86520c;')
         if self._settings_dialog:self._settings_dialog.result_label.setText(message)
 
     def show_onboarding(self):
@@ -340,11 +426,11 @@ class CompanionDialog(QDialog):
             self.metrics_collector.set_model(self.config.get("model"))
 
     def _welcome(self):
-        self.chat.setPlainText('Привет! Я ваш маленький помощник. Можно просто поздороваться, спросить, как работает приложение, или попросить создать заметку.\n\n'
+        self.chat.setPlainText('Помощник\nПривет! Я ваш маленький помощник. Можно просто поздороваться, спросить, как работает приложение, или попросить создать заметку.\n\n'
                                'Попробуйте: «Создай заметку: посмотреть почту завтра в 09:00». Я покажу черновик: вы проверите текст и время, затем нажмёте «Создать заметку».\n\n'
-                               'Поиск, простые подсказки и создание заметок доступны без модели. Для свободного разговора нужен локальный ИИ-комплект: «Подключение ИИ». Ваши заметки остаются на компьютере.')
+                               'Чтобы обсудить конкретные записи, нажмите «Прикрепить заметки». Ваши заметки остаются на компьютере.')
         self.scope_hint.setText('Использую только пространство «'+self.workspace.currentText()+'». Личные и рабочие заметки не смешиваются.')
-        self.status.setText('Готов к вопросу · поиск доступен сразу · ИИ ещё не проверен')
+        self.status.setText('Готов к вопросу')
         if self._connection_status:self.status.setText(self.connection_banner.text())
 
     def _mode_changed(self,*args):
@@ -353,21 +439,41 @@ class CompanionDialog(QDialog):
                       'audit':'Проверю найденные заметки на пробелы и противоречия. Это не проверка всей базы.',
                       'draft':'Подготовлю текст по вашим заметкам. Черновик можно проверить и скопировать.'}
         self.mode_hint.setText(descriptions.get(self.mode.currentData(),''))
+        self.mode.setToolTip(self.mode_hint.text())
+
+    def _toggle_context_panel(self,checked):
+        self.context_pins.setVisible(checked or bool(self.context_pins.note_ids))
+        if checked:self.context_pins.search.setFocus()
+
+    def _context_pins_changed(self):
+        count=len(self.context_pins.note_ids)
+        self.attach_notes_button.setText('Заметки · '+str(count) if count else 'Прикрепить заметки')
+        self.context_pins.setVisible(self.attach_notes_button.isChecked() or bool(count))
 
     def new_conversation(self):
         if self.busy:return False
+        self.context_pins.clear();self.context_pins.refresh()
         self._history=[];self._pending_query='';self.input.clear();self._clear_sources();self._clear_draft();self._welcome();self.input.setFocus();return True
 
     def _clear_draft(self):
-        self._action_draft=None;self.draft_panel.hide()
+        self._action_draft=None;self.draft_panel.hide();self.draft_area.hide();self._clear_help_actions()
 
     def _show_draft(self,draft):
         if not isinstance(draft,dict) or draft.get('workspace_id')!=self.workspace_id:return
+        self.draft_heading.setText('Черновик напоминания · создаётся только после подтверждения' if draft.get('once_at') else 'Черновик заметки · создаётся только после подтверждения')
+        self.draft_create.setText('Создать напоминание' if draft.get('once_at') else 'Создать заметку')
+        from app.services.assistant_actions import recurrence_label
+        rule = draft.get('recurrence') or draft.get('rrule')
+        self.draft_recurrence.setText(recurrence_label(rule))
+        self.draft_recurrence.setToolTip('Часовой пояс: ' + str(draft.get('timezone_id') or 'устройства'))
         self._action_draft=dict(draft);self.draft_title.setText(str(draft.get('title') or ''))
         self.draft_body.setPlainText(str(draft.get('body') or ''))
         when=QDateTime.fromString(str(draft.get('once_at') or ''),Qt.ISODate)
         self.draft_reminder.setChecked(when.isValid());self.draft_time.setDateTime(when if when.isValid() else QDateTime.currentDateTime().addSecs(3600))
-        self.draft_time.setEnabled(when.isValid());self.draft_panel.show()
+        self.draft_time.setEnabled(when.isValid());self.draft_panel.show();self.draft_area.show()
+        self.context_pins.hide();self.attach_notes_button.setChecked(False)
+        self.advanced_panel.hide();self.search_options_button.setChecked(False)
+        self.draft_area.verticalScrollBar().setValue(0)
 
     def _commit_draft(self):
         if self.busy or not self._action_draft:return False
@@ -375,10 +481,13 @@ class CompanionDialog(QDialog):
             self._clear_draft();self.status.setText('Пространство изменилось. Подготовьте новый черновик.');return False
         from app.services.assistant_actions import commit_action_draft
         draft={**self._action_draft,'title':self.draft_title.text(),'body':self.draft_body.toPlainText(),
-               'once_at':self.draft_time.dateTime().toString(Qt.ISODate) if self.draft_reminder.isChecked() else None}
+               'once_at':self.draft_time.dateTime().toString(Qt.ISODate) if self.draft_reminder.isChecked() else None,
+               'recurrence':self._action_draft.get('recurrence') if self.draft_reminder.isChecked() else None}
         try:note_id=commit_action_draft(self.store,draft)
         except (ValueError,sqlite3.Error,OSError) as error:self.status.setText('Не удалось создать заметку: '+str(error));return False
         self._clear_draft();self.status.setText('Заметка создана.');self.chat.appendPlainText('\nПомощник\nЗаметка сохранена. Нажмите её в списке, чтобы продолжить редактирование.')
+        self._history.append({'role':'assistant','content':'Заметка сохранена.','workspace_id':self.workspace_id,'sources':[]})
+        self._history=self._history[-20:]
         self.note_created.emit(note_id);return True
 
     def _suggest(self,text,mode):
@@ -392,7 +501,11 @@ class CompanionDialog(QDialog):
             if widget:widget.setParent(None);widget.deleteLater()
         self.source_buttons=[];self.sources_area.hide()
 
+    def _context_policy_changed(self,*args):
+        self.context_pins.set_scope(self.workspace_id,self.include_archive.isChecked(),self.include_trash.isChecked())
+
     def _scope_changed(self,*args):
+        self._context_policy_changed()
         self._discard_stream_preview()
         self._discard_stream_preview()
         self._set_typing(False)
@@ -422,12 +535,14 @@ class CompanionDialog(QDialog):
         request_config=dict(config or self.config)
         if kind=='ask': request_config['fuzzy_identifiers']=self.fuzzy_identifiers.isChecked()
         thread=_RequestThread(identity,self.engine_factory,self.database_path,query,self.workspace_id,self.mode.currentData(),
-                              [dict(message) for message in self._history],request_config,self.include_archive.isChecked(),self.include_trash.isChecked(),event,kind)
+                              [dict(message) for message in self._history],request_config,self.include_archive.isChecked(),self.include_trash.isChecked(),event,kind,attached_note_ids=self.context_pins.note_ids)
         self._thread=thread;_ACTIVE_DIALOGS.add(self)
         thread.advisory.connect(self._request_advisory, Qt.QueuedConnection)
         thread.completed.connect(self._request_completed, Qt.QueuedConnection)
         thread.progress.connect(self._request_progress, Qt.QueuedConnection)
         thread.finished.connect(self._request_finished, Qt.QueuedConnection)
+        self.context_pins.setEnabled(False)
+        self.include_archive.setEnabled(False);self.include_trash.setEnabled(False)
         self.send_button.setEnabled(False);self.cancel_button.setEnabled(True);self.settings_button.setEnabled(False);self.new_chat_button.setEnabled(False)
         self.status.setText('Проверяю локальный ИИ…' if kind=='status' else 'ИИ проверяет факты…')
         if kind=='ask':self._set_typing(True)
@@ -553,6 +668,11 @@ class CompanionDialog(QDialog):
             if memory:memory.close()
 
     def _begin_verified_render(self,identity,response,error,kind):
+        # Search excerpts are source material, never assistant-generated speech.
+        if isinstance(response,dict) and response.get('status')=='search_only':
+            try:self._render_completed(identity,response,error,kind)
+            finally:self._pending_render=False
+            return
         if (identity!=self._request_id or self._closing or error or kind!='ask'
                 or not self._sources_current(response)):
             try:self._render_completed(identity,response,error,kind)
@@ -611,6 +731,8 @@ class CompanionDialog(QDialog):
             if self._settings_dialog:self._settings_dialog.result_label.setText(self.status.text())
             return
         if kind=='detect':
+            if response.get('_bundled_config') and not self.settings_path.exists():
+                self._save_config({**self.config,**response['_bundled_config']})
             self._connection_changed(response)
             self.status.setText(self.connection_banner.text())
             self._open_onboarding_pending=not response.get('model_ready') and not self.config.get('onboarding_seen')
@@ -646,20 +768,73 @@ class CompanionDialog(QDialog):
         finally:
             if memory:memory.close()
         text=str(response.get('text') or '')
-        self.chat.appendPlainText('\nПомощник\n'+text)
+        search_only=response.get('status')=='search_only'
+        if search_only:
+            notice=('ИИ не сформировал подтверждённый ответ. Ниже — исходные фрагменты заметок, а не ответ помощника.'
+                    if response.get('sources') else 'В ваших заметках нет информации об этом')
+            self.chat.appendPlainText('\nРезультаты поиска · без генерации\n'+notice)
+        else:
+            self.chat.appendPlainText('\nПомощник\n'+text)
         sources=[{'note_id':source['note_id'],'revision':source.get('revision')} for source in response.get('sources') or [] if isinstance(source,dict) and 'note_id' in source]
-        self._history.extend([{'role':'user','content':self._pending_query,'workspace_id':self.workspace_id},
-                              {'role':'assistant','content':text,'workspace_id':self.workspace_id,'sources':sources}])
+        # Do not promote untrusted note excerpts into assistant-role history.
+        if not search_only:
+            self._history.extend([{'role':'user','content':self._pending_query,'workspace_id':self.workspace_id},
+                                  {'role':'assistant','content':text,'workspace_id':self.workspace_id,'sources':sources}])
         self._history=self._history[-20:]
         self.status.setText(str(response.get('engine_label') or 'Ответ готов.'))
-        if response.get('action_draft'):self._show_draft(response['action_draft'])
+        if not search_only and response.get('action_draft'):self._show_draft(response['action_draft'])
+        self._show_help_actions(response.get('help_actions') if not search_only else [])
         for source in response.get('sources') or []:
             if not isinstance(source,dict) or 'note_id' not in source:continue
             title=str(source.get('title') or '').strip() or 'Без названия'
+            if search_only:
+                card=QWidget();card.setObjectName('searchSourceCard')
+                card.setStyleSheet('QWidget#searchSourceCard {background:#f5f3ee;border:1px solid #e3ddd3;border-radius:8px;}')
+                card_layout=QVBoxLayout(card);card_layout.setContentsMargins(9,7,9,7)
+                label=QLabel('Источник: '+title[:100]+' · исходный текст заметки')
+                label.setTextFormat(Qt.PlainText);label.setWordWrap(True);card_layout.addWidget(label)
+                excerpt=QLabel(str(source.get('excerpt') or '')[:1600])
+                excerpt.setObjectName('searchSourceExcerpt');excerpt.setTextFormat(Qt.PlainText)
+                excerpt.setWordWrap(True);excerpt.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                card_layout.addWidget(excerpt);self.sources_layout.addWidget(card)
             button=QPushButton('Открыть: '+title[:100]);button.setToolTip(str(source.get('excerpt') or '')[:500])
             button.clicked.connect(lambda checked=False,s=dict(source),scope=self.workspace_id:self._open_source(s,scope))
-            self.sources_layout.addWidget(button);self.source_buttons.append(button)
+            (card_layout if search_only else self.sources_layout).addWidget(button);self.source_buttons.append(button)
         self.sources_area.setVisible(bool(self.source_buttons))
+
+    def _clear_help_actions(self):
+        while self.help_actions_layout.count():
+            item=self.help_actions_layout.takeAt(0)
+            if item.widget():item.widget().deleteLater()
+        self.help_action_buttons=[];self.help_actions_panel.hide()
+
+    def _show_help_actions(self,actions):
+        self._clear_help_actions()
+        labels={'synonyms':'Настроить синонимы','ai_settings':'Настройки ИИ','attach_notes':'Прикрепить заметки','quick_actions':'Быстрые действия'}
+        if not isinstance(actions,list):return
+        seen=set()
+        for item in actions[:8]:
+            action=item.get('action') if isinstance(item,dict) else None
+            if action not in labels or action in seen:continue
+            seen.add(action)
+            button=QPushButton(labels[action]);button.setIcon(application_icon());button.setProperty('helpAction',action)
+            button.clicked.connect(lambda checked=False,a=action:self._activate_help_action(a))
+            self.help_actions_layout.addWidget(button);self.help_action_buttons.append(button)
+        self.help_actions_panel.setVisible(bool(self.help_action_buttons))
+
+    def _activate_help_action(self,action):
+        if self.busy:return False
+        if action=='synonyms':self.show_synonyms()
+        elif action=='ai_settings':self.show_settings()
+        elif action=='attach_notes':
+            self.attach_notes_button.setChecked(True)
+            self.context_pins.search.setFocus();self.context_pins.search.selectAll()
+        elif action=='quick_actions':
+            callback=getattr(self.parent(),'show_command_palette',None)
+            if callable(callback):callback()
+            else:self.status.setText('Быстрые действия открываются клавишами Ctrl+K в главном окне.')
+        else:return False
+        return True
 
     def _open_source(self,source,workspace_id):
         if workspace_id!=self.workspace_id:return
@@ -698,6 +873,8 @@ class CompanionDialog(QDialog):
         self._deadline_timer.stop()
         if self._thread is thread:self._thread=None;self._cancel_event=None
         thread.deleteLater()
+        self.context_pins.setEnabled(True)
+        self.include_archive.setEnabled(True);self.include_trash.setEnabled(True)
         self.send_button.setEnabled(True);self.cancel_button.setEnabled(False);self.settings_button.setEnabled(True);self.new_chat_button.setEnabled(True)
         if self._closing:
             self.close();self.shutdown_ready.emit()
@@ -731,6 +908,11 @@ class CompanionDialog(QDialog):
             self.hide();event.ignore();_ACTIVE_DIALOGS.add(self)
         else:
             self._closing=False;event.accept();_ACTIVE_DIALOGS.discard(self)
+
+    def show_synonyms(self):
+        if self.busy:return
+        from app.ui.synonyms import SynonymDictionaryDialog
+        SynonymDictionaryDialog(self.database_path, self.workspace_id, self.workspace.currentText(), self).exec()
 
     def show_settings(self):
         if self.busy:return
@@ -767,7 +949,7 @@ class CompanionDialog(QDialog):
         advanced_form.addRow('Модель на компьютере',model);advanced_form.addRow('Локальный адрес',address)
         advanced.hide();advanced_toggle.toggled.connect(advanced.setVisible);outer.addWidget(advanced)
         dialog.result_label=QLabel('Комплект ещё не проверен. Модель разговора: '+self.config['model']+'. Модель памяти: '+self.config['embedding_model']+'.');dialog.result_label.setTextFormat(Qt.PlainText);dialog.result_label.setWordWrap(True);outer.addWidget(dialog.result_label)
-        if self._connection_status:dialog.result_label.setText(self.connection_banner.text())
+        if self._connection_status:dialog.result_label.setText(self.connection_banner.toolTip())
         buttons=QHBoxLayout();probe=QPushButton('Проверить ИИ-комплект');save=QPushButton('Сохранить');close=QPushButton('Закрыть');buttons.addWidget(probe);buttons.addStretch();buttons.addWidget(save);buttons.addWidget(close);outer.addLayout(buttons)
         def fields():
             values={**self.config,'provider':provider.currentData(),'model':model.text(),'base_url':address.text()}

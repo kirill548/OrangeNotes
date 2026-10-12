@@ -14,11 +14,17 @@ class ReminderDialog(QDialog):
     def __init__(self, reminder, parent=None):
         super().__init__(parent)
         self.setWindowTitle('Расписание напоминаний')
+        from app.utils.app_icon import application_icon
+        self.setWindowIcon(application_icon())
         self.setMinimumWidth(440)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16,20,16,16)
         layout.setSpacing(12)
         header = QHBoxLayout()
+        brand = QLabel()
+        brand.setObjectName('applicationBrandIcon')
+        brand.setPixmap(application_icon().pixmap(28,28))
+        header.addWidget(brand)
         heading = QLabel('Напоминание')
         heading.setStyleSheet('font-size:17px;font-weight:600;')
         header.addWidget(heading,1)
