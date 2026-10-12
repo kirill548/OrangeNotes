@@ -112,10 +112,11 @@ class OnboardingIntegrationTests(unittest.TestCase):
         dialog = self.dialog()
         self.assertIsNone(dialog._onboarding_dialog)
         self.assertEqual('ИИ готов', dialog.connection_banner.text())
-        self.assertIn('NDJSON stream=true', dialog.connection_banner.toolTip())
+        self.assertIn('qwen3:4b', dialog.connection_banner.toolTip())
+        self.assertNotIn('NDJSON', dialog.connection_banner.toolTip())
         self.assertIn('поиск по смыслу ещё не настроен', dialog.connection_banner.toolTip())
         dialog.show_settings()
-        self.assertIn('NDJSON', dialog._settings_dialog.result_label.text())
+        self.assertIn('qwen3:4b', dialog._settings_dialog.result_label.text())
 
     def test_explicit_pack_ready_choice_persists_pack_path(self):
         dialog = self.dialog()

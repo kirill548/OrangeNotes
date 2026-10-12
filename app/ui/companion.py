@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QCheckBox,QComboBox,QDialog,QDateTimeEdit,QFormLa
 from app.services.memory_store import MemoryStore
 from app.widgets.companion_mascot import companion_icon
 from app.utils.app_icon import application_icon
+from app.services.audio_capture import VoiceInputController
 
 
 class _AssistantAvatarMargin(QWidget):
@@ -192,6 +193,9 @@ class CompanionDialog(QDialog):
         self._pending_query=''
         self._stream_baseline=None
         self._stream_scope=None
+        self._voice_active=False
+        self._voice_scope=None
+        self._voice_discard=False
         self._closing=False
         self._settings_dialog=None
         self.source_buttons=[]
@@ -247,10 +251,10 @@ class CompanionDialog(QDialog):
         self.search_options_button=QPushButton('Параметры');self.search_options_button.setCheckable(True)
         controls.addWidget(self.search_options_button);layout.addLayout(controls)
         self.advanced_panel=QWidget();advanced=QVBoxLayout(self.advanced_panel);advanced.setContentsMargins(0,0,0,0)
-        advanced_row=QHBoxLayout();advanced_row.addWidget(QLabel('Режим'))
+        advanced_row=QHBoxLayout()
         self.mode=QComboBox()
         for label,value in [('Найти в заметках','memory'),('Обсудить','discuss'),('Проверить','audit'),('Подготовить черновик','draft')]:self.mode.addItem(label,value)
-        self.mode.setCurrentIndex(self.mode.findData('discuss'));advanced_row.addWidget(self.mode,1)
+        self.mode.setCurrentIndex(self.mode.findData('discuss'));self.mode.hide()
         self.settings_button=QPushButton('Настройки ИИ');self.settings_button.clicked.connect(self.show_settings);self.settings_button.hide()
         self.synonyms_button=QPushButton('Синонимы');self.synonyms_button.setToolTip('Настроить свои слова для поиска в выбранном пространстве')
         self.synonyms_button.clicked.connect(self.show_synonyms);advanced_row.addWidget(self.synonyms_button);advanced.addLayout(advanced_row)
@@ -289,23 +293,34 @@ class CompanionDialog(QDialog):
         self.draft_brand.setAccessibleName('Orange Notes');draft_header.addWidget(self.draft_brand)
         self.draft_heading=QLabel('Проверьте заметку перед созданием');draft_header.addWidget(self.draft_heading,1);draft_layout.addLayout(draft_header)
         self.draft_recurrence=QLabel();self.draft_recurrence.setTextFormat(Qt.PlainText);self.draft_recurrence.setWordWrap(True);draft_layout.addWidget(self.draft_recurrence)
-        draft_layout.addWidget(QLabel('Название'))
+        draft_layout.addWidget(QLabel('Заголовок'))
         self.draft_title=QLineEdit();self.draft_title.setAccessibleName('Название новой заметки');draft_layout.addWidget(self.draft_title)
         draft_layout.addWidget(QLabel('Текст'))
         self.draft_body=QPlainTextEdit();self.draft_body.setMaximumHeight(100);self.draft_body.setAccessibleName('Текст новой заметки');draft_layout.addWidget(self.draft_body)
         row=QHBoxLayout();self.draft_reminder=QCheckBox('Напомнить');row.addWidget(self.draft_reminder)
-        self.draft_time=QDateTimeEdit();self.draft_time.setDisplayFormat('dd.MM.yyyy HH:mm');self.draft_time.setCalendarPopup(True);row.addWidget(self.draft_time)
-        self.draft_create=QPushButton('Создать заметку');self.draft_create.clicked.connect(self._commit_draft);row.addWidget(self.draft_create)
-        discard=QPushButton('Убрать');discard.clicked.connect(self._clear_draft);row.addWidget(discard);draft_layout.addLayout(row)
-        self.draft_reminder.toggled.connect(self.draft_time.setEnabled);self.draft_panel.hide();self.draft_area=QScrollArea();self.draft_area.setWidgetResizable(True);self.draft_area.setWidget(self.draft_panel);self.draft_area.setMinimumHeight(190);self.draft_area.setMaximumHeight(340);self.draft_area.hide();layout.addWidget(self.draft_area)
+        self.draft_time=QDateTimeEdit();self.draft_time.setDisplayFormat('dd.MM.yyyy HH:mm');self.draft_time.setCalendarPopup(True);row.addWidget(self.draft_time);draft_layout.addLayout(row)
+        self.draft_actions=QWidget();actions=QHBoxLayout(self.draft_actions);actions.setContentsMargins(0,0,0,0)
+        self.draft_create=QPushButton('Сохранить в заметки');self.draft_create.clicked.connect(self._commit_draft);actions.addWidget(self.draft_create,1)
+        self.draft_discard=QPushButton('Убрать');self.draft_discard.clicked.connect(self._clear_draft);actions.addWidget(self.draft_discard);self.draft_actions.hide()
+        self.draft_reminder.toggled.connect(self.draft_time.setEnabled);self.draft_panel.hide();self.draft_area=QScrollArea();self.draft_area.setWidgetResizable(True);self.draft_area.setWidget(self.draft_panel);self.draft_area.setMinimumHeight(190);self.draft_area.setMaximumHeight(340);self.draft_area.hide();layout.addWidget(self.draft_area);layout.addWidget(self.draft_actions)
         self.sources_area=QScrollArea();self.sources_area.setWidgetResizable(True);self.sources_area.setMaximumHeight(140)
         self.sources_content=QWidget();self.sources_layout=QVBoxLayout(self.sources_content);self.sources_layout.setContentsMargins(0,0,2,0);self.sources_layout.setSpacing(5)
         self.sources_area.setWidget(self.sources_content);self.sources_area.hide();layout.addWidget(self.sources_area)
-        prompts=QHBoxLayout()
+        self.quick_actions=QWidget();prompts=QHBoxLayout(self.quick_actions)
         for label,text,mode in [('Создать заметку','Создай заметку: позвонить завтра в 10:00.','discuss'),('Найти','Найди, что я планировал сделать.','memory'),('Обсудить','Помоги разобраться в ситуации. Сначала уточни, чего я хочу добиться.','discuss'),('Проверить','Проверь план по моим заметкам: что упущено и какие есть противоречия?','audit')]:
             button=QPushButton(label);button.clicked.connect(lambda checked=False,q=text,m=mode:self._suggest(q,m));prompts.addWidget(button)
-        layout.addLayout(prompts)
-        self.input=QPlainTextEdit();self.input.setPlaceholderText(shortcut_label('Например: «Создай заметку: позвонить завтра в 10:00»\nCtrl+Enter — отправить, Enter — новая строка'));self.input.setMaximumHeight(75);self.input.setAccessibleName('Ваш вопрос');layout.addWidget(self.input)
+        layout.addWidget(self.quick_actions);self.quick_actions.hide()
+        self.input=QPlainTextEdit();self.input.setPlaceholderText(shortcut_label('Например: «Создай заметку: позвонить завтра в 10:00»\nCtrl+Enter — отправить, Enter — новая строка'));self.input.setMaximumHeight(75);self.input.setAccessibleName('Ваш вопрос')
+        voice_row=QHBoxLayout();voice_row.addWidget(self.input,1)
+        self.microphone_button=QPushButton('🎙');self.microphone_button.setAccessibleName('Голосовой ввод');self.microphone_button.setFixedWidth(48)
+        self.microphone_button.setToolTip('Надиктовать текст. Запись остаётся на компьютере. Нажмите ещё раз, чтобы распознать; «Отменить» — чтобы удалить запись.')
+        self.microphone_button.clicked.connect(self._toggle_voice);voice_row.addWidget(self.microphone_button);layout.addLayout(voice_row)
+        stt_root=self.database_path.parent/'stt'
+        self.voice_input=VoiceInputController(parent=self,model_path=stt_root/'ggml-tiny.bin',executable_path=stt_root/('whisper-cli.exe' if os.name=='nt' else 'whisper-cli'))
+        self.voice_input.text_ready.connect(self._voice_text_ready)
+        self.voice_input.state_changed.connect(self._voice_state_changed)
+        self.voice_input.error.connect(self._voice_error)
+        self.voice_input.finished.connect(self._voice_finished)
         self.send_shortcut=QShortcut(QKeySequence(shortcut('Ctrl+Return')),self);self.send_shortcut.activated.connect(self.send)
         self.send_shortcut_enter=QShortcut(QKeySequence(shortcut('Ctrl+Enter')),self);self.send_shortcut_enter.activated.connect(self.send)
         self.typing_indicator=QLabel('');self.typing_indicator.setTextFormat(Qt.PlainText)
@@ -321,8 +336,46 @@ class CompanionDialog(QDialog):
         self.workspace.currentIndexChanged.connect(self._scope_changed)
         self._welcome()
 
+    def _toggle_voice(self):
+        if self._voice_active:
+            self.voice_input.stop();return
+        if self.busy:return
+        self._voice_active=True;self._voice_discard=False;self._voice_scope=self.workspace_id
+        self.send_button.setEnabled(False);self.cancel_button.setEnabled(True)
+        try:self.voice_input.start()
+        except Exception:
+            self.status.setText('Не удалось начать запись. Проверьте микрофон и настройки голосового ввода.')
+            self._voice_finished()
+
+    def _voice_state_changed(self,state):
+        if not self._voice_active or self._voice_discard:return
+        recording=state=='recording'
+        self.microphone_button.setText('■' if recording else '🎙')
+        self.microphone_button.setEnabled(recording)
+        self.status.setText('Слушаю…' if recording else 'Распознаю…' if state=='transcribing' else 'Готов')
+
+    def _voice_text_ready(self,text):
+        if self._voice_discard or self._closing or self._voice_scope!=self.workspace_id:return
+        text=str(text).strip()
+        if text:
+            previous=self.input.toPlainText()
+            self.input.setPlainText(previous+('\n' if previous.strip() else '')+text)
+            self.input.setFocus()
+            self.status.setText('Текст готов. Проверьте его и нажмите «Отправить».')
+
+    def _voice_error(self,message):
+        if not self._voice_discard and not self._closing:self.status.setText(str(message))
+
+    def _cancel_voice(self):
+        self._voice_discard=True;self.voice_input.cancel()
+
+    def _voice_finished(self):
+        self._voice_active=False;self.microphone_button.setText('🎙');self.microphone_button.setEnabled(True)
+        self.send_button.setEnabled(self._thread is None);self.cancel_button.setEnabled(self._thread is not None)
+        if self._closing:self.close();self.shutdown_ready.emit();_ACTIVE_DIALOGS.discard(self)
+
     @property
-    def busy(self):return getattr(self,'_pending_pack_probe',False) or self._thread is not None or getattr(self,'_pending_render',False) or bool(self._onboarding_dialog and self._onboarding_dialog.busy) or bool(self._settings_dialog and getattr(self._settings_dialog,'pack_tab',None) and self._settings_dialog.pack_tab.busy)
+    def busy(self):return self._voice_active or getattr(self,'_pending_pack_probe',False) or self._thread is not None or getattr(self,'_pending_render',False) or bool(self._onboarding_dialog and self._onboarding_dialog.busy) or bool(self._settings_dialog and getattr(self._settings_dialog,'pack_tab',None) and self._settings_dialog.pack_tab.busy)
 
     def showEvent(self,event):
         super().showEvent(event)
@@ -346,11 +399,11 @@ class CompanionDialog(QDialog):
     def _connection_changed(self,response):
         self._connection_status=dict(response)
         if response.get('model_ready'):
-            message='Локальный ИИ подключён · '+self.config['model']+' · NDJSON stream=true'
+            message='Локальный ИИ подключён. Модель: '+self.config['model']
             latency=response.get('latency_ms')
-            if isinstance(latency,(int,float)):message+=' · проверка '+str(round(latency))+' мс'
+            if isinstance(latency,(int,float)):message+=' · соединение проверено за '+str(round(latency))+' мс'
             if not response.get('embedding_ready'):message+=' · поиск по смыслу ещё не настроен'
-            if self.config.get('provider')=='search':message='Локальный ИИ найден. Сейчас выбран поиск без модели; нажмите «Настроить», чтобы включить разговор.'
+            if self.config.get('provider')=='search':message='Локальный ИИ найден. Сейчас выбран поиск без модели; нажмите «Настройки ИИ», чтобы включить разговор.'
         else:message='Локальный ИИ-помощник не подключён. Поиск и создание заметок доступны без модели.'
         self.connection_banner.setToolTip(message)
         self.connection_banner.setText('ИИ готов' if response.get('model_ready') and self.config.get('provider')!='search' else 'Поиск без ИИ')
@@ -427,10 +480,10 @@ class CompanionDialog(QDialog):
 
     def _welcome(self):
         self.chat.setPlainText('Помощник\nПривет! Я ваш маленький помощник. Можно просто поздороваться, спросить, как работает приложение, или попросить создать заметку.\n\n'
-                               'Попробуйте: «Создай заметку: посмотреть почту завтра в 09:00». Я покажу черновик: вы проверите текст и время, затем нажмёте «Создать заметку».\n\n'
+                               'Попробуйте: «Создай заметку: посмотреть почту завтра в 09:00». Я покажу черновик: вы проверите текст и время, затем нажмёте «Сохранить в заметки».\n\n'
                                'Чтобы обсудить конкретные записи, нажмите «Прикрепить заметки». Ваши заметки остаются на компьютере.')
         self.scope_hint.setText('Использую только пространство «'+self.workspace.currentText()+'». Личные и рабочие заметки не смешиваются.')
-        self.status.setText('Готов к вопросу')
+        self.status.setText('Готов')
         if self._connection_status:self.status.setText(self.connection_banner.text())
 
     def _mode_changed(self,*args):
@@ -451,17 +504,18 @@ class CompanionDialog(QDialog):
         self.context_pins.setVisible(self.attach_notes_button.isChecked() or bool(count))
 
     def new_conversation(self):
-        if self.busy:return False
+        if self._voice_active:self._cancel_voice()
+        if self.busy and not self._voice_active:return False
         self.context_pins.clear();self.context_pins.refresh()
         self._history=[];self._pending_query='';self.input.clear();self._clear_sources();self._clear_draft();self._welcome();self.input.setFocus();return True
 
     def _clear_draft(self):
-        self._action_draft=None;self.draft_panel.hide();self.draft_area.hide();self._clear_help_actions()
+        self._action_draft=None;self.draft_panel.hide();self.draft_area.hide();self.draft_actions.hide();self._clear_help_actions()
 
     def _show_draft(self,draft):
         if not isinstance(draft,dict) or draft.get('workspace_id')!=self.workspace_id:return
         self.draft_heading.setText('Черновик напоминания · создаётся только после подтверждения' if draft.get('once_at') else 'Черновик заметки · создаётся только после подтверждения')
-        self.draft_create.setText('Создать напоминание' if draft.get('once_at') else 'Создать заметку')
+        self.draft_create.setText('Сохранить в заметки')
         from app.services.assistant_actions import recurrence_label
         rule = draft.get('recurrence') or draft.get('rrule')
         self.draft_recurrence.setText(recurrence_label(rule))
@@ -470,7 +524,7 @@ class CompanionDialog(QDialog):
         self.draft_body.setPlainText(str(draft.get('body') or ''))
         when=QDateTime.fromString(str(draft.get('once_at') or ''),Qt.ISODate)
         self.draft_reminder.setChecked(when.isValid());self.draft_time.setDateTime(when if when.isValid() else QDateTime.currentDateTime().addSecs(3600))
-        self.draft_time.setEnabled(when.isValid());self.draft_panel.show();self.draft_area.show()
+        self.draft_time.setEnabled(when.isValid());self.draft_panel.show();self.draft_area.show();self.draft_actions.show()
         self.context_pins.hide();self.attach_notes_button.setChecked(False)
         self.advanced_panel.hide();self.search_options_button.setChecked(False)
         self.draft_area.verticalScrollBar().setValue(0)
@@ -485,7 +539,7 @@ class CompanionDialog(QDialog):
                'recurrence':self._action_draft.get('recurrence') if self.draft_reminder.isChecked() else None}
         try:note_id=commit_action_draft(self.store,draft)
         except (ValueError,sqlite3.Error,OSError) as error:self.status.setText('Не удалось создать заметку: '+str(error));return False
-        self._clear_draft();self.status.setText('Заметка создана.');self.chat.appendPlainText('\nПомощник\nЗаметка сохранена. Нажмите её в списке, чтобы продолжить редактирование.')
+        self._clear_draft();self.status.setText('Сохранено');self.chat.appendPlainText('\nПомощник\nЗаметка сохранена. Нажмите её в списке, чтобы продолжить редактирование.')
         self._history.append({'role':'assistant','content':'Заметка сохранена.','workspace_id':self.workspace_id,'sources':[]})
         self._history=self._history[-20:]
         self.note_created.emit(note_id);return True
@@ -505,6 +559,7 @@ class CompanionDialog(QDialog):
         self.context_pins.set_scope(self.workspace_id,self.include_archive.isChecked(),self.include_trash.isChecked())
 
     def _scope_changed(self,*args):
+        if self._voice_active:self._cancel_voice()
         self._context_policy_changed()
         self._discard_stream_preview()
         self._discard_stream_preview()
@@ -527,6 +582,14 @@ class CompanionDialog(QDialog):
         self._start(query=query,kind='ask')
         return True
 
+    @staticmethod
+    def _automatic_mode(query):
+        """Choose a retrieval task without asking users for a technical mode."""
+        text=str(query).casefold()
+        if re.search(r'\b(проверь|проверить|противоречия|упущено)\b',text):return 'audit'
+        if re.search(r'\b(найди|найти|поищи|поиск|отыщи)\b',text):return 'memory'
+        return 'discuss'
+
     def _start(self,query='',kind='ask',config=None):
         if self.busy:return False
         self._request_id+=1;identity=self._request_id
@@ -534,7 +597,9 @@ class CompanionDialog(QDialog):
         self._pending_config=dict(config or self.config)
         request_config=dict(config or self.config)
         if kind=='ask': request_config['fuzzy_identifiers']=self.fuzzy_identifiers.isChecked()
-        thread=_RequestThread(identity,self.engine_factory,self.database_path,query,self.workspace_id,self.mode.currentData(),
+        selected_mode=self._automatic_mode(query) if kind=='ask' else self.mode.currentData()
+        self.mode.setCurrentIndex(self.mode.findData(selected_mode))
+        thread=_RequestThread(identity,self.engine_factory,self.database_path,query,self.workspace_id,selected_mode,
                               [dict(message) for message in self._history],request_config,self.include_archive.isChecked(),self.include_trash.isChecked(),event,kind,attached_note_ids=self.context_pins.note_ids)
         self._thread=thread;_ACTIVE_DIALOGS.add(self)
         thread.advisory.connect(self._request_advisory, Qt.QueuedConnection)
@@ -544,7 +609,7 @@ class CompanionDialog(QDialog):
         self.context_pins.setEnabled(False)
         self.include_archive.setEnabled(False);self.include_trash.setEnabled(False)
         self.send_button.setEnabled(False);self.cancel_button.setEnabled(True);self.settings_button.setEnabled(False);self.new_chat_button.setEnabled(False)
-        self.status.setText('Проверяю локальный ИИ…' if kind=='status' else 'ИИ проверяет факты…')
+        self.status.setText('Проверяю подключение…' if kind=='status' else 'Генерирует…')
         if kind=='ask':self._set_typing(True)
         self._deadline_timer.start(30000)
         thread.start();return True
@@ -558,7 +623,7 @@ class CompanionDialog(QDialog):
 
     def _animate_typing(self):
         self._typing_frame=(self._typing_frame+1)%4
-        self.typing_indicator.setText('Помощник готовит проверенный ответ'+'.'*self._typing_frame)
+        self.typing_indicator.setText('Помощник готовит ответ'+'.'*self._typing_frame)
 
     def _follow_verified_scroll(self, follow, previous):
         bar=self.chat.verticalScrollBar()
@@ -606,7 +671,7 @@ class CompanionDialog(QDialog):
             self.chat.appendPlainText('\nПомощник\n')
         cursor=self.chat.textCursor();cursor.movePosition(cursor.MoveOperation.End);cursor.insertText(text)
         self._follow_verified_scroll(follow,previous)
-        self.status.setText('ИИ проверяет факты… Проверенные фрагменты уже показаны.')
+        self.status.setText('Проверяет источники…')
 
     @Slot(int, str)
     def _request_advisory(self, identity, message):
@@ -781,7 +846,7 @@ class CompanionDialog(QDialog):
             self._history.extend([{'role':'user','content':self._pending_query,'workspace_id':self.workspace_id},
                                   {'role':'assistant','content':text,'workspace_id':self.workspace_id,'sources':sources}])
         self._history=self._history[-20:]
-        self.status.setText(str(response.get('engine_label') or 'Ответ готов.'))
+        self.status.setText('Поиск без генерации' if search_only else 'Готов')
         if not search_only and response.get('action_draft'):self._show_draft(response['action_draft'])
         self._show_help_actions(response.get('help_actions') if not search_only else [])
         for source in response.get('sources') or []:
@@ -852,6 +917,8 @@ class CompanionDialog(QDialog):
             if memory:memory.close()
 
     def cancel(self):
+        if self._voice_active:
+            self._cancel_voice();self.status.setText('Запись отменена');return
         if self._settings_dialog and getattr(self._settings_dialog,'pack_tab',None) and self._settings_dialog.pack_tab.busy:
             self._settings_dialog.pack_tab.cancel();return
         if self._onboarding_dialog and self._onboarding_dialog.busy:
@@ -886,6 +953,7 @@ class CompanionDialog(QDialog):
     def request_close(self):self.close()
 
     def closeEvent(self,event):
+        if self._voice_active:self._cancel_voice()
         self._pending_pack_probe=False
         if self.metrics_collector is not None and self._metrics_identity is not None:
             self.metrics_collector.abort(self._metrics_identity);self._metrics_identity=None

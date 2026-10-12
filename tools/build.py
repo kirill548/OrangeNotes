@@ -91,6 +91,9 @@ def main(argv=None):
             '--workpath', str(ROOT / 'build'), '--specpath', str(ROOT / 'build'),
             '--copy-metadata', 'PySide6_Essentials', '--copy-metadata', 'shiboken6',
             '--collect-data', 'tzdata',
+            # Audio capture is optional at runtime. Explicit inclusion also runs
+            # PyInstaller's QtMultimedia hook for platform multimedia plugins.
+            '--hidden-import', 'PySide6.QtMultimedia',
             '--add-data', str(ROOT / 'app/assets') + ':app/assets',
             '--add-data', str(ROOT / 'app/services/windows_toast.ps1') + ':app/services']
     if sys.platform == 'win32':

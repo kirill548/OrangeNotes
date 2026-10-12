@@ -27,7 +27,8 @@ class SimplifiedCompanionTests(unittest.TestCase):
         dialog.config['provider']='ollama'
         dialog._connection_changed({'model_ready':True,'embedding_ready':True,'latency_ms':18})
         self.assertEqual(dialog.connection_banner.text(),'ИИ готов')
-        self.assertIn('NDJSON',dialog.connection_banner.toolTip())
+        self.assertIn('qwen3:4b',dialog.connection_banner.toolTip())
+        self.assertNotIn('NDJSON',dialog.connection_banner.toolTip())
         self.assertNotIn('NDJSON',dialog.connection_banner.text())
 
     def test_missing_model_is_plain_search_without_fake_ready(self):

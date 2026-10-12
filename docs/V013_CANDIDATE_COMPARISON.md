@@ -1,5 +1,8 @@
 # Orange Notes: candidate qualification, 2026-10-11
 
+> Исторический отчёт этапа разработки. Актуальный опубликованный релиз: [v0.1.3](../RELEASE_NOTES_v0.1.3.md); текущий план: [ROADMAP](../ROADMAP.md). Измерения ниже относятся к указанному в отчёте прогону.
+
+
 **Decision: NO_QUALIFIED_CANDIDATE. No Complete Edition default is approved.**
 
 | Candidate | Total | Canonical refusals | Holdouts | Pipeline | Transport errors | Full performance |

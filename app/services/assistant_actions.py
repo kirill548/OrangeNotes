@@ -155,7 +155,10 @@ def validate_tool_call(call):
         stamp = datetime.fromisoformat(args['date'] + 'T' + args['time'])
         if args['recurrence'] is not None:
             validate_recurrence(args['recurrence'], stamp.isoformat())
-    return call
+    # Preserve the draft handler's legacy error messages and tool allowlist;
+    # the shared model boundary additionally enforces exact types and limits.
+    from app.services.tool_schema import validate_tool_call as validate_schema_call
+    return validate_schema_call(call)
 
 
 def recurrence_label(rule):
