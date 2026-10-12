@@ -207,7 +207,7 @@ def test_system_ancestor_alias_allowed_but_internal_alias_rejected(tmp_path):
     root = alias / 'trusted-app' / 'stt'
     root.mkdir(parents=True)
     manager = stt.STTManager(root)
-    assert manager._safe(root / 'model.bin') == root / 'model.bin'
+    assert manager._safe(root / 'model.bin') == root.resolve() / 'model.bin'
     outside = tmp_path / 'outside'
     outside.mkdir()
     (root / 'linked-models').symlink_to(outside, target_is_directory=True)

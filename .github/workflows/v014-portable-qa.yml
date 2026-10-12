@@ -8,6 +8,13 @@ on:
       - app/services/stt_installer.py
       - tools/stt_native_smoke.py
       - tools/build.py
+      - tests/test_stt*.py
+      - tests/test_audio*.py
+      - app/services/app_paths.py
+      - app/services/audio_capture.py
+concurrency:
+  group: portable-stt-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
