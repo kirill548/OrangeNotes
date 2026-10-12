@@ -14,15 +14,19 @@ jobs:
         include:
           - os: windows-latest
             architecture: x64
+            qt_platform: windows
           - os: ubuntu-latest
             architecture: x64
+            qt_platform: offscreen
           - os: macos-15-intel
             architecture: x64
+            qt_platform: cocoa
           - os: macos-latest
             architecture: arm64
+            qt_platform: cocoa
     runs-on: ${{ matrix.os }}
     env:
-      QT_QPA_PLATFORM: offscreen
+      QT_QPA_PLATFORM: ${{ matrix.qt_platform }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,7 +43,7 @@ jobs:
         run: python -m pytest tests/test_local_stt.py tests/test_audio_capture.py tests/test_stt_platform_contract.py tests/test_companion_voice.py -v
       - name: Full regression (live model qualification is separate)
         env:
-          QT_QPA_PLATFORM: offscreen
+          QT_QPA_PLATFORM: ${{ matrix.qt_platform }}
         run: python -m pytest tests/ --timeout=90 --timeout-method=thread --junitxml=regression.xml
       - uses: actions/upload-artifact@v4
         if: always()
