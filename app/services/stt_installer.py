@@ -53,16 +53,27 @@ def _hash(path):
 
 class STTManager:
     def __init__(self, root):
-        self.root = Path(root).absolute()
+        self._lexical_root = Path(root).absolute()
+        # Resolve trusted ancestors (macOS /var), retaining the component root
+        # itself so an stt/ symlink is still rejected.
+        self.root = self._lexical_root.parent.resolve() / self._lexical_root.name
         self._lock = threading.Lock()
 
     def _safe(self, path):
         path = Path(path).absolute()
+        if path.is_relative_to(self._lexical_root):
+            path = self.root / path.relative_to(self._lexical_root)
         if '..' in path.parts or not path.is_relative_to(self.root) or not path.resolve().is_relative_to(self.root.resolve()):
             raise STTError('Путь находится вне каталога голосового ввода.')
+        # A trusted application directory may have an OS alias above it
+        # (macOS /var -> /private/var). Only links at/inside STT root are forbidden.
         for item in (path, *path.parents):
             if _linked(item):
                 raise STTError('Каталог голосового ввода содержит ссылку.')
+            if item == self.root:
+                break
+            if item == self.root:
+                break
         return path
 
     def _config(self):
@@ -223,15 +234,47 @@ class STTManager:
                             copy(source, target)
         else:
             with tarfile.open(archive, 'r:gz') as bundle:
+                indexed = {}
+                targets = {}
                 for info in bundle:
                     target = target_for(info.name, info.size)
+                    name = str(PurePosixPath(info.name))
+                    if name in indexed:
+                        raise STTError('Архив содержит повторяющиеся пути.')
+                    if not (info.isdir() or info.isfile() or info.issym()):
+                        raise STTError('Архив содержит жёсткую ссылку или специальный файл.')
+                    indexed[name] = info
+                    targets[name] = target
+                def resolve_regular(info):
+                    visited = set()
+                    while info.issym():
+                        name = str(PurePosixPath(info.name))
+                        if name in visited or len(visited) >= 32:
+                            raise STTError('Архив содержит циклическую ссылку.')
+                        visited.add(name)
+                        link = PurePosixPath(info.linkname.replace('\\', '/'))
+                        if link.is_absolute() or '..' in link.parts or any(':' in part for part in link.parts):
+                            raise STTError('Архив содержит внешнюю ссылку.')
+                        referenced = str(PurePosixPath(name).parent / link)
+                        info = indexed.get(referenced)
+                        if info is None:
+                            raise STTError('Архив содержит отсутствующую цель ссылки.')
+                    if not info.isfile():
+                        raise STTError('Ссылка архива не указывает на обычный файл.')
+                    return info
+                plan = []
+                for name, info in indexed.items():
                     if info.isdir():
                         continue
-                    if not info.isfile():
-                        raise STTError('Архив содержит ссылку или специальный файл.')
-                    with bundle.extractfile(info) as source:
+                    regular = resolve_regular(info)
+                    if info.issym():
+                        # Expanded aliases also count against the extraction budget.
+                        target_for(name, regular.size)
+                    plan.append((targets[name], regular))
+                for target, regular in plan:
+                    with bundle.extractfile(regular) as source:
                         copy(source, target)
-                    target.chmod(info.mode & 0o755)
+                    target.chmod(regular.mode & 0o755)
 
     def _build_macos(self, source_directory, destination, cancelled):
         cmake = shutil.which('cmake')

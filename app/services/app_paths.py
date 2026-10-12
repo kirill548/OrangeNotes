@@ -21,8 +21,20 @@ def stt_dir():
 
 def resolve_app_path(value):
     path = Path(value)
-    candidate = path if path.is_absolute() else get_app_dir() / path
-    root = get_app_dir().resolve()
+    lexical_root = get_app_dir().absolute()
+    root = lexical_root.resolve()
+    candidate = path.absolute() if path.is_absolute() else lexical_root / path
+    # macOS /var and /tmp are trusted OS aliases above the application.
+    # Canonicalize that prefix only; inspecting the full canonical path would
+    # hide forbidden links *inside* the application directory.
+    try:
+        relative = candidate.relative_to(lexical_root)
+    except ValueError:
+        try:
+            relative = candidate.relative_to(root)
+        except ValueError as exc:
+            raise ValueError('Компоненты должны находиться в папке приложения.') from exc
+    candidate = root / relative
     if not candidate.resolve().is_relative_to(root):
         raise ValueError('Компоненты должны находиться в папке приложения.')
     for item in (candidate, *candidate.parents):
@@ -42,14 +54,10 @@ def portable_app_path(value):
 def check_app_writable(directory=None):
     """Probe write permission, reject component links and leave no probe file."""
     root = get_app_dir().resolve()
-    folder = Path(directory) if directory is not None else root
-    if not folder.resolve().is_relative_to(root):
-        raise PermissionError('Компоненты должны находиться в папке приложения.')
-    for item in (folder, *folder.parents):
-        if item == root:
-            break
-        if item.is_symlink() or getattr(item, 'is_junction', lambda: False)():
-            raise PermissionError('Папка компонентов не должна быть ссылкой.')
+    try:
+        folder = resolve_app_path(directory if directory is not None else root)
+    except ValueError as exc:
+        raise PermissionError(str(exc)) from exc
     try:
         folder.mkdir(parents=True, exist_ok=True)
         fd, name = tempfile.mkstemp(prefix='.orange-write-', dir=folder)

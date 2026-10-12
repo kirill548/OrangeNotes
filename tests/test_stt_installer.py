@@ -148,3 +148,78 @@ def test_macos_source_install_mock(tmp_path, monkeypatch):
 
 def test_official_hf_cdn_redirect_allowed():
     stt._validate_url('https://us.aws.cdn.hf.co/model.bin')
+
+
+def make_library_tar(path, links):
+    import tarfile
+    with tarfile.open(path, 'w:gz') as bundle:
+        regular = tarfile.TarInfo('pack/libvoice.so.1.2')
+        payload = b'verified runtime library'
+        regular.size = len(payload)
+        regular.mode = 0o755
+        bundle.addfile(regular, io.BytesIO(payload))
+        for name, target in links:
+            alias = tarfile.TarInfo(name)
+            alias.type = tarfile.SYMTYPE
+            alias.linkname = target
+            bundle.addfile(alias)
+
+
+def test_tar_internal_library_aliases_are_materialized(tmp_path):
+    manager = stt.STTManager(tmp_path)
+    archive = tmp_path / 'engine.tar.gz'
+    make_library_tar(archive, [('pack/libvoice.so', 'libvoice.so.1'), ('pack/libvoice.so.1', 'libvoice.so.1.2')])
+    manager._extract(archive, tmp_path / 'engine', threading.Event())
+    for filename in ['libvoice.so', 'libvoice.so.1', 'libvoice.so.1.2']:
+        path = tmp_path / 'engine' / 'pack' / filename
+        assert path.read_bytes() == b'verified runtime library'
+        assert not path.is_symlink()
+
+
+@pytest.mark.parametrize('target', ['/outside', '../../outside', 'C:/outside', 'missing.so', 'libvoice.so'])
+def test_tar_unsafe_aliases_are_rejected(tmp_path, target):
+    archive = tmp_path / 'bad.tar.gz'
+    make_library_tar(archive, [('pack/libvoice.so', target)])
+    with pytest.raises(stt.STTError):
+        stt.STTManager(tmp_path)._extract(archive, tmp_path / 'engine', threading.Event())
+
+
+def test_tar_hard_links_remain_rejected(tmp_path):
+    import tarfile
+    archive = tmp_path / 'bad.tar.gz'
+    with tarfile.open(archive, 'w:gz') as bundle:
+        member = tarfile.TarInfo('hardlink')
+        member.type = tarfile.LNKTYPE
+        member.linkname = 'somefile'
+        bundle.addfile(member)
+    with pytest.raises(stt.STTError):
+        stt.STTManager(tmp_path)._extract(archive, tmp_path / 'engine', threading.Event())
+
+
+def test_system_ancestor_alias_allowed_but_internal_alias_rejected(tmp_path):
+    actual = tmp_path / 'actual-system-directory'
+    actual.mkdir()
+    alias = tmp_path / 'system-alias'
+    try:
+        alias.symlink_to(actual, target_is_directory=True)
+    except OSError:
+        pytest.skip('Symlink creation requires system permission')
+    root = alias / 'trusted-app' / 'stt'
+    root.mkdir(parents=True)
+    manager = stt.STTManager(root)
+    assert manager._safe(root / 'model.bin') == root / 'model.bin'
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (root / 'linked-models').symlink_to(outside, target_is_directory=True)
+    with pytest.raises(stt.STTError):
+        manager._safe(root / 'linked-models' / 'model.bin')
+
+
+@pytest.mark.skipif(stt.platform.system() != 'Darwin', reason='Native macOS system alias contract')
+def test_native_macos_var_system_alias_is_allowed():
+    import tempfile
+    with tempfile.TemporaryDirectory(dir='/var/tmp') as temporary:
+        root = stt.Path(temporary) / 'OrangeNotes' / 'stt'
+        root.mkdir(parents=True)
+        manager = stt.STTManager(root)
+        assert manager._safe(root / 'model.bin').resolve().is_relative_to(root.resolve())

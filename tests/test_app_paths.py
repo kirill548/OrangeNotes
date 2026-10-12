@@ -65,3 +65,24 @@ def test_linked_component_rejected(monkeypatch, tmp_path):
     monkeypatch.setattr(app_paths, 'get_app_dir', lambda: root)
     with pytest.raises(ValueError):
         app_paths.resolve_app_path('ai/model.bin')
+
+
+def test_ancestor_alias_allowed_but_internal_link_rejected(monkeypatch, tmp_path):
+    physical = tmp_path / 'physical'
+    physical.mkdir()
+    alias = tmp_path / 'alias'
+    try:
+        alias.symlink_to(physical, target_is_directory=True)
+    except OSError:
+        pytest.skip('Creating links requires platform permission')
+    root = physical / 'application'
+    root.mkdir()
+    monkeypatch.setattr(app_paths, 'get_app_dir', lambda: alias / 'application')
+    assert app_paths.resolve_app_path(alias / 'application/ai/model.bin') == root / 'ai/model.bin'
+    assert app_paths.check_app_writable(alias / 'application/stt') == root / 'stt'
+    assert list((root / 'stt').iterdir()) == []
+    (root / 'ai').symlink_to(root / 'stt', target_is_directory=True)
+    with pytest.raises(ValueError):
+        app_paths.resolve_app_path(alias / 'application/ai/model.bin')
+    with pytest.raises(PermissionError):
+        app_paths.check_app_writable(alias / 'application/ai')
