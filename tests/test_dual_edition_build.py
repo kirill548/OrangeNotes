@@ -27,7 +27,7 @@ class DualEditionBuildTests(unittest.TestCase):
             execute.assert_not_called()
     def test_pack_in_output_bundle_refused_before_validation(self):
         with patch.object(self.build.subprocess,'run') as execute:
-            with self.assertRaises(SystemExit):self.build.main(['--edition','complete','--ai-pack',str(self.build.ROOT/'dist/complete/OrangeNotes/seed')])
+            with self.assertRaises(SystemExit):self.build.main(['--edition','complete','--ai-pack',str(self.build.bundle_directory(output_directory=self.build.ROOT/'dist/complete')/'seed')])
             execute.assert_not_called()
     def test_parent_pack_of_generated_directory_refused(self):
         with patch.object(self.build.subprocess,'run') as execute:

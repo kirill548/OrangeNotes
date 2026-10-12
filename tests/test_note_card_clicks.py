@@ -92,6 +92,10 @@ class NoteCardClickTests(unittest.TestCase):
 
     def test_keyboard_focus_keeps_arrow_selection_and_container_border_clean(self):
         notes=self.window.notes
+        # Xvfb has no window manager to activate a newly shown top-level window.
+        self.window.activateWindow()
+        QApplication.setActiveWindow(self.window)
+        self.app.processEvents()
         notes.setCurrentRow(0)
         self.window.title.setFocus()
         self.app.processEvents()

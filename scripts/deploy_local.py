@@ -192,7 +192,10 @@ def _payload_contains_user_data(bundle, inventory):
         seed = find_complete_seed(bundle)
         if seed is None:
             raise ValueError('Invalid Complete seed')
-        seed_prefix = seed[0].relative_to(bundle).as_posix() + '/'
+        # Windows may resolve a path using its 8.3 alias (RUNNER~1).
+        # Match the verified directory by identity, then keep the inventory spelling.
+        seed_location = next(path for path in locations if path.exists() and path.samefile(seed[0]))
+        seed_prefix = seed_location.relative_to(bundle).as_posix() + '/'
     def hard_user_state(name):
         return any(part.lower() in {'notes.db', 'notes.sqlite3', 'settings.json', 'ai_settings.json'}
                    or part.lower().endswith(('.db', '.db-wal', '.db-shm', '.sqlite', '.sqlite-wal',
