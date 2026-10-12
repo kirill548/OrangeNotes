@@ -150,6 +150,51 @@ def test_official_hf_cdn_redirect_allowed():
     stt._validate_url('https://us.aws.cdn.hf.co/model.bin')
 
 
+def test_multilingual_base_is_verified_default():
+    assert stt.MODEL is stt.MODELS['base']
+    assert stt.MODEL['size'] == 147951465
+    assert stt.MODEL['sha256'] == '60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe'
+    assert stt.MODEL['url'].endswith('/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin')
+
+
+def test_unknown_model_cannot_change_existing_install(tmp_path):
+    manager = stt.STTManager(tmp_path / 'stt')
+    with pytest.raises(stt.STTError, match='Неизвестная'):
+        manager.install(model_name='../outside')
+    assert not manager.root.exists()
+
+
+def test_legacy_tiny_remains_ready(tmp_path):
+    manager = stt.STTManager(tmp_path)
+    (tmp_path / 'whisper-cli').write_bytes(b'engine')
+    (tmp_path / 'ggml-tiny.bin').write_bytes(b'model')
+    manager._write_config(dict(manual=False, executable='whisper-cli', model='ggml-tiny.bin',
+                               files={name: stt._hash(tmp_path / name) for name in ['whisper-cli', 'ggml-tiny.bin']}))
+    assert manager.status()['ready']
+    assert manager.status()['model_variant'] == 'tiny-q5_1'
+
+
+@pytest.mark.parametrize('variant', [None, 'base-q5_1', 'tiny-q5_1', 'small-q5_1', 'small'])
+def test_model_selection_records_actual_variant(tmp_path, monkeypatch, variant):
+    monkeypatch.setattr(stt.platform, 'system', lambda: 'Windows')
+    monkeypatch.setattr(stt.platform, 'machine', lambda: 'AMD64')
+    manager = stt.STTManager(tmp_path / 'stt')
+    downloaded = []
+    def download(specification, target, *args):
+        downloaded.append(specification)
+        target.write_bytes(b'checked')
+    def extract(archive, target, cancelled):
+        target.mkdir()
+        (target / 'whisper-cli.exe').write_bytes(b'engine')
+    monkeypatch.setattr(manager, '_download', download)
+    monkeypatch.setattr(manager, '_extract', extract)
+    result = manager.install(model_name=variant)
+    expected = variant or 'base'
+    assert result['ready'] and result['model_variant'] == expected
+    assert downloaded[1] == stt.MODELS[expected]
+    assert result['model'].name == 'ggml-' + expected + '.bin'
+
+
 def make_library_tar(path, links):
     import tarfile
     with tarfile.open(path, 'w:gz') as bundle:

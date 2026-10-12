@@ -1,4 +1,4 @@
-name: Release qualification v0.1.3
+name: Release qualification v0.1.4
 on:
   workflow_dispatch:
     inputs:
@@ -7,13 +7,13 @@ on:
         type: boolean
         default: false
   push:
-    branches: ['ci/v013-qualification']
+    branches: ['ci/v014-dev', 'main']
     paths-ignore: ['**/*.md']
 permissions:
   contents: read
 jobs:
   package:
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -52,9 +52,11 @@ jobs:
         run: python -c "import os,platform,struct,pathlib; assert struct.calcsize('P') == 8; assert platform.machine().lower() == os.environ['EXPECTED_MACHINE'].lower(), platform.machine(); pathlib.Path('work/cross-platform-qa').mkdir(parents=True,exist_ok=True)"
       - name: Linux Qt libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-xinerama0 libxcb-randr0 libxcb-shape0 libxcb-sync1 libxcb-xfixes0 libx11-xcb1 libfontconfig1 libdbus-1-3 libgl1 xvfb
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-xinerama0 libxcb-randr0 libxcb-shape0 libxcb-sync1 libxcb-xfixes0 libx11-xcb1 libfontconfig1 libdbus-1-3 libgl1 libpulse0 libasound2t64 xvfb
       - run: python -m pip install -r requirements-build.txt
       - run: python -m pip install pytest pytest-subtests pytest-timeout
+      - name: Install verified voice engine and run native synthetic inference
+        run: python tools/stt_native_smoke.py --output work/cross-platform-qa/native-stt.json
       - name: Core and distribution tests on every OS
         run: python -m unittest discover -s tests -p test_release_packaging.py
       - name: Windows regression suite
@@ -125,6 +127,10 @@ jobs:
         run: python tools/ci_signing.py
       - name: Build native package
         run: python tools/build.py --clean --edition lite
+      - name: Verify clean portable components and bundled Qt Multimedia
+        env:
+          TARGET_OS: ${{ runner.os }}
+        run: python tools/verify_portable_bundle.py
       - name: Remove temporary certificates
         if: always() && github.event_name != 'pull_request' && runner.os != 'Linux'
         run: python tools/ci_signing.py --cleanup
@@ -138,7 +144,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           test "$(id -u)" -ne 0
-          python tools/package_deb.py dist/OrangeNotes dist/OrangeNotes-Linux-x64.deb --version 0.1.3 --architecture amd64
+          python tools/package_deb.py dist/OrangeNotes dist/OrangeNotes-Linux-x64.deb --version 0.1.4 --architecture amd64
           python tools/verify_deb.py dist/OrangeNotes-Linux-x64.deb
       - name: macOS frozen GUI startup
         if: runner.os == 'macOS'

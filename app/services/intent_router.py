@@ -12,9 +12,16 @@ APP_HELP = {
 }
 
 
+def normalize_action_words(text):
+    """Repair known dictation errors only after an explicit creation command."""
+    return re.sub(
+        r'(\b(?:сделай|создай|добавь|создать)\s+(?:мне\s+)?)на\s+поменание\b',
+        r'\1напоминание', str(text), flags=re.I)
+
+
 def classify_intent(query):
     """Return small_talk, app_help, tool_call or note_rag conservatively."""
-    text = ' '.join(str(query).casefold().replace('ё', 'е').split())
+    text = ' '.join(normalize_action_words(query).casefold().replace('ё', 'е').split())
     if re.fullmatch(r'(?:привет(?:[, ]+как дела)?|здравствуй(?:те)?|добрый (?:день|вечер)|доброе утро|хай|hello|hi|спасибо|благодарю|кто ты|как тебя зовут|что ты умеешь)[!?. ,]*', text):
         return 'small_talk'
     # Explicit recall wins over application vocabulary (e.g. a note on synonyms).

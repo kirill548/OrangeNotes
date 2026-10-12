@@ -1,8 +1,46 @@
 """Bounded Qt microphone capture and asynchronous local speech recognition."""
 import threading
+import json
+from .app_paths import stt_dir, resolve_app_path
+
+
+def input_device_id():
+    try:
+        value = json.loads(resolve_app_path(stt_dir() / 'audio_settings.json').read_text(encoding='utf-8')).get('input_device', '')
+        return value if isinstance(value, str) else ''
+    except (OSError, ValueError):
+        return ''
+
+
+def save_input_device(device_id):
+    folder = resolve_app_path(stt_dir())
+    folder.mkdir(parents=True, exist_ok=True)
+    target = resolve_app_path(folder / 'audio_settings.json')
+    temporary = resolve_app_path(target.with_suffix('.tmp'))
+    temporary.write_text(json.dumps({'input_device': device_id}), encoding='utf-8')
+    temporary.replace(target)
+
+
+def audio_inputs():
+    if QMediaDevices is None:
+        return []
+    try:
+        return [(bytes(device.id()).hex(), device.description()) for device in QMediaDevices.audioInputs()]
+    except (RuntimeError, OSError):
+        return []
+
+
+def selected_microphone():
+    selected = input_device_id()
+    if not selected:
+        return QMediaDevices.defaultAudioInput()
+    for device in QMediaDevices.audioInputs():
+        if bytes(device.id()).hex() == selected:
+            return device
+    raise RuntimeError('Выбранный микрофон отключён. Выберите другой в настройках голосового ввода.')
 
 from PySide6.QtCore import QObject, QTimer, Signal
-from .local_stt import MAX_PCM_BYTES, SAMPLE_RATE, WhisperCppAdapter
+from .local_stt import MAX_PCM_BYTES, SAMPLE_RATE, WhisperCppAdapter, STTError
 
 try:
     from PySide6.QtMultimedia import QAudioFormat, QAudioSource, QMediaDevices
@@ -16,7 +54,7 @@ def audio_diagnostics():
         return dict(backend_available=False, microphone_available=False,
                     message='Аудиокомпоненты недоступны в этой сборке. Можно ввести текст вручную.')
     try:
-        microphone = QMediaDevices.defaultAudioInput()
+        microphone = selected_microphone()
         available = not microphone.isNull()
         return dict(backend_available=True, microphone_available=available,
                     message='Микрофон доступен' if available else 'Микрофон не найден или отключён. Можно ввести текст вручную.')
@@ -54,7 +92,7 @@ class VoiceInputController(QObject):
     def available(self):
         try:
             return bool(QMediaDevices is not None and self.adapter.available
-                        and not QMediaDevices.defaultAudioInput().isNull())
+                        and not selected_microphone().isNull())
         except Exception:
             return False
 
@@ -76,14 +114,14 @@ class VoiceInputController(QObject):
             self._fail('Голосовой ввод не настроен: установите локальную модель Whisper.')
             return
         try:
-            microphone = QMediaDevices.defaultAudioInput()
+            microphone = selected_microphone()
             audio_format = QAudioFormat()
             audio_format.setSampleRate(SAMPLE_RATE)
             audio_format.setChannelCount(1)
             audio_format.setSampleFormat(QAudioFormat.SampleFormat.Int16)
             supported = microphone.isFormatSupported(audio_format)
         except Exception:
-            self._fail('Не удалось включить микрофон. Проверьте разрешение на запись.')
+            self._fail('Не удалось включить выбранный микрофон. Проверьте устройство в настройках голосового ввода и разрешение на запись.')
             return
         if microphone.isNull():
             self._fail('Микрофон не найден. Можно ввести текст вручную.')
@@ -176,6 +214,8 @@ class VoiceInputController(QObject):
             text = error = ''
             try:
                 text = self.adapter.transcribe(pcm, cancelled)
+            except STTError as exception:
+                error = str(exception)
             except Exception:
                 error = 'Не удалось распознать запись. Попробуйте ещё раз или введите текст.'
             try:

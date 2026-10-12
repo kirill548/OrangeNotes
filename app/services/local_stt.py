@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 import wave
+import re
 
 SAMPLE_RATE = 16000
 MAX_SECONDS = 60
@@ -88,7 +89,12 @@ class WhisperCppAdapter:
                     transcript = output.with_suffix('.txt')
                     if not transcript.is_file() or transcript.stat().st_size > 65536:
                         raise STTError('Движок не вернул корректный текст.')
-                    return transcript.read_text(encoding='utf-8').strip()
+                    text = transcript.read_text(encoding='utf-8').strip()
+                    # Whisper may return sound annotations instead of speech.
+                    if re.fullmatch(r'\s*(?:\[[^\]]+\]|\([^)]*\)|♪|♫|\s|[.,!])*', text):
+                        raise STTError('Речь не распознана. Проверьте выбранный микрофон и повторите запись.')
+                    from .spoken_time import normalize_spoken_time
+                    return normalize_spoken_time(text)
                 finally:
                     if process.poll() is None:
                         process.kill()

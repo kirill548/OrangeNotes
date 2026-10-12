@@ -1,21 +1,15 @@
 name: Publish stable release
 on:
-  push:
-    branches: [main]
-    paths: [.github/workflows/release.yml]
   workflow_dispatch:
-  workflow_run:
-    workflows: ['Native packages']
-    types: [completed]
 permissions:
   contents: write
   actions: read
 concurrency:
-  group: stable-release-v0.1.2
+  group: stable-release-v0.1.4
   cancel-in-progress: false
 jobs:
   publish:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     env:
       GH_TOKEN: ${{ github.token }}
@@ -33,9 +27,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BUILD_SHA=$(git rev-parse 'refs/tags/v0.1.2^{commit}')
+          BUILD_SHA=$(git rev-parse 'refs/tags/v0.1.4^{commit}')
           export BUILD_SHA
-          gh api "repos/$GH_REPO/actions/workflows/build.yml/runs?head_sha=$BUILD_SHA&status=success&per_page=100" > "$RUNNER_TEMP/verified-runs.json"
+          gh api "repos/$GH_REPO/actions/workflows/release-builds.yml/runs?head_sha=$BUILD_SHA&status=success&per_page=100" > "$RUNNER_TEMP/verified-runs.json"
           BUILD_RUN=$(python - <<'PY'
           import json, os
           from pathlib import Path
@@ -52,11 +46,11 @@ jobs:
         id: gate
         shell: bash
         run: |
-          if ! git rev-parse --verify refs/tags/v0.1.2 >/dev/null 2>&1; then
+          if ! git rev-parse --verify refs/tags/v0.1.4 >/dev/null 2>&1; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [ "$(git rev-parse 'refs/tags/v0.1.2^{commit}')" != "$BUILD_SHA" ]; then
+          if [ "$(git rev-parse 'refs/tags/v0.1.4^{commit}')" != "$BUILD_SHA" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -82,17 +76,17 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
-          git archive --format=zip --output=release-assets/OrangeNotes-source-v0.1.2.zip "$BUILD_SHA"
+          git archive --format=zip --output=release-assets/OrangeNotes-source-v0.1.4.zip "$BUILD_SHA"
           python tools/prepare_release_assets.py downloaded release-assets
-          git show "$BUILD_SHA:release_notes.md" > release-notes.md
+          git show "$BUILD_SHA:RELEASE_NOTES_v0.1.4.md" > release-notes.md
           printf '\nBuild verification: https://github.com/%s/actions/runs/%s\nCommit: `%s`\n' "$GH_REPO" "$BUILD_RUN" "$BUILD_SHA" >> release-notes.md
       - name: Publish only after all assets uploaded
         if: steps.gate.outputs.ready == 'true'
         shell: bash
         run: |
-          if gh release view v0.1.2 --json isDraft --jq '.isDraft' > draft.txt 2>/dev/null; then
+          if gh release view v0.1.4 --json isDraft --jq '.isDraft' > draft.txt 2>/dev/null; then
             if [ "$(cat draft.txt)" != true ]; then
-              gh release view v0.1.2 --json body --jq '.body' > published-body.txt
+              gh release view v0.1.4 --json body --jq '.body' > published-body.txt
               if grep -Fq "Commit: \`$BUILD_SHA\`" published-body.txt; then
                 echo "This verified commit is already published; leaving existing downloads unchanged."
                 exit 0
@@ -101,7 +95,8 @@ jobs:
               exit 1
             fi
           else
-            gh release create v0.1.2 --verify-tag --draft --title 'Orange Notes v0.1.2' --notes-file release-notes.md
+            gh release create v0.1.4 --verify-tag --draft --title 'Orange Notes v0.1.4' --notes-file release-notes.md
           fi
-          gh release upload v0.1.2 release-assets/* --clobber
-          gh release edit v0.1.2 --notes-file release-notes.md --draft=false --prerelease=false --latest
+          gh release upload v0.1.4 release-assets/* --clobber
+          gh release edit v0.1.4 --notes-file release-notes.md --draft=false --prerelease=false --latest
+

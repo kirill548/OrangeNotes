@@ -369,7 +369,7 @@ class CompanionDialog(QDialog):
             previous=self.input.toPlainText()
             self.input.setPlainText(previous+('\n' if previous.strip() else '')+text)
             self.input.setFocus()
-            self.status.setText('Текст готов. Проверьте его и нажмите «Отправить».')
+            self.status.setText('Запись распознана. Проверьте текст, особенно дату и время, затем нажмите «Отправить».')
 
     def _voice_error(self,message):
         if not self._voice_discard and not self._closing:self.status.setText(str(message))

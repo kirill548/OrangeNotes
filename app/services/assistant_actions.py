@@ -67,6 +67,10 @@ def _schedule_text(text):
 
 
 def _normalize_schedule_request(text):
+    from .intent_router import normalize_action_words
+    text = normalize_action_words(text)
+    from .spoken_time import normalize_spoken_time
+    text = normalize_spoken_time(text)
     header, content = _split_content(text)
     return _schedule_text(header) + (', что ' + content if content is not None else '')
 

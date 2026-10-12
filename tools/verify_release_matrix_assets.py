@@ -5,8 +5,8 @@ from pathlib import Path
 
 def verify(root, target):
     patterns = {'Windows': ['OrangeNotes-Windows-AMD64.zip'],
-                'Linux': ['*.deb', '*.AppImage', '*.flatpak'],
-                'macOS': ['*.dmg', 'OrangeNotes.app/Contents/MacOS/OrangeNotes']}[target]
+                'Linux': ['*.tar.gz', '*.deb', '*.AppImage', '*.flatpak'],
+                'macOS': ['*.zip', '*.dmg', 'OrangeNotes.app/Contents/MacOS/OrangeNotes']}[target]
     for pattern in patterns:
         files=list(root.glob(pattern))
         if not files or any(not item.is_file() or item.stat().st_size == 0 for item in files):

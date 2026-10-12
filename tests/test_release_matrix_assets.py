@@ -20,4 +20,5 @@ class MatrixAssetsTests(unittest.TestCase):
             for suffix in ('deb','AppImage'): (root/('OrangeNotes.'+suffix)).write_bytes(b'fixture')
             with self.assertRaises(ValueError): verify(root,'Linux')
             (root/'OrangeNotes.flatpak').write_bytes(b'fixture')
+            (root/'OrangeNotes.tar.gz').write_bytes(b'fixture')
             verify(root,'Linux')

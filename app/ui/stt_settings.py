@@ -2,7 +2,7 @@
 import threading
 
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QFileDialog
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QFileDialog, QComboBox
 
 
 def _audio_diagnostics():
@@ -16,18 +16,20 @@ class _STTWorker(QThread):
     verified = Signal(object)
     diagnosed = Signal(object)
 
-    def __init__(self, manager, operation, parent=None, paths=None, diagnostic_provider=None):
+    def __init__(self, manager, operation, parent=None, paths=None, diagnostic_provider=None, model_name=None):
         super().__init__(parent)
         self.manager = manager
         self.operation = operation
         self.paths = paths
         self.diagnostic_provider = diagnostic_provider
+        self.model_name = model_name
         self.cancel_event = threading.Event()
 
     def run(self):
         try:
             if self.operation == 'install':
-                self.manager.install(self.cancel_event, lambda done, total: self.progress.emit(done, total))
+                arguments = {'model_name': self.model_name} if self.model_name else {}
+                self.manager.install(self.cancel_event, lambda done, total: self.progress.emit(done, total), **arguments)
             elif self.operation == 'import':
                 self.manager.save_manual_paths(*self.paths)
             if not self.cancel_event.is_set():
@@ -56,12 +58,38 @@ class STTSettingsTab(QWidget):
         description = QLabel('Распознавание выполняется на компьютере. Компоненты сохраняются в stt/ внутри папки приложения и переносятся вместе с ней.')
         description.setWordWrap(True)
         layout.addWidget(description)
+        from app.services.audio_capture import audio_inputs, input_device_id, save_input_device
+        layout.addWidget(QLabel('Микрофон'))
+        self.microphone_combo = QComboBox()
+        self.microphone_combo.addItem('Системный микрофон по умолчанию', '')
+        for identifier, name in audio_inputs():
+            self.microphone_combo.addItem(name, identifier)
+        selected = input_device_id()
+        index = self.microphone_combo.findData(selected)
+        if selected and index < 0:
+            self.microphone_combo.addItem('Выбранный микрофон отключён', selected)
+            index = self.microphone_combo.count() - 1
+        self.microphone_combo.setCurrentIndex(max(0, index))
+        def select_microphone(_index):
+            try:
+                save_input_device(self.microphone_combo.currentData())
+            except OSError:
+                self.status_label.setText('Не удалось сохранить выбор микрофона. Проверьте права записи в папку приложения.')
+        self.microphone_combo.currentIndexChanged.connect(select_microphone)
+        layout.addWidget(self.microphone_combo)
+        layout.addWidget(QLabel('Качество распознавания'))
+        self.model_combo = QComboBox()
+        self.model_combo.addItem('Whisper base — рекомендуемый, 148 МБ', 'base')
+        self.model_combo.addItem('Whisper small — выше точность, медленнее, 190 МБ', 'small-q5_1')
+        self.model_combo.addItem('Whisper base компактный — 60 МБ', 'base-q5_1')
+        self.model_combo.addItem('Whisper tiny — быстрый, 32 МБ', 'tiny-q5_1')
+        layout.addWidget(self.model_combo)
         self.status_label = QLabel(); self.status_label.setWordWrap(True); layout.addWidget(self.status_label)
         self.audio_warning = QLabel(); self.audio_warning.setWordWrap(True)
         self.audio_warning.setStyleSheet('color:#86520c;');self.audio_warning.hide();layout.addWidget(self.audio_warning)
         self.progress_bar = QProgressBar(); self.progress_bar.hide(); layout.addWidget(self.progress_bar)
         buttons = QHBoxLayout()
-        self.install_button = QPushButton('Скачать и подключить голосовой ввод')
+        self.install_button = QPushButton('Скачать выбранную модель и подключить')
         self.cancel_button = QPushButton('Отменить'); self.cancel_button.hide()
         buttons.addWidget(self.install_button); buttons.addWidget(self.cancel_button); layout.addLayout(buttons)
         self.manual_button = QPushButton('Выбрать готовые файлы…'); layout.addWidget(self.manual_button)
@@ -82,6 +110,11 @@ class STTSettingsTab(QWidget):
         self._state = state
         self.status_label.setText(('Компоненты готовы к работе' if state['ready'] else 'Требуется загрузка') + '\n' + state.get('message', ''))
         self.status_label.setStyleSheet('color:#286b42;' if state['ready'] else 'color:#86520c;')
+        if state.get('model_variant'):
+            self.status_label.setText(self.status_label.text() + '\nМодель: Whisper ' + state['model_variant'])
+            selected = self.model_combo.findData(state['model_variant'])
+            if selected >= 0:
+                self.model_combo.setCurrentIndex(selected)
         if state['ready']:self.configured.emit()
 
     def _diagnosed(self, diagnostic):
@@ -96,13 +129,15 @@ class STTSettingsTab(QWidget):
         if not self.busy:self._start('install')
 
     def _start(self, operation, paths=None):
-        self._worker = _STTWorker(self.manager, operation, self, paths, self.diagnostic_provider)
+        self._worker = _STTWorker(self.manager, operation, self, paths, self.diagnostic_provider,
+                                  self.model_combo.currentData() if operation == 'install' else None)
         self._worker.progress.connect(self._progress)
         self._worker.result.connect(self.status_label.setText)
         self._worker.verified.connect(self._verified)
         self._worker.diagnosed.connect(self._diagnosed)
         self._worker.finished.connect(self._finished)
         self.install_button.setEnabled(False); self.manual_button.setEnabled(False)
+        self.model_combo.setEnabled(False)
         self.cancel_button.show(); self.progress_bar.setRange(0, 0); self.progress_bar.show()
         self.status_label.setText({'verify':'Проверяю компоненты…', 'install':'Загружаю голосовой ввод…', 'import':'Копирую компоненты в папку приложения…'}[operation])
         self._worker.start()
@@ -123,6 +158,7 @@ class STTSettingsTab(QWidget):
         if worker:worker.deleteLater()
         self.progress_bar.hide(); self.cancel_button.hide(); self.cancel_button.setEnabled(True)
         self.manual_button.setEnabled(True)
+        self.model_combo.setEnabled(True)
         self.install_button.setEnabled(bool(self._state and self._state.get('supported', False)))
         self.idle.emit()
 

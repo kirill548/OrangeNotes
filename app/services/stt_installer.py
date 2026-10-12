@@ -17,7 +17,16 @@ import zipfile
 
 from .local_stt import STTError
 
-MODEL = dict(url='https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny-q5_1.bin', size=32152673, sha256='818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7')
+_MODEL_ORIGIN = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/'
+# Immutable repository revision and LFS SHA256 metadata; multilingual, not .en.
+MODELS = {
+    'small-q5_1': dict(url=_MODEL_ORIGIN + 'ggml-small-q5_1.bin', size=190085487, sha256='ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb'),
+    'small': dict(url=_MODEL_ORIGIN + 'ggml-small.bin', size=487601967, sha256='1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b'),
+    'base': dict(url=_MODEL_ORIGIN + 'ggml-base.bin', size=147951465, sha256='60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe'),
+    'base-q5_1': dict(url=_MODEL_ORIGIN + 'ggml-base-q5_1.bin', size=59707625, sha256='422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898'),
+    'tiny-q5_1': dict(url=_MODEL_ORIGIN + 'ggml-tiny-q5_1.bin', size=32152673, sha256='818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7'),
+}
+MODEL = MODELS['base']
 MAC_SOURCE = dict(url='https://codeload.github.com/ggml-org/whisper.cpp/tar.gz/refs/tags/v1.9.5', size=9626464, sha256='ff1a9053feb509ff9d7729703355541ae9690073a6b1c40eb692c962e0dc1720')
 ENGINES = {
     'Windows': dict(url='https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip', size=8928640, sha256='6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb'),
@@ -112,6 +121,7 @@ class STTManager:
                 ready = False
         supported = (platform.system() in ENGINES and platform.machine().lower() in ('amd64', 'x86_64')) or (platform.system() == 'Darwin' and bool(shutil.which('cmake')) and bool(shutil.which('clang++')))
         return dict(ready=ready, supported=supported, executable=executable, model=model,
+                    model_variant=config.get('model_variant', 'manual' if config.get('manual') else 'tiny-q5_1'),
                     message='Готов к работе' if ready else ('Требуется загрузка' if supported else 'Выберите локальный движок и модель: автоматическая установка для этой платформы пока недоступна.'))
 
     def _write_config(self, config):
@@ -336,7 +346,12 @@ class STTManager:
         shutil.rmtree(build)
         log_path.unlink(missing_ok=True)
 
-    def install(self, cancel_event=None, progress=None):
+    def install(self, cancel_event=None, progress=None, model_name=None):
+        if model_name is not None and model_name not in MODELS:
+            raise STTError('Неизвестная модель голосового ввода.')
+        specification = MODEL if model_name is None else MODELS[model_name]
+        variant = model_name or 'base'
+        model_filename = 'ggml-' + variant + '.bin'
         cancelled = cancel_event or threading.Event()
         if not self._lock.acquire(blocking=False):
             raise STTError('Установка уже выполняется.')
@@ -349,7 +364,7 @@ class STTManager:
             self._safe(self.root).mkdir(parents=True, exist_ok=True)
             stage = Path(tempfile.mkdtemp(prefix='.install-', dir=self.root))
             engine = MAC_SOURCE if platform.system() == 'Darwin' else ENGINES[platform.system()]
-            total = engine['size'] + MODEL['size']
+            total = engine['size'] + specification['size']
             archive = stage / 'engine.part'
             self._download(engine, archive, cancelled, progress, 0, total)
             if platform.system() == 'Darwin':
@@ -358,8 +373,8 @@ class STTManager:
             else:
                 self._extract(archive, stage / 'engine', cancelled)
             archive.unlink()
-            model = stage / 'ggml-tiny.bin'
-            self._download(MODEL, model, cancelled, progress, engine['size'], total)
+            model = stage / model_filename
+            self._download(specification, model, cancelled, progress, engine['size'], total)
             candidates = list((stage / 'engine').rglob('whisper-cli.exe' if platform.system() == 'Windows' else 'whisper-cli'))
             if len(candidates) != 1:
                 raise STTError('В архиве отсутствует однозначно определённый движок Whisper.')
@@ -380,7 +395,7 @@ class STTManager:
             executable_relative = executable.relative_to(stage)
             os.replace(stage, final)
             stage = final
-            self._write_config(dict(manual=False, executable=str(final.relative_to(self.root) / executable_relative), model=str(final.relative_to(self.root) / 'ggml-tiny.bin'), files={str(final.relative_to(self.root) / Path(name)): digest for name, digest in files.items()}))
+            self._write_config(dict(manual=False, model_variant=variant, executable=str(final.relative_to(self.root) / executable_relative), model=str(final.relative_to(self.root) / model_filename), files={str(final.relative_to(self.root) / Path(name)): digest for name, digest in files.items()}))
             stage = None
             return self.status()
         except STTError:

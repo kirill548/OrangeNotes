@@ -1,6 +1,6 @@
 # v0.1.3: Qwen runtime requalification
 
-> Исторический отчёт этапа разработки. Актуальный опубликованный релиз: [v0.1.3](../RELEASE_NOTES_v0.1.3.md); текущий план: [ROADMAP](../ROADMAP.md). Измерения ниже относятся к указанному в отчёте прогону.
+> Исторический отчёт этапа разработки. Актуальный статус релиза: [README](../README.md); текущий план: [ROADMAP](../ROADMAP.md). Измерения ниже относятся к указанному в отчёте прогону.
 
 
 Report date: 2026-10-11. Main benchmark and live quality measurements are from 2026-10-10; additional backend controls are from 2026-10-11. Original timestamps are retained.

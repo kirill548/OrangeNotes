@@ -24,7 +24,8 @@ class Manager:
     def status(self):
         self.verify_threads.append(threading.get_ident())
         return dict(ready=self.ready,supported=True,message='stt/')
-    def install(self,cancel_event,progress):
+    def install(self,cancel_event,progress,model_name=None):
+        self.model_name=model_name
         self.thread=threading.get_ident();progress(50,100)
         while self.block and not cancel_event.is_set():time.sleep(.005)
         self.ready=not cancel_event.is_set()
@@ -35,6 +36,7 @@ def test_installer_runs_off_ui_thread_and_refreshes():
     tab.configured.connect(lambda:seen.append(True));tab.install();wait(lambda:not tab.busy)
     assert manager.thread!=threading.get_ident()
     assert seen==[True]
+    assert manager.model_name=='base'
     tab.refresh();wait(lambda:not tab.busy);assert 'готовы к работе' in tab.status_label.text()
     assert manager.verify_threads and all(ident!=threading.get_ident() for ident in manager.verify_threads)
     tab.close()

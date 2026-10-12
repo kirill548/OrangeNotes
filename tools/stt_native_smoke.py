@@ -17,7 +17,7 @@ def main():
     from app.services.audio_capture import audio_diagnostics
     from app.services.app_paths import stt_dir
     from app.services.stt_installer import STTManager
-    from app.services.local_stt import WhisperCppAdapter, SAMPLE_RATE
+    from app.services.local_stt import WhisperCppAdapter, SAMPLE_RATE, STTError
     app = QCoreApplication.instance() or QCoreApplication([])
     report = {'os': platform.system(), 'machine': platform.machine(),
               'physical_microphone_tested': False, 'audio': audio_diagnostics()}
@@ -30,8 +30,14 @@ def main():
         process = subprocess.run([str(executable), '--help'], capture_output=True, timeout=15)
         assert process.returncode == 0, 'Native whisper-cli could not start'
         # Real inference over generated silence: exercises WAV and native runtime.
-        result = WhisperCppAdapter(executable, model).transcribe(b'\x00\x00' * SAMPLE_RATE)
-        assert isinstance(result, str)
+        try:
+            result = WhisperCppAdapter(executable, model).transcribe(b'\x00\x00' * SAMPLE_RATE)
+            assert isinstance(result, str)
+            report['silence_result'] = 'text_returned' if result else 'empty'
+        except STTError as error:
+            if str(error) != 'Речь не распознана. Проверьте выбранный микрофон и повторите запись.':
+                raise
+            report['silence_result'] = 'sound_annotation_rejected'
         report.update(sha256_verified=True, cli_help_exit=process.returncode,
                       synthetic_inference='passed', components_inside_app=True)
     except Exception as error:
