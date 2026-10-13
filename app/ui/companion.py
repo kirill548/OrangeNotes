@@ -455,7 +455,7 @@ class CompanionDialog(QDialog):
     def _onboarding_skipped(self):
         try:self._save_config({**self.config,'provider':'search','onboarding_seen':True})
         except (OSError,ValueError) as error:self.status.setText('Не удалось сохранить выбор: '+str(error));return
-        self.status.setText('Поиск доступен без модели. Подключить ИИ можно кнопкой «Настроить».')
+        self.status.setText('Поиск доступен без модели. Подключить ИИ можно в «Настройках ИИ».')
 
     @property
     def workspace_id(self):return self.workspace.currentData()
@@ -794,7 +794,7 @@ class CompanionDialog(QDialog):
                     self.chat.setPlainText(baseline);self._follow_verified_scroll(False,previous)
                 self._set_typing(False)
                 self._pending_render=False
-                if identity==self._request_id:self.status.setText('Источник изменился или больше не доступен. Задайте вопрос ещё раз.')
+                if identity==self._request_id:self.status.setText('Источник изменился или больше недоступен. Задайте вопрос ещё раз.')
                 return
             if position<len(text):
                 bar=self.chat.verticalScrollBar();previous=bar.value()
@@ -854,7 +854,7 @@ class CompanionDialog(QDialog):
                             or type(source.get('revision')) is not int
                             or memory.resolve(source['note_id'],source['revision'],workspace_id=self.workspace_id,
                                 include_archive=self.include_archive.isChecked(),include_trash=self.include_trash.isChecked()) is None):
-                        self.status.setText('Источник изменился или больше не доступен. Задайте вопрос ещё раз.')
+                        self.status.setText('Источник изменился или больше недоступен. Задайте вопрос ещё раз.')
                         return
         except (sqlite3.Error,ValueError,OSError):
             self.status.setText('Не удалось проверить источники. Ответ не показан; повторите вопрос.')
@@ -938,7 +938,7 @@ class CompanionDialog(QDialog):
             resolved=memory.resolve(source['note_id'],source.get('revision'),workspace_id=workspace_id,
                                     include_archive=self.include_archive.isChecked(),include_trash=self.include_trash.isChecked())
             if not resolved:
-                self.status.setText('Источник изменился или больше не доступен. Задайте вопрос ещё раз.');return
+                self.status.setText('Источник изменился или больше недоступен. Задайте вопрос ещё раз.');return
             self.open_note.emit(int(source['note_id']))
         except (sqlite3.Error,ValueError,OSError):
             self.status.setText('Не удалось открыть источник. Проверьте доступ к базе заметок.')
@@ -1058,7 +1058,7 @@ class CompanionDialog(QDialog):
         advanced=QWidget();advanced_form=QFormLayout(advanced);advanced_form.setContentsMargins(0,0,0,0)
         advanced_form.addRow('Модель на компьютере',model);advanced_form.addRow('Локальный адрес',address)
         advanced.hide();advanced_toggle.toggled.connect(advanced.setVisible);outer.addWidget(advanced)
-        dialog.result_label=QLabel('Комплект ещё не проверен. Модель разговора: '+self.config['model']+'. Модель памяти: '+self.config['embedding_model']+'.');dialog.result_label.setTextFormat(Qt.PlainText);dialog.result_label.setWordWrap(True);outer.addWidget(dialog.result_label)
+        dialog.result_label=QLabel('Комплект ещё не проверен. Модель для диалога: '+self.config['model']+'. Модель для поиска по смыслу: '+self.config['embedding_model']+'.');dialog.result_label.setTextFormat(Qt.PlainText);dialog.result_label.setWordWrap(True);outer.addWidget(dialog.result_label)
         if self._connection_status:dialog.result_label.setText(self.connection_banner.toolTip())
         buttons=QHBoxLayout();probe=QPushButton('Проверить ИИ-комплект');save=QPushButton('Сохранить');close=QPushButton('Закрыть');buttons.addWidget(probe);buttons.addStretch();buttons.addWidget(save);buttons.addWidget(close);outer.addLayout(buttons)
         def fields():

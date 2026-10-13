@@ -55,6 +55,24 @@ class PackagingResourceTests(unittest.TestCase):
             self.build.main()
         self.assertEqual(archived, ['ditto', 'hdiutil'])
 
+    def test_macos_bundle_displays_release_version(self):
+        import plistlib
+        folder = self.build.bundle_directory('darwin')
+        self.build.prepare_bundle(folder, 'darwin')
+        metadata = plistlib.loads((folder / 'Contents/Info.plist').read_bytes())
+        self.assertEqual(metadata['CFBundleShortVersionString'], '0.1.5')
+        self.assertEqual(metadata['CFBundleVersion'], '0.1.5')
+
+    def test_windows_file_properties_use_release_version(self):
+        import ast
+        path = self.build.windows_version_file()
+        tree = ast.parse(path.read_text(encoding='utf-8'), mode='eval')
+        values = [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant)]
+        self.assertIn('ProductVersion', values)
+        self.assertIn('0.1.5', values)
+        self.assertIn('Orange Notes', values)
+        self.assertEqual(path.parent, self.root / 'build')
+
     def test_application_archives_exclude_mutable_models_and_databases(self):
         (self.root / 'ai_packs/models').mkdir(parents=True)
         (self.root / 'ai_packs/models/weights.gguf').write_bytes(b'private weights')

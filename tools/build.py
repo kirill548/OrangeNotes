@@ -9,10 +9,31 @@ import plistlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+APP_VERSION = '0.1.5'
 
 
 def bundle_directory(target=None, output_directory=None):
     return Path(output_directory or ROOT / 'dist') / ('OrangeNotes.app' if (target or sys.platform) == 'darwin' else 'OrangeNotes')
+
+
+def windows_version_file():
+    """Write the product identity used by Windows file properties."""
+    target = ROOT / 'build/OrangeNotes-version.txt'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    version_tuple = tuple(int(part) for part in APP_VERSION.split('.')) + (0,)
+    target.write_text(
+        "VSVersionInfo(ffi=FixedFileInfo(filevers={0}, prodvers={0}, mask=0x3f, "
+        "flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)), "
+        "kids=[StringFileInfo([StringTable('040904B0', ["
+        "StringStruct('CompanyName', 'Orange Notes'), "
+        "StringStruct('FileDescription', 'Orange Notes'), "
+        "StringStruct('FileVersion', '{1}'), "
+        "StringStruct('ProductName', 'Orange Notes'), "
+        "StringStruct('ProductVersion', '{1}'), "
+        "StringStruct('OriginalFilename', 'OrangeNotes.exe')])]), "
+        "VarFileInfo([VarStruct('Translation', [1033, 1200])])])".format(version_tuple, APP_VERSION),
+        encoding='utf-8')
+    return target
 
 
 def mac_icon():
@@ -42,6 +63,8 @@ def prepare_bundle(folder, target=None):
     if target == 'darwin':
         plist_path = folder / 'Contents/Info.plist'
         metadata = plistlib.loads(plist_path.read_bytes()) if plist_path.exists() else {}
+        metadata['CFBundleShortVersionString'] = APP_VERSION
+        metadata['CFBundleVersion'] = APP_VERSION
         metadata['NSMicrophoneUsageDescription'] = (
             'Микрофон нужен для голосового ввода заметок. Аудио распознаётся на Вашем компьютере.')
         plist_path.write_bytes(plistlib.dumps(metadata))
@@ -107,7 +130,8 @@ def main(argv=None):
             '--add-data', str(ROOT / 'app/assets') + ':app/assets',
             '--add-data', str(ROOT / 'app/services/windows_toast.ps1') + ':app/services']
     if sys.platform == 'win32':
-        args += ['--icon', str(ROOT / 'app/assets/app.ico')]
+        args += ['--icon', str(ROOT / 'app/assets/app.ico'),
+                 '--version-file', str(windows_version_file())]
     elif sys.platform == 'darwin':
         args += ['--icon', str(mac_icon()), '--osx-bundle-identifier', 'org.orangenotes.desktop']
     args.append(str(ROOT / 'app/main.py'))

@@ -500,7 +500,7 @@ class Window(QMainWindow):
             dialog.setWindowIcon(self.icon)
             dialog.resize(850, 600)
             layout = QVBoxLayout(dialog)
-            layout.addWidget(QLabel('Нажмите на заметку, чтобы открыть. Колесо — масштаб, перетаскивание — перемещение.'))
+            layout.addWidget(QLabel('Нажмите на заметку, чтобы открыть. Колесо мыши — масштаб, перетаскивание — перемещение.'))
             dialog.view = GraphView(dialog)
             dialog.view.note_requested.connect(self.open_linked_note)
             layout.addWidget(dialog.view)

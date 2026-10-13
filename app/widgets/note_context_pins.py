@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEd
 class NoteContextPins(QWidget):
     changed = Signal()
     MAX_PINS = 8
-    DEFAULT_HINT = 'Выбранные заметки имеют приоритет. В длинных заметках использую фрагменты, связанные с вопросом. Только текущее пространство.'
+    DEFAULT_HINT = 'Помощник сначала использует прикреплённые заметки. Из длинных заметок выбирает фрагменты по вопросу. Доступно только выбранное пространство.'
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
@@ -16,7 +16,7 @@ class NoteContextPins(QWidget):
         self.include_trash = False
         self._pins = {}
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(4)
-        self.caption = QLabel('Привязанные заметки · 0/8'); layout.addWidget(self.caption)
+        self.caption = QLabel('Прикреплённые заметки · 0/8'); layout.addWidget(self.caption)
         row = QHBoxLayout()
         self.search = QLineEdit(); self.search.setPlaceholderText('Найти заметку по заголовку…')
         self.search.setAccessibleName('Поиск заметок для контекста'); row.addWidget(self.search, 1)
@@ -126,5 +126,5 @@ class NoteContextPins(QWidget):
             button.clicked.connect(lambda checked=False, value=note_id: self.remove(value)); self.pin_row.addWidget(button)
         self.pin_row.addStretch()
         self.pin_area.setVisible(bool(self._pins))
-        self.caption.setText('Привязанные заметки · ' + str(len(self._pins)) + '/8')
+        self.caption.setText('Прикреплённые заметки · ' + str(len(self._pins)) + '/8')
         self._update_add()

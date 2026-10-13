@@ -40,7 +40,7 @@ class ReleasePackagingTests(unittest.TestCase):
         self.assertIn('Terminal=false', (folder / 'OrangeNotes.desktop').read_text())
         self.assertTrue((folder / 'OrangeNotes.png').is_file())
 
-    def test_macos_microphone_purpose_preserves_existing_metadata(self):
+    def test_macos_microphone_purpose_preserves_identity_and_updates_version(self):
         folder = self.module.bundle_directory('darwin')
         plist = folder / 'Contents/Info.plist'
         plist.parent.mkdir(parents=True)
@@ -49,7 +49,8 @@ class ReleasePackagingTests(unittest.TestCase):
         self.module.prepare_bundle(folder, 'darwin')
         metadata = plistlib.loads(plist.read_bytes())
         self.assertEqual(metadata['CFBundleIdentifier'], 'org.orangenotes.desktop')
-        self.assertEqual(metadata['CFBundleVersion'], '0.1.4')
+        self.assertEqual(metadata['CFBundleVersion'], '0.1.5')
+        self.assertEqual(metadata['CFBundleShortVersionString'], '0.1.5')
         self.assertIn('Микрофон', metadata['NSMicrophoneUsageDescription'])
 
     def test_32_bit_runtime_rejected_before_any_build(self):

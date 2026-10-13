@@ -102,7 +102,7 @@ class GraphView(QGraphicsView):
         self._active_id = None
         self._titles = {}
         self.setDragMode(QGraphicsView.ScrollHandDrag)
-        self.setAccessibleName('Граф знаний: колесо — масштаб, перетаскивание — перемещение')
+        self.setAccessibleName('Граф заметок: колесо мыши — масштаб, перетаскивание — перемещение')
         self._zoom = 1.0
         self._press = None
         self._positions = {}
@@ -329,7 +329,7 @@ class WikiLinkCompleter(QObject):
         self.start = None
         self._notes = {}
         editor.viewport().installEventFilter(self)
-        editor.setToolTip('Связь с заметкой: [[Название]] или [[Название|Подпись]]. Ctrl+нажатие — открыть.')
+        editor.setToolTip('Связь с заметкой: [[Название]] или [[Название|Подпись]]. Удерживайте Ctrl и нажмите на ссылку, чтобы открыть заметку.')
 
     def set_notes(self, rows):
         self._notes = {}
