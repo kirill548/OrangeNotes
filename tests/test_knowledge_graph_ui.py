@@ -40,6 +40,15 @@ class KnowledgeGraphUITests(unittest.TestCase):
         self.assertEqual(spy.at(0), [1])
         view.close()
 
+    def test_small_graph_initial_fit_keeps_labels_readable(self):
+        view = GraphView()
+        view.resize(600,400)
+        view.show()
+        view.set_graph({'nodes':[{'id':1,'title':'План'},{'id':2,'title':'Проект'}],
+                        'edges':[{'source_id':1,'target_id':2}]},1)
+        self.assertGreaterEqual(view.transform().m11(), .8)
+        view.close()
+
     def test_completion_replaces_only_open_link(self):
         editor = QTextEdit()
         completer = WikiLinkCompleter(editor)

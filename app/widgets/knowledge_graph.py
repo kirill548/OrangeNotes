@@ -192,7 +192,9 @@ class GraphView(QGraphicsView):
             label.setVisible(len(nodes) <= 200 or node['id'] == active_id)
             self._node_items[node['id']] = (circle, label)
         if nodes and not old_positions:
-            self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
+            # The scene includes padding for future motion. Fit visible content,
+            # not that empty padding, so small graphs retain readable labels.
+            self.fitInView(self.scene().itemsBoundingRect().adjusted(-90,-90,90,90), Qt.KeepAspectRatio)
             self._zoom = 1.0
         if nodes:
             self._pending_layout = (self._generation, list(positions),
