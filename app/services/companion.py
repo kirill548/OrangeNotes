@@ -255,6 +255,7 @@ class CompanionEngine:
             availability={}
             if config.get('provider','ollama')!='search':
                 client=self._client(config)
+                client.cancel_event=cancel_event
                 client.deadline=time.monotonic()+30
                 ensure_runtime(client,cancel_event)
                 availability=client.probe()
@@ -393,10 +394,16 @@ class CompanionEngine:
             # A transport failure must not masquerade as a generated answer.
             found=memory.search(query,workspace_id=workspace_id,include_archive=include_archive,include_trash=include_trash,limit=8,embedding_provider=False,fuzzy_identifiers=config.get('fuzzy_identifiers',True))
             # Resolve attachment snapshots again before publishing fallback data.
-            attachments=memory.attachment_sources(attached_note_ids,workspace_id=workspace_id,
-                include_archive=include_archive,include_trash=include_trash,query=query) if attached_note_ids else []
-            linked_sources=self._linked_context(attached_note_ids,depth,workspace_id,
-                include_archive,include_trash,query,cancel_event)
+            try:
+                attachments=memory.attachment_sources(attached_note_ids,workspace_id=workspace_id,
+                    include_archive=include_archive,include_trash=include_trash,query=query) if attached_note_ids else []
+                linked_sources=self._linked_context(attached_note_ids,depth,workspace_id,
+                    include_archive,include_trash,query,cancel_event)
+            except ValueError:
+                # Deletion/move/archive can revoke a pin while the model waits.
+                # Publish only the freshly scoped search, never stale snapshots.
+                attachments=[]
+                linked_sources=[]
             linked_ids={source['note_id'] for source in linked_sources}
             found=merge_sources(attachments,linked_sources+[source for source in found
                 if source.get('note_id',source.get('id')) not in linked_ids])
@@ -445,6 +452,8 @@ class CompanionEngine:
     @staticmethod
     def _validate(raw,sources,strict_memory=False,allow_inference=False):
         try:
+            from app.services.local_ai import _check_json_depth
+            _check_json_depth(raw.encode('utf-8'))
             value=json.loads(raw)
             segments=value['segments']
             if not isinstance(segments,list) or not segments or len(segments)>16:raise ValueError()
@@ -484,5 +493,5 @@ class CompanionEngine:
                 prefix={'fact':'','inference':'Возможная связь: ','suggestion':'Предложение: ','question':''}[kind]
                 result.append(prefix+text.strip()+(' '+' '.join(f'[{i}]' for i in dict.fromkeys(ids)) if ids else ''))
             return '\n\n'.join(result)
-        except (ValueError,KeyError,TypeError,AttributeError) as error:
+        except (ValueError,KeyError,TypeError,AttributeError,RecursionError,UnicodeError) as error:
             raise LocalAIError('Не удалось подтвердить ответ по источникам. Показываю найденные записи вместо неподтверждённых утверждений.') from error

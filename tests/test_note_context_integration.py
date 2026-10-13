@@ -64,15 +64,12 @@ class NoteContextIntegrationTests(unittest.TestCase):
 
                 client = StreamingClient()
                 self.engine.client_factory = lambda **kwargs: client
+                result = self.engine.ask('Обсуди прикреплённое', attached_note_ids=[identity],
+                                         on_segment=packets.append)
+                self.assertEqual(result['status'], 'search_only')
+                self.assertNotIn('OLD_PINNED_FACT_731829', result['text'])
                 if change == 'move':
-                    with self.assertRaises(ValueError):
-                        self.engine.ask('Обсуди прикреплённое', attached_note_ids=[identity],
-                                        on_segment=packets.append)
-                else:
-                    result = self.engine.ask('Обсуди прикреплённое', attached_note_ids=[identity],
-                                             on_segment=packets.append)
-                    self.assertEqual(result['status'], 'search_only')
-                    self.assertNotIn('OLD_PINNED_FACT_731829', result['text'])
+                    self.assertNotIn(identity, {source['note_id'] for source in result['sources']})
                 self.assertEqual(len(client.messages), 1)
                 self.assertFalse(any(packet.get('kind') == 'segment' for packet in packets))
                 self.assertTrue(any(packet.get('kind') == 'reset' for packet in packets))

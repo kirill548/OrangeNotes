@@ -2,7 +2,7 @@
 import json
 import time
 import socket
-from app.services.local_ai import LocalAIError
+from app.services.local_ai import LocalAIError, _interruptible_request, _check_json_depth
 
 MAX_RESPONSE = 4 * 1024 * 1024
 MAX_LINE = 256 * 1024
@@ -52,6 +52,7 @@ class NDJSONAnswer:
         if not line.strip():
             return
         try:
+            _check_json_depth(line)
             item = json.loads(line)
             if not isinstance(item, dict):
                 raise ValueError()
@@ -72,7 +73,7 @@ class NDJSONAnswer:
                     self.on_content(content)
             self.done = item.get('done', False)
             self.reason = item.get('done_reason', self.reason)
-        except (ValueError, UnicodeError) as error:
+        except (ValueError, UnicodeError, RecursionError) as error:
             raise LocalAIError('Локальный сервер вернул некорректный поток.') from error
 
     def finish(self):
@@ -103,7 +104,7 @@ def receive_stream(client, payload, cancel_event):
     request = Request(client.base_url+'/api/chat', data=json.dumps(payload).encode('utf-8'),
                       headers={'Content-Type': 'application/json'}, method='POST')
     try:
-        with client._opener.open(request, timeout=max(.001,deadline-time.monotonic())) as response:
+        with _interruptible_request(client._opener, deadline, cancel_event) as transport, transport.open(request, timeout=max(.001,deadline-time.monotonic())) as response:
             while True:
                 client._check_cancel(cancel_event)
                 remaining = deadline-time.monotonic()

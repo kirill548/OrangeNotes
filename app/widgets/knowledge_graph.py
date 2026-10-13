@@ -103,6 +103,8 @@ class GraphView(QGraphicsView):
         self._zoom = 1.0
         self._press = None
         self._positions = {}
+        self._position_cache = {}
+        self._has_fitted = False
         self._targets = {}
         self._node_items = {}
         self._edge_items = []
@@ -128,6 +130,13 @@ class GraphView(QGraphicsView):
     def closeEvent(self, event):
         self.stop_layout()
         super().closeEvent(event)
+
+    def event(self, event):
+        # deleteLater does not pass through closeEvent. Join the one possible
+        # worker before Qt destroys its child QThread.
+        if event.type() == QEvent.DeferredDelete and hasattr(self, '_workers'):
+            self.stop_layout()
+        return super().event(event)
 
     def hideEvent(self, event):
         self._timer.stop()
@@ -158,8 +167,15 @@ class GraphView(QGraphicsView):
         workspace = graph.get('workspace_id', nodes[0].get('workspace_id') if nodes else self._workspace)
         if workspace != self._workspace:
             self._positions = {}
+            self._position_cache = {}
+            self._has_fitted = False
             self._workspace = workspace
-        old_positions = self._positions
+        self._position_cache.update(self._positions)
+        # Retain filtered nodes, but bound memory when a long-lived workspace
+        # repeatedly creates and deletes notes.
+        while len(self._position_cache) > 4096:
+            self._position_cache.pop(next(iter(self._position_cache)))
+        old_positions = self._position_cache
         positions = {}
         radius = max(100, math.sqrt(len(nodes)) * 35)
         for index, node in enumerate(nodes):
@@ -191,11 +207,12 @@ class GraphView(QGraphicsView):
             # Large graphs keep labels in tooltips to avoid thousands of text paints.
             label.setVisible(len(nodes) <= 200 or node['id'] == active_id)
             self._node_items[node['id']] = (circle, label)
-        if nodes and not old_positions:
+        if nodes and not self._has_fitted:
             # The scene includes padding for future motion. Fit visible content,
             # not that empty padding, so small graphs retain readable labels.
             self.fitInView(self.scene().itemsBoundingRect().adjusted(-90,-90,90,90), Qt.KeepAspectRatio)
             self._zoom = 1.0
+            self._has_fitted = True
         if nodes:
             self._pending_layout = (self._generation, list(positions),
                 [(e['source_id'], e['target_id']) for e in graph.get('edges', [])], positions.copy())

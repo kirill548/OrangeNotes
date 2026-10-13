@@ -78,10 +78,17 @@ def migrate(db):
     CREATE INDEX IF NOT EXISTS note_links_titles_lookup ON note_links_titles(workspace_id,title_key);
     CREATE INDEX IF NOT EXISTS note_links_key ON note_links(target_key,source_id);
     """)
-    if not incremental:
+    triggers = link_trigger_sql()
+    existing = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
+    missing = set(triggers) - existing
+    if not incremental or missing:
+        # Recover an interrupted migration: rows changed while a trigger was
+        # absent cannot be trusted, so seed a complete one-time repair.
+        db.execute('DELETE FROM note_links_titles')
         db.execute('INSERT OR IGNORE INTO note_links_dirty SELECT id FROM notes')
         db.execute('INSERT OR IGNORE INTO note_links_title_dirty SELECT workspace_id,title FROM notes')
-        for sql in link_trigger_sql().values(): db.execute(sql)
+    for name in missing:
+        db.execute(triggers[name])
 
 def rename_references(db, note_id, old_title, new_title, workspace_id):
     if not old_title.strip() or key(old_title)==key(new_title): return
@@ -127,11 +134,11 @@ class KnowledgeGraph:
         finally: db.close()
     def close(self):
         pass
-    def refresh(self):
+    def refresh(self, cancelled=None):
         # Each write lock covers at most 128 parsed bodies. Coalesced title changes
         # invalidate only sources referencing their normalized old/new names.
         rebuilt = 0; batches = 0
-        while True:
+        while not (cancelled and cancelled()):
             with self._connect() as db:
                 db.execute('BEGIN IMMEDIATE')
                 changed = [r[0] for r in db.execute('SELECT note_id FROM note_links_dirty')]
@@ -217,7 +224,7 @@ class KnowledgeGraphIndexer:
         self._stop.clear(); self.thread=threading.Thread(target=self._run,daemon=True,name='note-links-indexer'); self.thread.start()
     def _run(self):
         while not self._stop.is_set():
-            try: self.graph.refresh(); self.last_error=None
+            try: self.graph.refresh(cancelled=self._stop.is_set); self.last_error=None
             except sqlite3.Error as exc: self.last_error=str(exc)
             self._stop.wait(self.interval)
     def stop(self):

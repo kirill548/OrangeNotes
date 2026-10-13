@@ -29,7 +29,7 @@ class NDJSONContracts(unittest.TestCase):
         from unittest.mock import patch
         client=OllamaClient()
         budgets=[]
-        def preflight(model):budgets.append(client.deadline)
+        def preflight(model,cancel_event=None):budgets.append(client.deadline)
         def stream(payload,cancel):
             budgets.append(client.deadline)
             return {'message':{'content':'bounded'},'done_reason':'stop'}

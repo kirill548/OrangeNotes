@@ -1,0 +1,218 @@
+name: Release candidate v0.1.5 stress qualification
+on:
+  push:
+    branches: [v0.1.5-dev]
+    paths: [.github/workflows/v015-release-candidate.yml]
+  workflow_dispatch:
+    inputs:
+      native_macos_notifications:
+        description: Require authorised self-hosted macOS notification desktop
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: v015-candidate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package:
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows-x64
+            architecture: x64
+            machine: AMD64
+          - os: ubuntu-latest
+            name: Linux-x64
+            architecture: x64
+            machine: x86_64
+          - os: macos-15-intel
+            name: macOS-Intel
+            architecture: x64
+            machine: x86_64
+          - os: macos-15
+            name: macOS-AppleSilicon
+            architecture: arm64
+            machine: arm64
+    runs-on: ${{ matrix.os }}
+    env:
+      WINDOWS_SIGN_THUMBPRINT: ${{ secrets.WINDOWS_SIGN_THUMBPRINT }}
+      SIGNTOOL_PATH: ${{ secrets.SIGNTOOL_PATH }}
+      MAC_SIGN_IDENTITY: ${{ secrets.MAC_SIGN_IDENTITY }}
+      MAC_NOTARY_PROFILE: ${{ secrets.MAC_NOTARY_PROFILE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.architecture }}
+      - name: Verify Python architecture and prepare logs
+        env:
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+        run: python -c "import os,platform,struct,pathlib; assert struct.calcsize('P') == 8; assert platform.machine().lower() == os.environ['EXPECTED_MACHINE'].lower(), platform.machine(); pathlib.Path('work/cross-platform-qa').mkdir(parents=True,exist_ok=True)"
+      - name: Linux Qt libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-xinerama0 libxcb-randr0 libxcb-shape0 libxcb-sync1 libxcb-xfixes0 libx11-xcb1 libfontconfig1 libdbus-1-3 libgl1 libpulse0 libasound2t64 xvfb
+      - run: python -m pip install -r requirements-build.txt
+      - run: python -m pip install pytest pytest-subtests pytest-timeout
+      - name: Install verified voice engine and run native synthetic inference
+        run: python tools/stt_native_smoke.py --output work/cross-platform-qa/native-stt.json
+      - name: Core and distribution tests on every OS
+        run: python -m unittest discover -s tests -p test_release_packaging.py
+      - name: Extreme graph, cancellation and adversarial tool tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests/test_knowledge_graph_stress.py tests/test_graph_ui_stress.py tests/test_graph_tool_adversarial.py tests/test_graph_transport_stress.py -v -s --timeout=90 --timeout-method=thread --junitxml=work/cross-platform-qa/stress.xml
+      - name: Windows regression suite
+        timeout-minutes: 10
+        if: runner.os == 'Windows'
+        env:
+          QT_QPA_PLATFORM: windows
+        run: python -m pytest tests/ -v --tb=short --timeout=90 --timeout-method=thread --junitxml=work/cross-platform-qa/pytest.xml
+      - name: Provision pinned official AppImage tool
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage -o "$RUNNER_TEMP/appimagetool.AppImage"
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  $RUNNER_TEMP/appimagetool.AppImage" | sha256sum --check --strict
+          chmod +x "$RUNNER_TEMP/appimagetool.AppImage"
+          cd "$RUNNER_TEMP"
+          ./appimagetool.AppImage --appimage-extract > /dev/null
+          OFFSET=$(./appimagetool.AppImage --appimage-offset)
+          head -c "$OFFSET" ./appimagetool.AppImage > ./appimage-runtime
+          echo "APPIMAGETOOL_PATH=$RUNNER_TEMP/squashfs-root/AppRun" >> "$GITHUB_ENV"
+          echo "APPIMAGE_RUNTIME_FILE=$RUNNER_TEMP/appimage-runtime" >> "$GITHUB_ENV"
+      - name: Verify Linux Qt shared libraries
+        if: runner.os == 'Linux'
+        run: python tools/verify_qt_libraries.py
+      - name: Linux complete regression suite
+        timeout-minutes: 10
+        if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: xcb
+        run: xvfb-run -a python -m pytest tests/ -v --tb=short --timeout=90 --timeout-method=thread --junitxml=work/cross-platform-qa/pytest.xml
+      - name: Linux native notification daemon integration
+        if: runner.os == 'Linux'
+        env:
+          ORANGE_NATIVE_NOTIFICATION_TESTS: '1'
+        shell: bash
+        run: |
+          sudo apt-get install -y dbus-x11 libnotify-bin libglib2.0-bin dunst
+          set -o pipefail
+          bash tools/test_linux_notifications.sh 2>&1 | tee work/cross-platform-qa/linux-native-notifications.log
+      - name: Diagnose native macOS keyboard delivery
+        if: runner.os == 'macOS'
+        env:
+          QT_QPA_PLATFORM: cocoa
+          PYTHONPATH: .
+        run: python tools/probe_native_shortcuts.py
+      - name: macOS complete regression suite
+        timeout-minutes: 10
+        if: runner.os == 'macOS'
+        env:
+          QT_QPA_PLATFORM: cocoa
+        run: python -m pytest tests/ -v --tb=short --timeout=90 --timeout-method=thread --junitxml=work/cross-platform-qa/pytest.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: QA-${{ matrix.name }}
+          path: work/cross-platform-qa/
+          if-no-files-found: warn
+      - name: Provision temporary signing credentials
+        if: github.event_name != 'pull_request' && runner.os != 'Linux'
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          MAC_CERTIFICATE_BASE64: ${{ secrets.MAC_CERTIFICATE_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: python tools/ci_signing.py
+      - name: Build native package
+        run: python tools/build.py --clean --edition lite
+      - name: Verify clean portable components and bundled Qt Multimedia
+        env:
+          TARGET_OS: ${{ runner.os }}
+        run: python tools/verify_portable_bundle.py
+      - name: Remove temporary certificates
+        if: always() && github.event_name != 'pull_request' && runner.os != 'Linux'
+        run: python tools/ci_signing.py --cleanup
+      - name: Windows frozen smoke test
+        if: runner.os == 'Windows'
+        run: python tools/smoke_frozen.py dist/OrangeNotes/OrangeNotes.exe --hostile-qt-env
+      - name: Linux frozen GUI startup
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python tools/smoke_portable.py dist/OrangeNotes/OrangeNotes
+      - name: Linux Debian package
+        if: runner.os == 'Linux'
+        run: |
+          test "$(id -u)" -ne 0
+          python tools/package_deb.py dist/OrangeNotes dist/OrangeNotes-Linux-x64.deb --version 0.1.5 --architecture amd64
+          python tools/verify_deb.py dist/OrangeNotes-Linux-x64.deb
+      - name: macOS frozen GUI startup
+        if: runner.os == 'macOS'
+        run: python tools/smoke_portable.py dist/OrangeNotes.app/Contents/MacOS/OrangeNotes
+      - name: Required pinned Flatpak bundle
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get install -y flatpak flatpak-builder
+          python tools/flatpak_bundle.py --prepare
+          python tools/flatpak_bundle.py
+      - name: Require every platform package
+        env:
+          TARGET_OS: ${{ runner.os }}
+        run: python tools/verify_release_matrix_assets.py
+      - name: Record candidate provenance and checksums
+        run: python tools/write_candidate_manifest.py --commit ${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Final-QA-${{ matrix.name }}
+          path: work/cross-platform-qa/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OrangeNotes-${{ matrix.name }}
+          path: |
+            dist/OrangeNotes-*.zip
+            dist/OrangeNotes-*.tar.gz
+            dist/OrangeNotes-*.dmg
+            dist/OrangeNotes-*.AppImage
+            dist/OrangeNotes-*.deb
+            dist/OrangeNotes-*.flatpak
+            dist/Flatpak-provenance.json
+            dist/CANDIDATE_MANIFEST.json
+            dist/SHA256SUMS.txt
+            packaging/flatpak/runtime-lock.json
+          if-no-files-found: error
+
+  macos-notifications:
+    if: github.event_name == 'workflow_dispatch' && inputs.native_macos_notifications == true
+    # A logged-in desktop is essential; hosted headless sessions cannot prove banners.
+    runs-on: [self-hosted, macOS, orangenotes-notifications]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-build.txt
+      - name: Build stable application identity
+        env:
+          MAC_SIGN_IDENTITY: ${{ secrets.MAC_SIGN_IDENTITY }}
+        run: python tools/build.py --clean --edition lite
+      - name: Ad-hoc application native integration suite
+        run: bash tools/test_mac_bundle.sh
+      - name: Production bundle UserNotifications acceptance and removal
+        run: dist/OrangeNotes.app/Contents/MacOS/OrangeNotes --notification-self-test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macOS-native-notification-report
+          path: mac-native-notifications.log
+          if-no-files-found: error
+

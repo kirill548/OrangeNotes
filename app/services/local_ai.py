@@ -6,10 +6,13 @@ import math
 import re
 import socket
 import time
-from http.client import HTTPException
+import io
+import select
+from contextlib import contextmanager
+from http.client import HTTPException, HTTPConnection
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
+from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler, HTTPHandler, OpenerDirector
 
 
 _ANSWER_SCHEMA = {
@@ -70,6 +73,129 @@ class _NoRedirects(HTTPRedirectHandler):
         raise LocalAIError('Локальный сервер попытался перенаправить запрос. Запрос остановлен.')
 
 
+def _check_json_depth(raw, max_depth=128):
+    # Bound parser recursion independently of the interpreter recursion setting.
+    depth=0;quoted=False;escaped=False
+    for value in raw:
+        if quoted:
+            if escaped:escaped=False
+            elif value==92:escaped=True
+            elif value==34:quoted=False
+        elif value==34:quoted=True
+        elif value in (91,123):
+            depth+=1
+            if depth>max_depth:raise LocalAIError('Ответ локальной модели слишком глубоко вложен.')
+        elif value in (93,125):depth-=1
+
+
+class _PollingSocketReader(io.RawIOBase):
+    """Interruptible socket file for HTTP headers and bodies, including trickles."""
+    def __init__(self, sock, deadline, cancel_event):
+        super().__init__()
+        self.sock = sock.dup()
+        self.deadline = deadline
+        self.cancel_event = cancel_event
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        while True:
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                raise LocalAICancelled('Запрос отменён.')
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('Local request wall deadline exceeded')
+            ready, _, _ = select.select([self.sock], [], [], min(.025, remaining))
+            if ready:
+                try:
+                    return self.sock.recv_into(buffer)
+                except BlockingIOError:
+                    continue
+
+    def close(self):
+        if not self.closed:
+            self.sock.close()
+        super().close()
+
+
+class _InterruptibleHTTPHandler(HTTPHandler):
+    def __init__(self, deadline, cancel_event):
+        super().__init__()
+        self.deadline = deadline
+        self.cancel_event = cancel_event
+        self.readers = []
+        self.connections = []
+
+    def http_open(self, request):
+        handler = self
+        class SocketFile:
+            def __init__(self, sock):
+                self.sock = sock
+            def __getattr__(self, name):
+                return getattr(self.sock, name)
+            def sendall(self, data):
+                pending = memoryview(data)
+                while pending:
+                    if handler.cancel_event is not None and handler.cancel_event.is_set():
+                        raise LocalAICancelled('Запрос отменён.')
+                    remaining = handler.deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError('Local request wall deadline exceeded')
+                    _, ready, _ = select.select([], [self.sock], [], min(.025, remaining))
+                    if ready:
+                        try:
+                            count = self.sock.send(pending)
+                        except BlockingIOError:
+                            continue
+                        if count == 0:
+                            raise ConnectionError('Local socket closed during request')
+                        pending = pending[count:]
+            def makefile(self, mode, buffering=None):
+                raw = _PollingSocketReader(self.sock, handler.deadline, handler.cancel_event)
+                handler.readers.append(raw)
+                return io.BufferedReader(raw)
+        class Connection(HTTPConnection):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                handler.connections.append(self)
+            def connect(self):
+                while True:
+                    if handler.cancel_event is not None and handler.cancel_event.is_set():
+                        raise LocalAICancelled('Запрос отменён.')
+                    remaining = handler.deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError('Local request wall deadline exceeded')
+                    self.timeout = min(.1, remaining)
+                    try:
+                        super().connect()
+                        break
+                    except (TimeoutError, socket.timeout):
+                        continue
+                self.sock.setblocking(False)
+                self.sock = SocketFile(self.sock)
+        return self.do_open(Connection, request)
+
+
+@contextmanager
+def _interruptible_request(opener, deadline, cancel_event):
+    # No helper thread or request executor can outlive cancellation. Headers and
+    # body are read through select polling, bounded by the same wall deadline.
+    if (not isinstance(opener, OpenerDirector) or
+            getattr(opener.open, '__func__', None) is not OpenerDirector.open):
+        yield opener  # Synthetic contract-test adapters have no real socket.
+        return
+    handler = _InterruptibleHTTPHandler(deadline, cancel_event)
+    transport = build_opener(ProxyHandler({}), _NoRedirects(), handler)
+    try:
+        yield transport
+    finally:
+        for connection in handler.connections:
+            connection.close()
+        for reader in handler.readers:
+            reader.close()
+
+
 class OllamaClient:
     def __init__(self, base_url='http://127.0.0.1:11434', model='qwen3:4b', timeout=60):
         try:
@@ -87,6 +213,7 @@ class OllamaClient:
         self.model=self._local_model(model)
         self.timeout=max(1,min(float(timeout),30))
         self.deadline=None
+        self.cancel_event=None
         self._opener=build_opener(ProxyHandler({}),_NoRedirects())
 
     @staticmethod
@@ -101,6 +228,7 @@ class OllamaClient:
             raise LocalAICancelled('Запрос отменён.')
 
     def _request(self,path,data=None,timeout=None,cancel_event=None):
+        cancel_event=cancel_event if cancel_event is not None else self.cancel_event
         self._check_cancel(cancel_event)
         remaining=self.deadline-time.monotonic() if self.deadline is not None else 30
         if remaining<=0:raise LocalAIError('Модель не успела ответить за 30 секунд. Показываю поиск по заметкам; попробуйте сократить вопрос.')
@@ -108,7 +236,7 @@ class OllamaClient:
         request_deadline=time.monotonic()+effective_timeout
         request=Request(self.base_url+path,data=json.dumps(data,ensure_ascii=False).encode('utf-8') if data is not None else None,headers={'Content-Type':'application/json'},method='POST' if data is not None else 'GET')
         try:
-            with self._opener.open(request,timeout=effective_timeout) as response:
+            with _interruptible_request(self._opener, request_deadline, cancel_event) as transport, transport.open(request,timeout=effective_timeout) as response:
                 limit=4*1024*1024
                 # HTTPResponse.read(n) waits until n bytes/EOF; an endless trickle
                 # can therefore reset the socket idle timeout indefinitely.
@@ -137,6 +265,7 @@ class OllamaClient:
             if self.deadline is not None and time.monotonic()>=self.deadline:
                 raise LocalAIError('Модель не успела ответить за 30 секунд. Показываю поиск по заметкам; попробуйте сократить вопрос.')
             if len(raw)>4*1024*1024:raise LocalAIError('Ответ локальной модели слишком большой.')
+            _check_json_depth(raw)
             result=json.loads(raw)
             if not isinstance(result,dict):raise ValueError()
             if result.get('error'):raise LocalAIError('Локальная модель не выполнила запрос: '+str(result['error'])[:250])
@@ -147,7 +276,8 @@ class OllamaClient:
         except (URLError,socket.timeout,TimeoutError,ConnectionError,HTTPException) as error:
             self._check_cancel(cancel_event)
             raise LocalAIError('Локальный помощник недоступен или отвечает слишком долго. Проверьте запуск Ollama.') from error
-        except (ValueError,UnicodeError) as error:
+        except (ValueError,UnicodeError,RecursionError) as error:
+            self._check_cancel(cancel_event)
             raise LocalAIError('Локальный сервер вернул некорректный ответ.') from error
 
     def probe(self):
@@ -155,12 +285,14 @@ class OllamaClient:
             result=self._request('/api/tags',timeout=3)
             models=[entry.get('name') for entry in result.get('models',[]) if isinstance(entry,dict) and isinstance(entry.get('name'),str)]
             return {'available':True,'models':models,'model_ready':self.model in models,'model':self.model,'error':None}
+        except LocalAICancelled:
+            raise
         except LocalAIError as error:
             return {'available':False,'models':[],'model_ready':False,'model':self.model,'error':str(error)}
 
-    def _ensure_installed_local(self,model):
+    def _ensure_installed_local(self,model,cancel_event=None):
         # A local Ollama server can proxy cloud models; reject these explicitly.
-        result=self._request('/api/show',{'model':model},timeout=5)
+        result=self._request('/api/show',{'model':model},timeout=5,cancel_event=cancel_event)
         if result.get('remote_host') or result.get('remote_model'):
             raise LocalAIError('Эта модель работает в облаке. Разрешены только локальные модели.')
 
@@ -179,7 +311,7 @@ class OllamaClient:
         for message in messages:
             if not isinstance(message,dict) or message.get('role') not in ('system','user','assistant') or not isinstance(message.get('content'),str):
                 raise LocalAIError('Некорректная история диалога.')
-        self._ensure_installed_local(self.model)
+        self._ensure_installed_local(self.model,cancel_event=cancel_event)
         payload={'model':self.model,'messages':messages,'stream':bool(stream),'think':False,'options':{'temperature':0.2,'num_ctx':8192,'num_predict':1024}}
         if json_mode:
             if json_mode == 'tools':
@@ -214,7 +346,7 @@ class OllamaClient:
                 not isinstance(m, dict) or m.get('role') not in ('system', 'user', 'assistant', 'tool')
                 or not isinstance(m.get('content'), str) for m in messages):
             raise LocalAIError('Некорректная история инструментов.')
-        self._ensure_installed_local(self.model)
+        self._ensure_installed_local(self.model,cancel_event=cancel_event)
         result = self._request('/api/chat', {'model': self.model, 'messages': messages,
             'tools': tools, 'stream': False, 'think': False,
             'options': {'temperature': 0, 'num_ctx': 8192, 'num_predict': 256}},
