@@ -214,7 +214,11 @@ def test_retained_exception_tracebacks_do_not_keep_native_sockets_open(failure):
         assert errors
     else:
         with server('success' if failure=='success' else 'headers') as (port,entered):
-            client=OllamaClient(f'http://127.0.0.1:{port}');client.deadline=time.monotonic()+.15
+            # This case measures socket ownership, not response speed.
+            # Give the successful exchange scheduling room on shared runners;
+            # failure cases retain their intentionally short deadline.
+            client=OllamaClient(f'http://127.0.0.1:{port}')
+            client.deadline=time.monotonic()+(3.0 if failure=='success' else .15)
             with patch.object(local_ai,'_InterruptibleHTTPHandler',side_effect=handler),patch.object(local_ai.HTTPConnection,'connect',new=connect):
                 if failure=='send':
                     with patch.object(local_ai.HTTPConnection,'send',new=broken_send):
