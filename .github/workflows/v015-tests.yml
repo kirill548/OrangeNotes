@@ -6,6 +6,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: v015-knowledge-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   contracts:
     strategy:
@@ -43,6 +46,10 @@ jobs:
         run: python -m pytest tests/test_local_stt.py tests/test_audio_capture.py tests/test_stt_platform_contract.py tests/test_companion_voice.py -v
       - name: Wiki links, graph UI and workspace isolation
         run: python -m pytest tests/test_knowledge_graph.py tests/test_knowledge_graph_ui.py tests/test_knowledge_graph_ai.py -v
+      - name: Synthetic index and force layout benchmarks
+        run: |
+          python -m tools.benchmark_knowledge_graph --notes 550 --output knowledge-benchmark.json
+          python -m tools.benchmark_graph_layout --nodes 500 1000 --output layout-benchmark.json
       - name: Full regression (live model qualification is separate)
         env:
           QT_QPA_PLATFORM: ${{ matrix.qt_platform }}
@@ -51,5 +58,8 @@ jobs:
         if: always()
         with:
           name: v015-regression-${{ matrix.os }}
-          path: regression.xml
+          path: |
+            regression.xml
+            knowledge-benchmark.json
+            layout-benchmark.json
 

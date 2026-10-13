@@ -41,12 +41,11 @@ def validate_backup(path):
         expected_utc=expected.replace(" WHERE note_id=NEW.id;", ",checked_through_utc=strftime('%Y-%m-%dT%H:%M:%S','now') WHERE note_id=NEW.id;",1)
         canonical=lambda value: ''.join(value.split()).rstrip(';')
         allowed = {'reminder_note_visibility': {canonical(expected), canonical(expected_utc)}}
-        for name, event in (
-            ('links_insert', 'INSERT'),
-            ('links_update', 'UPDATE OF title,body,workspace_id,deleted,archived'),
-            ('links_delete', 'DELETE'),
-        ):
-            allowed[name] = {canonical(f'CREATE TRIGGER {name} AFTER {event} ON notes BEGIN INSERT OR IGNORE INTO note_links_dirty VALUES(1); END')}
+        from app.services.knowledge_graph import link_trigger_sql
+        for name, sql in link_trigger_sql().items():
+            allowed[name] = {canonical(sql)}
+            event = {'links_insert':'INSERT','links_update':'UPDATE OF title,body,workspace_id,deleted,archived','links_delete':'DELETE'}[name]
+            allowed[name].add(canonical(f'CREATE TRIGGER {name} AFTER {event} ON notes BEGIN INSERT OR IGNORE INTO note_links_dirty VALUES(1); END'))
         if any(canonical(sql) not in allowed.get(name, set()) for name,sql in objects):
             raise ValueError('Копия содержит неподдерживаемые SQL-объекты.')
         return {'notes': db.execute('SELECT COUNT(*) FROM notes').fetchone()[0], 'path': path}

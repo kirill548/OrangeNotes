@@ -207,6 +207,23 @@ class OllamaClient:
         if not isinstance(content,str) or not content.strip():raise LocalAIError('Локальная модель не вернула текст ответа.')
         return content.strip()
 
+    def chat_graph_tools(self, messages, tools, cancel_event=None):
+        """Native read-only graph planning under the existing request deadline."""
+        self._check_cancel(cancel_event)
+        if not isinstance(messages, list) or not messages or any(
+                not isinstance(m, dict) or m.get('role') not in ('system', 'user', 'assistant', 'tool')
+                or not isinstance(m.get('content'), str) for m in messages):
+            raise LocalAIError('Некорректная история инструментов.')
+        self._ensure_installed_local(self.model)
+        result = self._request('/api/chat', {'model': self.model, 'messages': messages,
+            'tools': tools, 'stream': False, 'think': False,
+            'options': {'temperature': 0, 'num_ctx': 8192, 'num_predict': 256}},
+            cancel_event=cancel_event)
+        message = result.get('message')
+        if result.get('done_reason') == 'length' or not isinstance(message, dict):
+            raise LocalAIError('Модель вернула некорректный вызов инструмента.')
+        return message
+
     def chat_stream(self,messages,cancel_event=None,json_mode=False):
         return self.chat(messages,cancel_event=cancel_event,json_mode=json_mode,stream=True)
 

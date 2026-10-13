@@ -129,6 +129,30 @@ class NoteContextUITests(unittest.TestCase):
             if supports: self.assertEqual(calls[0]['attached_note_ids'], (self.note,))
             else: self.assertNotIn('attached_note_ids', calls[0])
 
+    def test_autonomous_graph_requires_explicit_ui_selection(self):
+        from PySide6.QtTest import QTest
+        calls = []
+        class Engine:
+            supports_note_context = True
+            def ask(self, query, workspace_id, **kwargs):
+                calls.append(dict(kwargs['config']))
+                return {'text':'ok', 'sources':[], 'engine_label':'Поиск'}
+        dialog = CompanionDialog(self.store, engine_factory=lambda path:Engine())
+        self.dialogs.append(dialog)
+        dialog.config['provider']='search'
+        self.assertEqual(dialog.linked_context_depth.currentData(), 0)
+        for mode in (0, 1, 2, 'auto'):
+            dialog.linked_context_depth.setCurrentIndex(dialog.linked_context_depth.findData(mode))
+            self.assertTrue(dialog._start('Что связано с планом?'))
+            self.assertFalse(dialog.linked_context_depth.isEnabled())
+            for _ in range(300):
+                self.app.processEvents(); QTest.qWait(5)
+                if not dialog.busy: break
+            self.assertFalse(dialog.busy)
+            self.assertTrue(dialog.linked_context_depth.isEnabled())
+            self.assertEqual(calls[-1]['autonomous_graph'], mode == 'auto')
+            self.assertEqual(calls[-1]['linked_context_depth'], 2 if mode == 'auto' else mode)
+
     def test_busy_request_locks_pins_and_uses_snapshot(self):
         from PySide6.QtTest import QTest
         release = threading.Event(); calls = []

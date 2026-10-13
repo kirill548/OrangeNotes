@@ -85,7 +85,7 @@ def test_dirty_queue_coalesces_and_worker_stops(setup):
     s,g=setup; source=add(s,'A','[[B]]'); target=add(s,'B')
     for _ in range(10):
         with s.db:s.db.execute('UPDATE notes SET body=body WHERE id=?',(source,))
-    assert s.db.execute('SELECT count(*) FROM note_links_dirty').fetchone()[0]==1
+    assert s.db.execute('SELECT count(*) FROM note_links_dirty').fetchone()[0]==2
     worker=KnowledgeGraphIndexer(s.path,interval=.01); worker.start()
     deadline=time.monotonic()+3
     while time.monotonic()<deadline:
@@ -129,3 +129,36 @@ def test_reopening_store_does_not_invalidate_clean_index(setup):
         assert reopened.db.execute('SELECT count(*) FROM note_links_dirty').fetchone()[0] == 0
     finally:
         reopened.db.close()
+
+
+def test_incremental_edit_preserves_unaffected_edges(setup):
+    s,g=setup
+    ids=[add(s,f'Note {i}',f'[[Note {(i+1)%550}]]') for i in range(550)]
+    g.refresh()
+    assert g.last_refresh_stats['rebuilt_sources']==550
+    edge_ids={r['source_id']:r['id'] for r in s.db.execute('SELECT * FROM note_links')}
+    with s.db: s.db.execute('UPDATE notes SET body=? WHERE id=?',('[[Note 3]]',ids[0]))
+    g.refresh()
+    assert g.last_refresh_stats['rebuilt_sources']==1
+    assert all(r['id']==edge_ids[r['source_id']] for r in s.db.execute('SELECT * FROM note_links WHERE source_id != ?',(ids[0],)))
+    assert g.linked_notes(ids[0],1)[0]['id']==ids[3]
+
+
+def test_move_title_resolution_updates_both_workspaces(setup):
+    s,g=setup; target=add(s,'Target'); a=add(s,'A','[[Target]]'); b=add(s,'B','[[Target]]',workspace=2)
+    g.refresh()
+    with s.db: s.db.execute('UPDATE notes SET workspace_id=2 WHERE id=?',(target,))
+    assert not g.linked_notes(a,1)
+    assert g.linked_notes(b,2)[0]['id']==target
+
+
+def test_legacy_index_migration_rebuilds_once(setup):
+    s,g=setup; add(s,'A','[[B]]'); add(s,'B'); g.refresh()
+    for name in ('links_insert','links_update','links_delete'): s.db.execute('DROP TRIGGER '+name)
+    s.db.execute('DROP TABLE note_links_dirty')
+    s.db.execute('CREATE TABLE note_links_dirty(id INTEGER PRIMARY KEY CHECK(id=1))')
+    s.db.commit()
+    from app.services.knowledge_graph import migrate
+    migrate(s.db); s.db.commit(); g.refresh()
+    assert len(g.graph(1)['edges'])==1
+    assert s.db.execute('PRAGMA foreign_key_check').fetchall()==[]

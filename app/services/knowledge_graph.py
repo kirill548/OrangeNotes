@@ -39,25 +39,49 @@ def parse_wiki_links(body):
                        'context_snippet':text[max(0,match.start()-80):match.end()+80].strip()})
     return result
 
+def link_trigger_sql():
+    """Exact trigger definitions are shared with the backup SQL allowlist."""
+    result = {}
+    for name, event, rows in (
+        ('links_insert', 'INSERT', ('NEW',)),
+        ('links_update', 'UPDATE OF title,body,workspace_id,deleted,archived', ('OLD', 'NEW')),
+        ('links_delete', 'DELETE', ('OLD',)),
+    ):
+        statements = [f'INSERT OR IGNORE INTO note_links_dirty(note_id) VALUES({rows[-1]}.id);']
+        for row in rows:
+            condition = ' WHERE OLD.title != NEW.title OR OLD.workspace_id != NEW.workspace_id OR OLD.deleted != NEW.deleted' if name == 'links_update' else ''
+            statements.append(f'INSERT OR IGNORE INTO note_links_title_dirty(workspace_id,title) SELECT {row}.workspace_id,{row}.title'+condition+';')
+        result[name] = f'CREATE TRIGGER {name} AFTER {event} ON notes BEGIN '+ ' '.join(statements)+' END'
+    return result
+
+
 def migrate(db):
-    first_install = not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_links'").fetchone()
-    db.executescript('''
+    legacy = db.execute("SELECT 1 FROM sqlite_master WHERE name='note_links_dirty'").fetchone()
+    incremental = legacy and 'note_id' in {r[1] for r in db.execute('PRAGMA table_info(note_links_dirty)')}
+    db.executescript("""
     CREATE TABLE IF NOT EXISTS note_links (
       id INTEGER PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
       target_id INTEGER REFERENCES notes(id) ON DELETE SET NULL,
       target_title TEXT NOT NULL, link_text TEXT NOT NULL, context_snippet TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS note_links_source ON note_links(source_id);
     CREATE INDEX IF NOT EXISTS note_links_target ON note_links(target_id);
-    CREATE TABLE IF NOT EXISTS note_links_dirty(id INTEGER PRIMARY KEY CHECK(id=1));
-    CREATE TRIGGER IF NOT EXISTS links_insert AFTER INSERT ON notes BEGIN
-      INSERT OR IGNORE INTO note_links_dirty VALUES(1); END;
-    CREATE TRIGGER IF NOT EXISTS links_update AFTER UPDATE OF title,body,workspace_id,deleted,archived ON notes BEGIN
-      INSERT OR IGNORE INTO note_links_dirty VALUES(1); END;
-    CREATE TRIGGER IF NOT EXISTS links_delete AFTER DELETE ON notes BEGIN
-      INSERT OR IGNORE INTO note_links_dirty VALUES(1); END;
-    ''')
-    if first_install:
-        db.execute('INSERT OR IGNORE INTO note_links_dirty VALUES(1)')
+    """)
+    if not incremental:
+        for name in link_trigger_sql(): db.execute('DROP TRIGGER IF EXISTS '+name)
+        db.execute('DROP TABLE IF EXISTS note_links_dirty')
+    if 'target_key' not in {r[1] for r in db.execute('PRAGMA table_info(note_links)')}:
+        db.execute("ALTER TABLE note_links ADD COLUMN target_key TEXT NOT NULL DEFAULT ''")
+    db.executescript("""
+    CREATE TABLE IF NOT EXISTS note_links_dirty(note_id INTEGER PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS note_links_title_dirty(workspace_id INTEGER NOT NULL,title TEXT NOT NULL,PRIMARY KEY(workspace_id,title));
+    CREATE TABLE IF NOT EXISTS note_links_titles(note_id INTEGER PRIMARY KEY,workspace_id INTEGER NOT NULL,title_key TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS note_links_titles_lookup ON note_links_titles(workspace_id,title_key);
+    CREATE INDEX IF NOT EXISTS note_links_key ON note_links(target_key,source_id);
+    """)
+    if not incremental:
+        db.execute('INSERT OR IGNORE INTO note_links_dirty SELECT id FROM notes')
+        db.execute('INSERT OR IGNORE INTO note_links_title_dirty SELECT workspace_id,title FROM notes')
+        for sql in link_trigger_sql().values(): db.execute(sql)
 
 def rename_references(db, note_id, old_title, new_title, workspace_id):
     if not old_title.strip() or key(old_title)==key(new_title): return
@@ -104,21 +128,38 @@ class KnowledgeGraph:
     def close(self):
         pass
     def refresh(self):
-        with self._connect() as db:
-            db.execute('BEGIN IMMEDIATE')
-            if not db.execute('SELECT 1 FROM note_links_dirty').fetchone(): return
-            notes=[dict(row) for row in db.execute('SELECT * FROM notes')]
-            titles={}
-            for n in notes:
-                if not n['deleted']: titles.setdefault((n['workspace_id'],key(n['title'])),[]).append(n['id'])
-            db.execute('DELETE FROM note_links')
-            for n in notes:
-                for link in parse_wiki_links(n['body']):
-                    candidates=titles.get((n['workspace_id'],key(link['target_title'])),[])
-                    target=candidates[0] if len(candidates)==1 else None
-                    db.execute('INSERT INTO note_links(source_id,target_id,target_title,link_text,context_snippet) VALUES(?,?,?,?,?)',
-                      (n['id'],target,link['target_title'],link['link_text'],link['context_snippet']))
-            db.execute('DELETE FROM note_links_dirty')
+        # Each write lock covers at most 128 parsed bodies. Coalesced title changes
+        # invalidate only sources referencing their normalized old/new names.
+        rebuilt = 0; batches = 0
+        while True:
+            with self._connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                changed = [r[0] for r in db.execute('SELECT note_id FROM note_links_dirty')]
+                title_changes = db.execute('SELECT workspace_id,title FROM note_links_title_dirty').fetchall()
+                if title_changes:
+                    # Update title lookup before resolving any affected sources.
+                    for note_id in changed:
+                        db.execute('DELETE FROM note_links_titles WHERE note_id=?', (note_id,))
+                        row = db.execute('SELECT workspace_id,title,deleted FROM notes WHERE id=?', (note_id,)).fetchone()
+                        if row and not row['deleted']:
+                            db.execute('INSERT INTO note_links_titles VALUES(?,?,?)', (note_id,row['workspace_id'],key(row['title'])))
+                    for scope, title in {(r[0],key(r[1])) for r in title_changes}:
+                        db.execute('INSERT OR IGNORE INTO note_links_dirty SELECT DISTINCT l.source_id FROM note_links l JOIN notes n ON n.id=l.source_id WHERE n.workspace_id=? AND l.target_key=?', (scope,title))
+                    db.execute('DELETE FROM note_links_title_dirty')
+                batch = [r[0] for r in db.execute('SELECT note_id FROM note_links_dirty ORDER BY note_id LIMIT 128')]
+                if not batch: break
+                for note_id in batch:
+                    note = db.execute('SELECT body,workspace_id FROM notes WHERE id=?',(note_id,)).fetchone()
+                    db.execute('DELETE FROM note_links WHERE source_id=?',(note_id,))
+                    if note:
+                        for link in parse_wiki_links(note['body']):
+                            target_key = key(link['target_title'])
+                            candidates = db.execute('SELECT note_id FROM note_links_titles WHERE workspace_id=? AND title_key=? LIMIT 2',(note['workspace_id'],target_key)).fetchall()
+                            target = candidates[0][0] if len(candidates)==1 else None
+                            db.execute('INSERT INTO note_links(source_id,target_id,target_title,link_text,context_snippet,target_key) VALUES(?,?,?,?,?,?)', (note_id,target,link['target_title'],link['link_text'],link['context_snippet'],target_key))
+                    db.execute('DELETE FROM note_links_dirty WHERE note_id=?',(note_id,))
+                rebuilt += len(batch); batches += 1
+        self.last_refresh_stats = {'rebuilt_sources': rebuilt, 'batches': batches}
     def _notes(self,workspace_id,include_archive=True,include_trash=False):
         self.refresh()
         with self._connect() as db:

@@ -473,6 +473,8 @@ class Window(QMainWindow):
     def stop_knowledge_workers(self):
         self._knowledge_stopping = True
         self._knowledge_pending = False
+        if self._graph_dialog:
+            self._graph_dialog.view.stop_layout()
         self.knowledge_indexer.stop()
         if self._knowledge_worker:
             self._knowledge_worker.wait()

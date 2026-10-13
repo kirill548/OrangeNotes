@@ -1,7 +1,7 @@
 """Workspace-scoped knowledge UI; SQLite reads and indexing run off the GUI thread."""
 import math
 import re
-from PySide6.QtCore import QObject, QThread, Signal, Qt, QEvent, QStringListModel
+from PySide6.QtCore import QObject, QThread, Signal, Slot, Qt, QEvent, QStringListModel, QTimer
 from PySide6.QtGui import QColor, QBrush, QPen, QTextCursor
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QListWidget, QListWidgetItem, QGraphicsView, QGraphicsScene, QCompleter
 
@@ -77,6 +77,21 @@ class BacklinksPanel(QWidget):
         self.mentions.setVisible(bool(mentions))
 
 
+class GraphLayoutWorker(QThread):
+    ready = Signal(int, object)
+
+    def __init__(self, generation, ids, edges, initial, parent):
+        super().__init__(parent)
+        self.generation, self.ids, self.edges, self.initial = generation, ids, edges, initial
+
+    def run(self):
+        from app.services.graph_layout import force_layout
+        result = force_layout(self.ids, self.edges, self.initial,
+                              cancelled=self.isInterruptionRequested)
+        if not self.isInterruptionRequested():
+            self.ready.emit(self.generation, result)
+
+
 class GraphView(QGraphicsView):
     note_requested = Signal(int)
 
@@ -87,31 +102,149 @@ class GraphView(QGraphicsView):
         self.setAccessibleName('Граф знаний: колесо — масштаб, перетаскивание — перемещение')
         self._zoom = 1.0
         self._press = None
+        self._positions = {}
+        self._targets = {}
+        self._node_items = {}
+        self._edge_items = []
+        self._workers = []
+        self._pending_layout = None
+        self._workspace = None
+        self._signature = None
+        self._generation = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self._animate)
+
+    def stop_layout(self):
+        """Cancel computation and animation; safe before destroying the window."""
+        self._generation += 1
+        self._signature = None
+        self._pending_layout = None
+        self._timer.stop()
+        for worker in list(self._workers):
+            worker.requestInterruption()
+            worker.wait()
+
+    def closeEvent(self, event):
+        self.stop_layout()
+        super().closeEvent(event)
+
+    def hideEvent(self, event):
+        self._timer.stop()
+        super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._targets:
+            self._timer.start()
 
     def set_graph(self, graph, active_id=None):
-        self.scene().clear()
         nodes = graph.get('nodes', [])
+        signature = (tuple((n['id'], n.get('title'), n.get('workspace_id')) for n in nodes),
+                     tuple((e['source_id'], e['target_id']) for e in graph.get('edges', [])),
+                     graph.get('workspace_id'))
+        if nodes and signature == self._signature:
+            for key, (circle, label) in self._node_items.items():
+                circle.setBrush(QBrush(QColor('#ff890b' if key == active_id else '#647d96')))
+                label.setVisible(len(nodes) <= 200 or key == active_id)
+            return
+        self._signature = signature
+        self._generation += 1
+        self._pending_layout = None
+        for worker in self._workers:
+            worker.requestInterruption()
+        self._timer.stop()
+        self.scene().clear()
+        workspace = graph.get('workspace_id', nodes[0].get('workspace_id') if nodes else self._workspace)
+        if workspace != self._workspace:
+            self._positions = {}
+            self._workspace = workspace
+        old_positions = self._positions
         positions = {}
-        radius = max(100, min(600, len(nodes) * 18))
+        radius = max(100, math.sqrt(len(nodes)) * 35)
         for index, node in enumerate(nodes):
-            angle = 2 * math.pi * index / max(1, len(nodes))
-            positions[node['id']] = (radius * math.cos(angle), radius * math.sin(angle))
+            angle = index * 2.399963229728653
+            r = math.sqrt((index + 1) / max(1, len(nodes))) * radius
+            positions[node['id']] = old_positions.get(node['id'], (r * math.cos(angle), r * math.sin(angle)))
+        self._positions = positions
+        # Fixed simulation bounds keep scrollbars from moving as nodes settle.
+        extent = max(200, math.sqrt(len(nodes)) * 55) + 260
+        self.scene().setSceneRect(-extent, -extent, extent * 2, extent * 2)
+        self._targets = {}
+        self._node_items = {}
+        self._edge_items = []
         for edge in graph.get('edges', []):
             source, target = positions.get(edge['source_id']), positions.get(edge['target_id'])
             if source and target:
-                self.scene().addLine(*source, *target, QPen(QColor('#b3b9c2')))
+                line = self.scene().addLine(*source, *target, QPen(QColor('#b3b9c2')))
+                self._edge_items.append((line, edge['source_id'], edge['target_id']))
         for node in nodes:
             x, y = positions[node['id']]
-            circle = self.scene().addEllipse(x-12, y-12, 24, 24, QPen(Qt.NoPen), QBrush(QColor('#ff890b' if node['id'] == active_id else '#647d96')))
+            circle = self.scene().addEllipse(-12, -12, 24, 24, QPen(Qt.NoPen), QBrush(QColor('#ff890b' if node['id'] == active_id else '#647d96')))
+            circle.setPos(x, y)
             circle.setData(0, node['id'])
             circle.setToolTip(node['title'] or 'Без названия')
             label = self.scene().addText((node['title'] or 'Без названия')[:36])
             label.setPos(x+15, y-12)
             label.setData(0, node['id'])
             label.setToolTip(node['title'] or 'Без названия')
+            # Large graphs keep labels in tooltips to avoid thousands of text paints.
+            label.setVisible(len(nodes) <= 200 or node['id'] == active_id)
+            self._node_items[node['id']] = (circle, label)
+        if nodes and not old_positions:
+            self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
+            self._zoom = 1.0
         if nodes:
-            self.fitInView(self.scene().itemsBoundingRect().adjusted(-30,-30,30,30), Qt.KeepAspectRatio)
-        self._zoom = 1.0
+            self._pending_layout = (self._generation, list(positions),
+                [(e['source_id'], e['target_id']) for e in graph.get('edges', [])], positions.copy())
+            self._start_pending()
+
+    def _start_pending(self):
+        if self._workers or self._pending_layout is None:
+            return
+        worker = GraphLayoutWorker(*self._pending_layout, self)
+        self._pending_layout = None
+        self._workers.append(worker)
+        worker.ready.connect(self._layout_ready)
+        worker.finished.connect(self._worker_finished)
+        worker.start()
+
+    @Slot()
+    def _worker_finished(self):
+        worker = self.sender()
+        if worker in self._workers:
+            self._workers.remove(worker)
+        worker.deleteLater()
+        self._start_pending()
+
+    @Slot(int, object)
+    def _layout_ready(self, generation, positions):
+        if generation != self._generation:
+            return
+        self._targets = positions
+        if self.isVisible():
+            self._timer.start()
+
+    def _animate(self):
+        moving = False
+        for key, target in self._targets.items():
+            if key not in self._positions:
+                continue
+            x, y = self._positions[key]
+            dx, dy = target[0] - x, target[1] - y
+            if abs(dx) + abs(dy) > .2:
+                moving = True
+                x, y = x + dx * .18, y + dy * .18
+            else:
+                x, y = target
+            self._positions[key] = (x, y)
+            circle, label = self._node_items[key]
+            circle.setPos(x, y)
+            label.setPos(x + 15, y - 12)
+        for line, source, target in self._edge_items:
+            line.setLine(*self._positions[source], *self._positions[target])
+        if not moving:
+            self._timer.stop()
 
     def wheelEvent(self, event):
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15

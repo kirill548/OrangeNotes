@@ -272,6 +272,7 @@ class CompanionDialog(QDialog):
         self.linked_context_depth=QComboBox()
         for label, depth in [('Только прикреплённые',0),('Связи первого уровня',1),('Связи первого и второго уровня',2)]:
             self.linked_context_depth.addItem(label,depth)
+        self.linked_context_depth.addItem('Пусть помощник выберет связи','auto')
         self.linked_context_depth.setToolTip('Добавляет связанные заметки к прикреплённому контексту только в выбранном пространстве.')
         advanced.addWidget(self.linked_context_depth)
         advanced.addWidget(self.fuzzy_identifiers);layout.addWidget(self.advanced_panel);self.advanced_panel.hide()
@@ -621,7 +622,9 @@ class CompanionDialog(QDialog):
         request_config=dict(config or self.config)
         if kind=='ask':
             request_config['fuzzy_identifiers']=self.fuzzy_identifiers.isChecked()
-            request_config['linked_context_depth']=self.linked_context_depth.currentData()
+            graph_mode=self.linked_context_depth.currentData()
+            request_config['linked_context_depth']=2 if graph_mode=='auto' else graph_mode
+            request_config['autonomous_graph']=graph_mode=='auto'
         selected_mode=self._automatic_mode(query) if kind=='ask' else self.mode.currentData()
         self.mode.setCurrentIndex(self.mode.findData(selected_mode))
         thread=_RequestThread(identity,self.engine_factory,self.database_path,query,self.workspace_id,selected_mode,
