@@ -268,6 +268,12 @@ class CompanionDialog(QDialog):
         options.addWidget(self.include_archive);options.addWidget(self.include_trash);options.addStretch();advanced.addLayout(options)
         self.fuzzy_identifiers=QCheckBox('Искать похожие номера при опечатке');self.fuzzy_identifiers.setChecked(True)
         self.fuzzy_identifiers.setToolTip('Только если точных совпадений нет. Похожие номера показываются отдельно.')
+        advanced.addWidget(QLabel('Связанные заметки для ответа'))
+        self.linked_context_depth=QComboBox()
+        for label, depth in [('Только прикреплённые',0),('Связи первого уровня',1),('Связи первого и второго уровня',2)]:
+            self.linked_context_depth.addItem(label,depth)
+        self.linked_context_depth.setToolTip('Добавляет связанные заметки к прикреплённому контексту только в выбранном пространстве.')
+        advanced.addWidget(self.linked_context_depth)
         advanced.addWidget(self.fuzzy_identifiers);layout.addWidget(self.advanced_panel);self.advanced_panel.hide()
         self.search_options_button.toggled.connect(self.advanced_panel.setVisible)
         from app.widgets.note_context_pins import NoteContextPins
@@ -613,7 +619,9 @@ class CompanionDialog(QDialog):
         event=threading.Event();self._cancel_event=event
         self._pending_config=dict(config or self.config)
         request_config=dict(config or self.config)
-        if kind=='ask': request_config['fuzzy_identifiers']=self.fuzzy_identifiers.isChecked()
+        if kind=='ask':
+            request_config['fuzzy_identifiers']=self.fuzzy_identifiers.isChecked()
+            request_config['linked_context_depth']=self.linked_context_depth.currentData()
         selected_mode=self._automatic_mode(query) if kind=='ask' else self.mode.currentData()
         self.mode.setCurrentIndex(self.mode.findData(selected_mode))
         thread=_RequestThread(identity,self.engine_factory,self.database_path,query,self.workspace_id,selected_mode,
@@ -625,6 +633,7 @@ class CompanionDialog(QDialog):
         thread.finished.connect(self._request_finished, Qt.QueuedConnection)
         self.context_pins.setEnabled(False)
         self.include_archive.setEnabled(False);self.include_trash.setEnabled(False)
+        self.linked_context_depth.setEnabled(False)
         self.send_button.setEnabled(False);self.cancel_button.setEnabled(True);self.settings_button.setEnabled(False);self.new_chat_button.setEnabled(False)
         self.status.setText('Проверяю подключение…' if kind=='status' else 'Генерирует…')
         if kind=='ask':self._set_typing(True)
@@ -962,6 +971,7 @@ class CompanionDialog(QDialog):
         thread.deleteLater()
         self.context_pins.setEnabled(True)
         self.include_archive.setEnabled(True);self.include_trash.setEnabled(True)
+        self.linked_context_depth.setEnabled(True)
         self.send_button.setEnabled(True);self.cancel_button.setEnabled(False);self.settings_button.setEnabled(True);self.new_chat_button.setEnabled(True)
         if self._closing:
             self.close();self.shutdown_ready.emit()

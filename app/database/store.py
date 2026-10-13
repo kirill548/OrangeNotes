@@ -71,6 +71,9 @@ class Store:
         ''')
         self.db.commit()
         self._migrate_delivery()
+        from app.services.knowledge_graph import migrate
+        migrate(self.db)
+        self.db.commit()
 
     def _migrate_delivery(self):
         with self.db:
@@ -227,6 +230,10 @@ class Store:
         names = sorted(set(t.strip() for t in tags.split(',') if t.strip()))
         with self.db:
             previous=self.db.execute('SELECT title,body,workspace_id FROM notes WHERE id=?',(note_id,)).fetchone()
+            if previous and previous['title'] != title:
+                from app.services.knowledge_graph import rename_references, rewrite_wiki_titles
+                if rename_references(self.db,note_id,previous['title'],title,previous['workspace_id']):
+                    body = rewrite_wiki_titles(body,previous['title'],title)
             result = self.db.execute('UPDATE notes SET title=?,body=?,folder_id=?,favorite=?,updated_at=? WHERE id=?', (title,body,folder,int(favorite),datetime.now().isoformat(timespec='seconds'),note_id))
             if result.rowcount != 1:
                 raise ValueError('Заметка больше не существует')

@@ -40,7 +40,14 @@ def validate_backup(path):
         expected="CREATE TRIGGER reminder_note_visibility AFTER UPDATE OF archived,deleted ON notes WHEN OLD.archived != NEW.archived OR OLD.deleted != NEW.deleted BEGIN UPDATE reminders SET checked_through=strftime('%Y-%m-%dT%H:%M:%S','now','localtime') WHERE note_id=NEW.id; UPDATE reminder_events SET status='cancelled',lease_owner=NULL,lease_until=NULL WHERE reminder_id IN (SELECT id FROM reminders WHERE note_id=NEW.id) AND status='pending'; END"
         expected_utc=expected.replace(" WHERE note_id=NEW.id;", ",checked_through_utc=strftime('%Y-%m-%dT%H:%M:%S','now') WHERE note_id=NEW.id;",1)
         canonical=lambda value: ''.join(value.split()).rstrip(';')
-        if any(name!='reminder_note_visibility' or canonical(sql) not in {canonical(expected),canonical(expected_utc)} for name,sql in objects):
+        allowed = {'reminder_note_visibility': {canonical(expected), canonical(expected_utc)}}
+        for name, event in (
+            ('links_insert', 'INSERT'),
+            ('links_update', 'UPDATE OF title,body,workspace_id,deleted,archived'),
+            ('links_delete', 'DELETE'),
+        ):
+            allowed[name] = {canonical(f'CREATE TRIGGER {name} AFTER {event} ON notes BEGIN INSERT OR IGNORE INTO note_links_dirty VALUES(1); END')}
+        if any(canonical(sql) not in allowed.get(name, set()) for name,sql in objects):
             raise ValueError('Копия содержит неподдерживаемые SQL-объекты.')
         return {'notes': db.execute('SELECT COUNT(*) FROM notes').fetchone()[0], 'path': path}
 

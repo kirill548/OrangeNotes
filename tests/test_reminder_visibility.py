@@ -38,6 +38,7 @@ class ReminderVisibility(unittest.TestCase):
                 self.assertEqual(window.notes.count(), 1)
                 self.assertIn('Отложено до', window.reminder_label.text())
             finally:
+                window.stop_knowledge_workers()
                 window.clock.stop()
                 window.startup_tick.stop()
                 window.tray.hide()

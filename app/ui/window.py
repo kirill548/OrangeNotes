@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from pathlib import Path
 import sqlite3
-from PySide6.QtCore import Qt, QTimer, QSize, QSettings
+from PySide6.QtCore import Qt, QTimer, QSize, QSettings, QEvent
 from app.utils.shortcuts import shortcut as native_shortcut
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap, QTextCharFormat, QTextCursor, QTextDocument, QShortcut, QKeySequence
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QListWidget, QListWidgetItem, QLineEdit, QTextEdit, QLabel, QPushButton, QComboBox, QCheckBox, QToolBar, QSystemTrayIcon, QMenu, QMessageBox, QInputDialog, QDialog, QFileDialog)
@@ -15,6 +15,13 @@ from app.utils.timezones import utc_stamp, event_due_local, event_scheduled_loca
 
 
 class Window(QMainWindow):
+    def event(self, event):
+        # deleteLater() may bypass closeEvent (tests, parent teardown).
+        # Join child workers before Qt destroys their QThread wrappers.
+        if event.type() == QEvent.Type.DeferredDelete and hasattr(self, 'knowledge_indexer'):
+            self.stop_knowledge_workers()
+        return super().event(event)
+
     def __init__(self, store, background_managed=False):
         super().__init__()
         from app.ui.localization import install_russian_dialogs
@@ -55,6 +62,26 @@ class Window(QMainWindow):
         self.icon = application_icon()
         self.setWindowIcon(self.icon)
         build(self)
+        from app.widgets.knowledge_graph import BacklinksPanel, WikiLinkCompleter
+        self.backlinks_panel = BacklinksPanel(self.editor)
+        self.editor.layout().addWidget(self.backlinks_panel)
+        self.backlinks_panel.hide()
+        self.backlinks_panel.note_requested.connect(self.open_linked_note)
+        self.wiki_completer = WikiLinkCompleter(self.body)
+        self.wiki_completer.note_requested.connect(self.open_linked_note)
+        self._knowledge_worker = None
+        self._knowledge_pending = False
+        self._knowledge_stopping = False
+        self._graph_dialog = None
+        self._knowledge_workspace = None
+        self._knowledge_note = None
+        graph_button = QPushButton('Граф заметок')
+        graph_button.clicked.connect(self.show_knowledge_graph)
+        self.statusBar().addPermanentWidget(graph_button)
+        from app.services.knowledge_graph import KnowledgeGraphIndexer
+        self.knowledge_indexer = KnowledgeGraphIndexer(store.path)
+        self.knowledge_indexer.start()
+        QApplication.instance().aboutToQuit.connect(self.stop_knowledge_workers)
         from app.widgets.companion_mascot import MiniCompanion
         self._mini_companion=MiniCompanion(self.companion_dock)
         self._mini_companion.activated.connect(self.show_companion)
@@ -399,6 +426,87 @@ class Window(QMainWindow):
         self.editor_actions['restore'].setText('Восстановить')
         self.loading = False
 
+        self.refresh_knowledge()
+
+    def refresh_knowledge(self):
+        if self._knowledge_stopping:
+            return
+        from app.widgets.knowledge_graph import KnowledgeWorker
+        workspace = self.note_workspace.currentData()
+        if workspace is None:
+            return
+        if workspace != self._knowledge_workspace or self.current != self._knowledge_note:
+            self.wiki_completer.set_notes([])
+            self.backlinks_panel.hide()
+            if self._graph_dialog:
+                self._graph_dialog.view.set_graph({'nodes': [], 'edges': []})
+        self._knowledge_workspace = workspace
+        self._knowledge_note = self.current
+        if self._knowledge_worker is not None:
+            self._knowledge_pending = True
+            return
+        worker = KnowledgeWorker(self.store.path, self.current, workspace, self)
+        self._knowledge_worker = worker
+        worker.ready.connect(self._knowledge_ready)
+        worker.failed.connect(lambda message: self.statusBar().showMessage(message, 5000))
+        worker.finished.connect(self._knowledge_finished)
+        worker.start()
+
+    def _knowledge_ready(self, data):
+        if data['note_id'] != self.current or data['workspace_id'] != self.note_workspace.currentData():
+            return
+        self.backlinks_panel.update_links(data['backlinks'], data['unlinked_mentions'])
+        self.backlinks_panel.setVisible(bool(self.current))
+        self.wiki_completer.set_notes(data['graph']['nodes'])
+        if self._graph_dialog:
+            self._graph_dialog.view.set_graph(data['graph'], self.current)
+
+    def _knowledge_finished(self):
+        worker = self._knowledge_worker
+        self._knowledge_worker = None
+        if worker:
+            worker.deleteLater()
+        if self._knowledge_pending and not self._knowledge_stopping:
+            self._knowledge_pending = False
+            self.refresh_knowledge()
+
+    def stop_knowledge_workers(self):
+        self._knowledge_stopping = True
+        self._knowledge_pending = False
+        self.knowledge_indexer.stop()
+        if self._knowledge_worker:
+            self._knowledge_worker.wait()
+
+    def open_linked_note(self, note_id):
+        rows = self.store.rows('SELECT workspace_id,deleted FROM notes WHERE id=?', (note_id,))
+        if not rows or rows[0]['deleted'] or rows[0]['workspace_id'] != self.note_workspace.currentData():
+            return
+        if not self.save():
+            return
+        self.load_note(note_id)
+        for index in range(self.notes.count()):
+            item = self.notes.item(index)
+            if item.data(Qt.UserRole) == note_id:
+                self.notes.setCurrentItem(item)
+                break
+
+    def show_knowledge_graph(self):
+        from app.widgets.knowledge_graph import GraphView
+        if self._graph_dialog is None:
+            dialog = QDialog(self)
+            dialog.setWindowTitle('Граф заметок')
+            dialog.setWindowIcon(self.icon)
+            dialog.resize(850, 600)
+            layout = QVBoxLayout(dialog)
+            layout.addWidget(QLabel('Нажмите на заметку, чтобы открыть. Колесо — масштаб, перетаскивание — перемещение.'))
+            dialog.view = GraphView(dialog)
+            dialog.view.note_requested.connect(self.open_linked_note)
+            layout.addWidget(dialog.view)
+            self._graph_dialog = dialog
+        self._graph_dialog.show()
+        self._graph_dialog.raise_()
+        self.refresh_knowledge()
+
     def dirty(self,*args):
         if not self.loading and self.current:
             self._dirty = True
@@ -420,6 +528,7 @@ class Window(QMainWindow):
         self._save_error_reported=False
         self._dirty = False
         self.saved.setText('Сохранено · '+datetime.now().strftime('%H:%M:%S'))
+        self.refresh_knowledge()
         self._mini_companion.notify_event('Изменения заметки сохранены.','saved')
         selected_icon=self.store.rows('SELECT icon_name FROM notes WHERE id=?',(self.current,))[0][0]
         symbol,color,_=note_symbol(self.title.text(),selected_icon)
@@ -696,6 +805,8 @@ class Window(QMainWindow):
             self.load_note(self.current)
         finally:memory.close()
 
+        self.refresh_knowledge()
+
     def toggle_my_day(self):
         if not self.current or not self.close_reminder_panel() or not self.save(refresh=False):
             return
@@ -837,6 +948,7 @@ class Window(QMainWindow):
             QMessageBox.warning(self,'Дождитесь помощника','Завершите или отмените запрос ИИ.');return False
         if not self.close_reminder_panel() or not self.save(refresh=False):return False
         self.clock.stop();self.debounce.stop();self.startup_tick.stop()
+        self.stop_knowledge_workers()
         try:
             with pause_database_worker(self.store.path):
                 for attribute in ('_day_dialog','_history_dialog','_status_dialog','_companion_dialog'):
@@ -860,6 +972,9 @@ class Window(QMainWindow):
             QMessageBox.warning(self,'Восстановление не завершено',str(error))
             return False
         finally:
+            self._knowledge_stopping = False
+            self.knowledge_indexer.start()
+            self.refresh_knowledge()
             self.clock.start()
 
     def offer_undo(self,note_id,archived,deleted,message):
@@ -1266,6 +1381,7 @@ class Window(QMainWindow):
             self.preferences.setValue('geometry',self.saveGeometry())
             self.preferences.setValue('splitter',self.splitter.saveState())
         self.tray.hide()
+        self.stop_knowledge_workers()
         QApplication.instance().quit()
 
     def closeEvent(self,event):
@@ -1291,4 +1407,5 @@ class Window(QMainWindow):
                 self.quit()
                 return
             self.ai_hardware_monitor.stop()
+            self.stop_knowledge_workers()
             event.accept()

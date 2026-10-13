@@ -65,6 +65,73 @@ class CompanionEngine:
                 runtime_profile=config.get('runtime_profile','default'))
         return client
 
+    def execute_graph_tool(self, call, *, workspace_id, authorized_note_ids,
+                           include_archive=False, include_trash=False, query=''):
+        """Execute a validated read capability, never model-selected workspace access.
+
+        The UI supplies explicit seed IDs. A model may query only these seeds;
+        it cannot turn a guessed global note ID into an access capability.
+        """
+        from app.services.tool_schema import validate_tool_call, ToolValidationError
+        from app.services.note_context import validate_attachment_ids
+        from app.services.knowledge_graph import KnowledgeGraph
+        call = validate_tool_call(call)
+        if call['name'] not in ('get_linked_notes', 'get_backlinks'):
+            raise ToolValidationError('Инструмент не предназначен для чтения связей.')
+        permitted = validate_attachment_ids(authorized_note_ids)
+        identity = call['arguments']['note_id']
+        if identity not in permitted:
+            raise ToolValidationError('Заметка не выбрана для контекста.')
+        memory = MemoryStore(self.path)
+        try:
+            memory.attachment_sources([identity], workspace_id=workspace_id,
+                include_archive=include_archive, include_trash=include_trash)
+            graph = KnowledgeGraph(self.path)
+            try:
+                method = graph.linked_notes if call['name'] == 'get_linked_notes' else graph.backlinks
+                rows = method(identity, workspace_id=workspace_id,
+                    include_archive=include_archive, include_trash=include_trash)
+                ids = list(dict.fromkeys(row['id'] for row in rows))[:8]
+                sources = memory.attachment_sources(ids, workspace_id=workspace_id,
+                    include_archive=include_archive, include_trash=include_trash, query=query)
+                return [dict(source, note_id=source.get('note_id', source.get('id')),
+                    source_kind='linked', relation=call['name']) for source in sources]
+            finally:
+                graph.close()
+        finally:
+            memory.close()
+
+    def _linked_context(self, attached_note_ids, depth, workspace_id,
+                        include_archive, include_trash, query, cancel_event):
+        if type(depth) is not int or depth not in (0, 1, 2):
+            raise ValueError('Глубина связей должна быть 0, 1 или 2.')
+        if not depth or not attached_note_ids:
+            return []
+        visited = set(attached_note_ids)
+        frontier = list(attached_note_ids)
+        sources = []
+        # Eight additional sources maximum, independent of graph density/cycles.
+        for level in range(1, depth + 1):
+            following = []
+            for identity in frontier:
+                for name in ('get_linked_notes', 'get_backlinks'):
+                    if cancel_event.is_set():
+                        raise LocalAICancelled('Запрос отменён.')
+                    values = self.execute_graph_tool({'name': name, 'arguments': {'note_id': identity}},
+                        workspace_id=workspace_id, authorized_note_ids=[identity],
+                        include_archive=include_archive, include_trash=include_trash, query=query)
+                    for source in values:
+                        note_id = source['note_id']
+                        if note_id in visited:
+                            continue
+                        visited.add(note_id)
+                        following.append(note_id)
+                        sources.append(dict(source, link_depth=level))
+                        if len(sources) >= 8:
+                            return sources
+            frontier = following
+        return sources
+
     def status(self,config=None):
         config=config or {}
         client=self._client(config)
@@ -93,11 +160,17 @@ class CompanionEngine:
         if conversation is not None:return conversation
         intent=intent_response(query,workspace_id,history)
         if intent is not None:return intent
+        depth=config.get('linked_context_depth', 0)
+        if type(depth) is not int or depth not in (0, 1, 2):
+            raise ValueError('Глубина связей должна быть 0, 1 или 2.')
         memory=MemoryStore(self.path)
         attachments=[]
+        linked_sources=[]
         try:
             attachments=memory.attachment_sources(attached_note_ids,workspace_id=workspace_id,
                 include_archive=include_archive,include_trash=include_trash,query=query) if attached_note_ids else []
+            linked_sources=self._linked_context(attached_note_ids,depth,workspace_id,
+                include_archive,include_trash,query,cancel_event)
             if cancel_event.is_set():raise LocalAICancelled('Запрос отменён.')
             client=None
             availability={}
@@ -122,12 +195,14 @@ class CompanionEngine:
             # evidence. Such matches remain search suggestions, never LLM data.
             if attachments:
                 sources=[source for source in sources if source.get('retrieval')!='fuzzy_identifier']
-            sources=merge_sources(attachments,sources)
+            linked_ids={source['note_id'] for source in linked_sources}
+            sources=merge_sources(attachments,linked_sources+[source for source in sources
+                if source.get('note_id',source.get('id')) not in linked_ids])
             # Source records are explicitly scoped and numbered by the application.
             for source in sources:
                 source['note_id']=source.get('note_id',source.get('id'))
                 source['excerpt']=source.get('chunk',source.get('body',''))[:1600]
-            for source in attachments:
+            for source in attachments+linked_sources:
                 if memory.resolve(source.get('note_id',source.get('id')),source['revision'],workspace_id=workspace_id,include_archive=include_archive,include_trash=include_trash) is None:
                     raise ValueError('Прикреплённая заметка изменилась или недоступна. Повторите запрос.')
             if sources and sources[0].get('retrieval')=='fuzzy_identifier':
@@ -232,7 +307,11 @@ class CompanionEngine:
             # Resolve attachment snapshots again before publishing fallback data.
             attachments=memory.attachment_sources(attached_note_ids,workspace_id=workspace_id,
                 include_archive=include_archive,include_trash=include_trash,query=query) if attached_note_ids else []
-            found=merge_sources(attachments,found)
+            linked_sources=self._linked_context(attached_note_ids,depth,workspace_id,
+                include_archive,include_trash,query,cancel_event)
+            linked_ids={source['note_id'] for source in linked_sources}
+            found=merge_sources(attachments,linked_sources+[source for source in found
+                if source.get('note_id',source.get('id')) not in linked_ids])
             result=self._fallback(found,str(error),mode)
             if found and found[0].get('retrieval')=='fuzzy_identifier':
                 result.update(text='Точного совпадения нет. Найдены только похожие идентификаторы: проверьте их вручную.\n\n'+result['text'],status='fuzzy_suggestions',engine_label='Похожие идентификаторы · проверьте')

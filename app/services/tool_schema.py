@@ -30,12 +30,16 @@ TOOL_SCHEMAS = {
                      'properties': {'query': {'type': 'string', 'minLength': 1, 'maxLength': 1000},
                                     'limit': {'type': 'integer', 'minimum': 1, 'maximum': 50}}},
 }
+for _name in ('get_linked_notes', 'get_backlinks'):
+    TOOL_SCHEMAS[_name] = {'type': 'object', 'additionalProperties': False,
+        'required': ['note_id'], 'properties': {'note_id': {'type': 'integer', 'minimum': 1, 'maximum': 9223372036854775807}}}
 TOOL_SCHEMAS['create_reminder']['properties']['date']['type'] = 'string'
 TOOL_SCHEMAS['create_reminder']['properties']['time']['type'] = 'string'
 for _field in ('date', 'time', 'recurrence'):
     TOOL_SCHEMAS['create_task']['properties'][_field] = {'type': 'null'}
 TOOL_DEFINITIONS = [{'type': 'function', 'function': {
     'name': name, 'description': ('Search within the current workspace.' if name == 'search_notes'
+                                else 'Read linked notes within the current authorized workspace.' if name in ('get_linked_notes', 'get_backlinks')
                                 else 'Prepare a draft; saving requires user confirmation.'),
     'parameters': deepcopy(schema)}} for name, schema in TOOL_SCHEMAS.items()]
 MODEL_RESPONSE_SCHEMA = {
@@ -96,7 +100,7 @@ def validate_tool_call(call):
     _validate(call, envelope)
     name, args = call['name'], call['arguments']
     _validate(args, TOOL_SCHEMAS[name], '$.arguments')
-    if name != 'search_notes':
+    if name in ('create_task', 'create_reminder'):
         from app.utils.timezones import zone
         try:
             tz = args['timezone']
