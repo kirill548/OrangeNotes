@@ -5,7 +5,7 @@ import time
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QCoreApplication, QEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from app.database.store import Store
@@ -53,4 +53,10 @@ class CompanionWindowFlowTests(unittest.TestCase):
                 self.assertTrue(window.companion_dock.isVisible())
             finally:
                 if window._companion_dialog:window._companion_dialog.close()
-                window.quitting=True;window.tray.hide();window.close();window.deleteLater();app.processEvents();store.db.close()
+                # A close can be deferred while saving. Explicitly stop DB
+                # readers before releasing the fixture's SQLite owner, then
+                # flush deferred deletion (processEvents alone does not do it).
+                window.stop_knowledge_workers()
+                window.quitting=True;window.tray.hide();window.close();window.deleteLater()
+                QCoreApplication.sendPostedEvents(None,QEvent.DeferredDelete)
+                app.processEvents();store.db.close()
