@@ -24,7 +24,7 @@ jobs:
           - os: macos-15-intel
             architecture: x64
             qt_platform: cocoa
-          - os: macos-latest
+          - os: macos-15
             architecture: arm64
             qt_platform: cocoa
     runs-on: ${{ matrix.os }}
