@@ -98,6 +98,9 @@ class GraphView(QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setScene(QGraphicsScene(self))
+        self.scene().setItemIndexMethod(QGraphicsScene.NoIndex)
+        self._active_id = None
+        self._titles = {}
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self.setAccessibleName('Граф знаний: колесо — масштаб, перетаскивание — перемещение')
         self._zoom = 1.0
@@ -153,9 +156,23 @@ class GraphView(QGraphicsView):
                      tuple((e['source_id'], e['target_id']) for e in graph.get('edges', [])),
                      graph.get('workspace_id'))
         if nodes and signature == self._signature:
-            for key, (circle, label) in self._node_items.items():
+            for key in {self._active_id, active_id}:
+                if key not in self._node_items:
+                    continue
+                circle, label = self._node_items[key]
                 circle.setBrush(QBrush(QColor('#ff890b' if key == active_id else '#647d96')))
-                label.setVisible(len(nodes) <= 200 or key == active_id)
+                if len(nodes) > 200:
+                    if label is not None:
+                        self.scene().removeItem(label)
+                        label = None
+                    if key == active_id:
+                        label = self.scene().addText(self._titles[key][:36])
+                        x, y = self._positions[key]
+                        label.setPos(x + 15, y - 12)
+                        label.setData(0, key)
+                        label.setToolTip(self._titles[key])
+                    self._node_items[key] = (circle, label)
+            self._active_id = active_id
             return
         self._signature = signature
         self._generation += 1
@@ -189,23 +206,31 @@ class GraphView(QGraphicsView):
         self._targets = {}
         self._node_items = {}
         self._edge_items = []
+        self._active_id = active_id
+        self._titles = {node['id']: node['title'] or 'Без названия' for node in nodes}
+        edge_pen = QPen(QColor('#b3b9c2'))
+        node_pen = QPen(Qt.NoPen)
+        normal_brush = QBrush(QColor('#647d96'))
+        active_brush = QBrush(QColor('#ff890b'))
         for edge in graph.get('edges', []):
             source, target = positions.get(edge['source_id']), positions.get(edge['target_id'])
             if source and target:
-                line = self.scene().addLine(*source, *target, QPen(QColor('#b3b9c2')))
+                line = self.scene().addLine(*source, *target, edge_pen)
                 self._edge_items.append((line, edge['source_id'], edge['target_id']))
         for node in nodes:
             x, y = positions[node['id']]
-            circle = self.scene().addEllipse(-12, -12, 24, 24, QPen(Qt.NoPen), QBrush(QColor('#ff890b' if node['id'] == active_id else '#647d96')))
+            circle = self.scene().addEllipse(-12, -12, 24, 24, node_pen, active_brush if node['id'] == active_id else normal_brush)
             circle.setPos(x, y)
             circle.setData(0, node['id'])
             circle.setToolTip(node['title'] or 'Без названия')
-            label = self.scene().addText((node['title'] or 'Без названия')[:36])
-            label.setPos(x+15, y-12)
-            label.setData(0, node['id'])
-            label.setToolTip(node['title'] or 'Без названия')
-            # Large graphs keep labels in tooltips to avoid thousands of text paints.
-            label.setVisible(len(nodes) <= 200 or node['id'] == active_id)
+            label = None
+            # Hidden QTextDocuments still cost allocation and layout. Dense
+            # graphs create only the active label; other titles remain tooltips.
+            if len(nodes) <= 200 or node['id'] == active_id:
+                label = self.scene().addText(self._titles[node['id']][:36])
+                label.setPos(x+15, y-12)
+                label.setData(0, node['id'])
+                label.setToolTip(self._titles[node['id']])
             self._node_items[node['id']] = (circle, label)
         if nodes and not self._has_fitted:
             # The scene includes padding for future motion. Fit visible content,
@@ -259,7 +284,8 @@ class GraphView(QGraphicsView):
             self._positions[key] = (x, y)
             circle, label = self._node_items[key]
             circle.setPos(x, y)
-            label.setPos(x + 15, y - 12)
+            if label is not None:
+                label.setPos(x + 15, y - 12)
         for line, source, target in self._edge_items:
             line.setLine(*self._positions[source], *self._positions[target])
         if not moving:

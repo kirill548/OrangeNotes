@@ -271,3 +271,25 @@ def test_repeated_dense_lifecycle_resources_are_bounded(app):
               'scope': 'Bounded 30-cycle test; not proof of absence of all native leaks.'}))
     finally:
         tracemalloc.stop()
+
+
+def test_dense_labels_are_allocated_only_for_active_note(app):
+    view = GraphView()
+    graph = dense_graph()
+    try:
+        view.set_graph(graph, 1)
+        generation = view._generation
+        assert sum(label is not None for _, label in view._node_items.values()) == 1
+        view.set_graph(graph, 1500)
+        assert view._generation == generation
+        assert view._node_items[1][1] is None
+        assert view._node_items[1500][1].data(0) == 1500
+        assert sum(label is not None for _, label in view._node_items.values()) == 1
+        view.set_graph(graph, None)
+        assert all(label is None for _, label in view._node_items.values())
+        view.set_graph(dense_graph(5), 1)
+        assert all(label is not None for _, label in view._node_items.values())
+    finally:
+        view.close()
+        view.deleteLater()
+        drain(app)
