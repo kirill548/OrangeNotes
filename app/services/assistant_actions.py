@@ -211,7 +211,7 @@ def intent_response(query, workspace_id, history=None, now=None):
     if re.fullmatch(r'(спасибо|благодарю)[!.,\s]*', normalized):
         return _reply('Пожалуйста! Что ещё нужно записать или разобрать?')
     if re.fullmatch(r'(что (?:ты )?умеешь|как (?:тебя|тобой|пользоваться приложением)|помощь|help|как пользоваться)[?!.,\s]*', normalized):
-        return _reply('Создавайте заметки кнопкой + или Ctrl+N — текст сохраняется автоматически. Папку назначает отдельная кнопка + рядом с её названием. Напоминания настраиваются под заметкой. Мне можно написать «найди запись о поездке» или «создай заметку купить лекарства завтра в 18:30». Для свободного разговора подключите локальную модель через «Подключение ИИ».')
+        return _reply('Создавайте заметки кнопкой + или Ctrl+N — текст сохраняется автоматически. Папку назначает отдельная кнопка + рядом с её названием. Напоминания настраиваются под заметкой. Мне можно написать «найди запись о поездке» или «создай заметку купить лекарства завтра в 18:30». Для свободного разговора подключите локальную модель через «Настройки ИИ».')
     creation = _creation_match(text)
     combined = text
     if not creation:
@@ -219,7 +219,7 @@ def intent_response(query, workspace_id, history=None, now=None):
         scoped = [t for t in (history or []) if isinstance(t, dict) and t.get('workspace_id') == workspace_id]
         if len(scoped) >= 2 and scoped[-1].get('role') == 'assistant' and any(marker in scoped[-1].get('content', scoped[-1].get('text', '')) for marker in ('Уточните', 'Подготовил черновик')):
             if re.fullmatch(r'(?:не понял|не поняла|не понимаю)[.!?]*', normalized):
-                return _reply('Уточните время уведомления — когда напомнить: например «напомнить мне надо в 12:00». Время самого события можно оставить в тексте заметки. Сначала покажу черновик, затем его нужно подтвердить кнопкой «Создать напоминание».')
+                return _reply('Уточните время уведомления — когда напомнить: например «напомнить мне надо в 12:00». Время самого события можно оставить в тексте заметки. Сначала покажу черновик, затем его нужно подтвердить кнопкой «Сохранить в заметки».')
             for previous in reversed(scoped[:-1]):
                 value = previous.get('content', previous.get('text', ''))
                 value = _normalize_schedule_request(value)
@@ -370,7 +370,7 @@ def intent_response(query, workspace_id, history=None, now=None):
     tool = {'name': 'create_reminder' if stamp else 'create_task', 'arguments': {'title': draft['title'], 'date': stamp.date().isoformat() if stamp else None, 'time': stamp.strftime('%H:%M') if stamp else None, 'recurrence': draft['recurrence'], 'timezone': draft['timezone_id']}}
     validate_tool_call(tool)
     preview = ' Уведомление: ' + stamp.strftime('%d.%m.%Y в %H:%M') + '.' if stamp else ''
-    button = 'Создать напоминание' if stamp else 'Создать заметку'
+    button = 'Сохранить в заметки'
     return _reply('Подготовил черновик.' + preview + ' Проверьте текст и нажмите «' + button + '». До подтверждения ничего не сохранено.', action_draft=draft, tool_calls=[tool])
 
 

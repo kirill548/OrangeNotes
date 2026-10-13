@@ -102,7 +102,7 @@ class ModelSetupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=self.app_root / 'ai') as tmp:
             root = Path(tmp); exe = root/'runtime/ollama/ollama.exe'; exe.parent.mkdir(parents=True); exe.touch()
             models = root/'runtime/models'; models.mkdir()
-            with patch.object(manager.client, 'probe', return_value={'available': False}), patch('app.services.ai_onboarding.runtime_candidates', return_value=[(exe, models)]), patch('app.services.ai_onboarding.ensure_runtime', side_effect=PermissionError()), self.assertRaisesRegex(LocalAIError, 'правом записи'):
+            with patch.object(manager.client, 'probe', return_value={'available': False}), patch('app.services.ai_onboarding.runtime_candidates', return_value=[(exe, models)]), patch('app.services.ai_onboarding.ensure_runtime', side_effect=PermissionError()), self.assertRaisesRegex(LocalAIError, 'папку приложения.*право записи'):
                 manager.connect_pack(root)
 
     def test_pull_cannot_report_success_while_model_is_still_missing(self):

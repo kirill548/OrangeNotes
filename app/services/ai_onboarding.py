@@ -155,7 +155,7 @@ class ModelManager:
         try:
             started = ensure_runtime(self.client, cancel_event, runtime_root=root)
         except OSError as error:
-            raise LocalAIError('Нет доступа к ИИ-комплекту. Перенесите его в папку пользователя с правом записи.') from error
+            raise LocalAIError('Нет доступа к ИИ-комплекту. Перенесите папку приложения в каталог, где у Вас есть право записи.') from error
         if not started:
             self.client._check_cancel(cancel_event)
             raise LocalAIError('Не удалось запустить ИИ-комплект. Проверьте права папки и совместимость ОС.')

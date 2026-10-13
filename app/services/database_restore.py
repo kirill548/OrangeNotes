@@ -34,7 +34,7 @@ def validate_backup(path):
         for table, columns in REQUIRED.items():
             object_type = db.execute('SELECT type FROM sqlite_master WHERE name=?',(table,)).fetchone()
             if object_type != ('table',) or not columns <= {r[1] for r in db.execute(f'PRAGMA table_info({table})')}:
-                raise ValueError('Это не поддерживаемая база Orange Notes: '+table)
+                raise ValueError('Эта база не поддерживается Orange Notes: '+table)
         # Application backups do not contain executable database objects.
         objects=db.execute("SELECT name,sql FROM sqlite_master WHERE type IN ('trigger','view')").fetchall()
         expected="CREATE TRIGGER reminder_note_visibility AFTER UPDATE OF archived,deleted ON notes WHEN OLD.archived != NEW.archived OR OLD.deleted != NEW.deleted BEGIN UPDATE reminders SET checked_through=strftime('%Y-%m-%dT%H:%M:%S','now','localtime') WHERE note_id=NEW.id; UPDATE reminder_events SET status='cancelled',lease_owner=NULL,lease_until=NULL WHERE reminder_id IN (SELECT id FROM reminders WHERE note_id=NEW.id) AND status='pending'; END"

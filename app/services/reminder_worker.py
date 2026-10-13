@@ -76,7 +76,7 @@ def notification_callback(store, transport, on_delivery=None):
     def notify(title, note_id, event_id):
         event=store.notification_event(event_id)
         if not event:
-            raise OSError('Событие напоминания больше не доступно.')
+            raise OSError('Событие напоминания больше недоступно.')
         # Scheduler stores a plaintext snapshot; parsing it again would remove
         # literal angle brackets that the user typed into the note.
         body=str(event.get('body') or '')
