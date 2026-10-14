@@ -35,7 +35,7 @@
 | v0.1.3 | ✅ Завершён | NLP-напоминания, опечатки, UI-полировка; CI Windows/Linux/macOS без ошибок, с платформенными пропусками |
 | v0.1.4 | ✅ Выпущено | Tool Calling, простой чат, портативный Whisper, выбор микрофона и нормализация времени |
 | v0.1.5 | ✅ Выпущено | Wiki-ссылки, обратные ссылки, силовой граф, инкрементальный индекс и автономный обход ИИ |
-| v0.2.0 | 🚀 Перспектива | iOS/Android, локальная P2P-синхронизация с E2EE |
+| v0.2.0 | 🔄 В разработке | Архитектура P2P и мобильного клиента; прототипы UUID и CRDT |
 
 Граф заметок и правила изоляции: [KNOWLEDGE_GRAPH_v0.1.5.md](docs/KNOWLEDGE_GRAPH_v0.1.5.md).
 Описание релиза: [изменения v0.1.5](RELEASE_NOTES_v0.1.5.md).
@@ -72,6 +72,9 @@ python tools/run_regression.py
 - [Изменения v0.1.5 и результаты проверки](RELEASE_NOTES_v0.1.5.md)
 - [История v0.1.4](RELEASE_NOTES_v0.1.4.md)
 - [История v0.1.3](RELEASE_NOTES_v0.1.3.md)
+- [Вычитка текстов v0.1.5](docs/TEXT_UX_AUDIT_v0.1.5.md)
+- [Архитектура P2P-синхронизации — прототип v0.2.0](docs/P2P_SYNC_ARCHITECTURE.md)
+- [Спецификация мобильного клиента](docs/MOBILE_CLIENT_SPEC.md)
 - [Текстовый и UX-аудит v0.1.4](docs/V014_TEXT_UX_AUDIT.md)
 - [Нативные проверки уведомлений](tools/NATIVE_NOTIFICATION_TESTS.md)
 - [Сообщить о проблеме или предложить функцию](https://github.com/kirill548/OrangeNotes/issues)
