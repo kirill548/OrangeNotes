@@ -1,0 +1,3 @@
+-r requirements-network.txt
+# Certificate fixtures for real mutual-TLS integration tests.
+cryptography==50.0.2

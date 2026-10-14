@@ -1,0 +1,2 @@
+# Optional P2P/mDNS runtime; no service starts on installation.
+zeroconf==0.151.5

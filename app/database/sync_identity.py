@@ -68,6 +68,13 @@ def _validate_metadata(db):
             reference.execute(f'CREATE TABLE {table}(id INTEGER PRIMARY KEY)')
         reference.execute('CREATE TABLE reminders(id INTEGER PRIMARY KEY, note_id INTEGER)')
         _initialize(reference)
+        # Phase-2 tables have their own exact, versioned ownership boundary.
+        # Unrecognized sync objects still fail the full schema comparison.
+        from app.database.p2p_store import SCHEMA
+        phase2_names = {statement.split('(', 1)[0].split()[2] for statement in SCHEMA}
+        if phase2_names & set(objects(db)):
+            for statement in SCHEMA:
+                reference.execute(statement)
         if objects(db) != objects(reference):
             raise ValueError('Incomplete or altered sync identity schema; explicit recovery required')
 
@@ -155,6 +162,8 @@ def export_legacy_copy(source, destination):
     and a full snapshot, never resuming the former device's synchronization log.
     """
     def strip_metadata(db):
+        if db.execute("SELECT 1 FROM sqlite_master WHERE name GLOB 'sync_*' LIMIT 1").fetchone():
+            _validate_metadata(db)
         db.execute('BEGIN IMMEDIATE')
         try:
             trigger_names = [f'sync_{entity}_{operation}' for entity in _ENTITIES
@@ -162,6 +171,11 @@ def export_legacy_copy(source, destination):
             trigger_names += ['sync_workspace_insert', 'sync_workspace_update']
             for name in trigger_names:
                 db.execute(f'DROP TRIGGER IF EXISTS {name}')
+            from app.database.p2p_store import SCHEMA
+            # Referencing ACK table must be removed before its outbox parent.
+            phase2_tables = [statement.split('(', 1)[0].split()[2] for statement in SCHEMA]
+            for name in reversed(phase2_tables):
+                db.execute(f'DROP TABLE IF EXISTS {name}')
             for name in ('sync_identities', 'sync_workspaces', 'sync_device'):
                 db.execute(f'DROP TABLE IF EXISTS {name}')
             db.commit()

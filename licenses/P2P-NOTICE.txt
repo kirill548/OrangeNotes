@@ -1,0 +1,15 @@
+Optional P2P discovery dependency (requirements-network.txt)
+
+python-zeroconf 0.151.5
+Copyright: the python-zeroconf authors.
+License: LGPL-2.1-or-later; complete upstream COPYING is in
+LGPL-2.1-zeroconf.txt. Source: https://github.com/python-zeroconf/python-zeroconf
+The dependency is unmodified and optional; installing it does not start discovery.
+
+ifaddr 0.2.0 (transitive dependency)
+License: MIT. Source: https://github.com/ifaddr/ifaddr
+The installed distribution retains its upstream license metadata.
+
+cryptography is used only for certificate fixtures in requirements-network-test.txt;
+it is not required by the standard-library TLS runtime. Its upstream distribution
+retains Apache-2.0/BSD-3-Clause license notices.
