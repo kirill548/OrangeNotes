@@ -1,0 +1,101 @@
+name: Mobile analysis and native builds
+on:
+  push:
+    branches: [v0.2.0-dev]
+    paths: ['orange_notes_mobile/**', 'tools/mobile_protocol_fixtures.py', 'app/services/p2p_sync.py', '.github/workflows/mobile-ci.yml']
+  pull_request:
+    paths: ['orange_notes_mobile/**', 'tools/mobile_protocol_fixtures.py', 'app/services/p2p_sync.py', '.github/workflows/mobile-ci.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  FLUTTER_VERSION: '3.47.7'
+jobs:
+  analyze-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: orange_notes_mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify desktop reference fixtures
+        working-directory: .
+        run: python tools/mobile_protocol_fixtures.py --check
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze --fatal-infos
+      - run: flutter test --coverage --reporter expanded
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobile-coverage
+          path: orange_notes_mobile/coverage/lcov.info
+  android:
+    needs: analyze-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: orange_notes_mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build apk --debug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OrangeNotes-Android-debug
+          path: orange_notes_mobile/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+  ios:
+    needs: analyze-test
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: orange_notes_mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Record native toolchain
+        run: xcodebuild -version && flutter --version
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign
+      - name: Package unsigned IPA for local re-signing
+        run: |
+          mkdir -p build/unsigned/Payload
+          ditto build/ios/iphoneos/Runner.app build/unsigned/Payload/Runner.app
+          cd build/unsigned
+          /usr/bin/zip -qry OrangeNotes-iOS-unsigned.ipa Payload
+          shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OrangeNotes-iOS-unsigned-requires-resigning
+          path: |
+            orange_notes_mobile/build/unsigned/OrangeNotes-iOS-unsigned.ipa
+            orange_notes_mobile/build/unsigned/SHA256SUMS.txt
+          if-no-files-found: error

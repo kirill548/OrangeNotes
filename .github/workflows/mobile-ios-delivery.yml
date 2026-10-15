@@ -1,0 +1,132 @@
+name: iOS signed delivery (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      delivery:
+        description: Signed development IPA or App Store Connect TestFlight upload
+        type: choice
+        options: [development, testflight]
+        required: true
+      build_number:
+        description: Unique increasing CFBundleVersion
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: ios-signed-delivery
+  cancel-in-progress: false
+jobs:
+  signed:
+    runs-on: macos-latest
+    environment: ios-delivery
+    timeout-minutes: 50
+    defaults:
+      run:
+        working-directory: orange_notes_mobile
+    env:
+      FLUTTER_VERSION: '3.47.7'
+      DELIVERY: ${{ inputs.delivery }}
+      BUILD_NUMBER: ${{ inputs.build_number }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+      CERT_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+      CERT_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+      KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+      API_KEY_BASE64: ${{ secrets.APPSTORE_API_PRIVATE_KEY_BASE64 }}
+      API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+      API_ISSUER: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Validate delivery configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in APPLE_TEAM_ID IOS_BUNDLE_ID CERT_BASE64 CERT_PASSWORD PROFILE_BASE64 KEYCHAIN_PASSWORD; do
+            if [[ -z "${!key}" ]]; then echo "Missing configuration: $key"; exit 1; fi
+          done
+          [[ "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo 'Build number must be a positive integer'; exit 1; }
+          [[ "$IOS_BUNDLE_ID" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]] || exit 1
+          if [[ "$DELIVERY" == testflight ]]; then
+            for key in API_KEY_BASE64 API_KEY_ID API_ISSUER; do
+              if [[ -z "${!key}" ]]; then echo "Missing configuration: $key"; exit 1; fi
+            done
+          fi
+      - name: Install signing material into temporary keychain
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          printf '%s' "$PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/ios-signing.keychain-db"
+          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/ios-signing.keychain-db"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/ios-signing.keychain-db"
+          security import "$RUNNER_TEMP/signing.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$RUNNER_TEMP/ios-signing.keychain-db"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/ios-signing.keychain-db" >/dev/null
+          security list-keychains -d user -s "$RUNNER_TEMP/ios-signing.keychain-db" login.keychain-db
+          security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          python3 - <<'PY'
+          import os, plistlib, pathlib, datetime
+          profile = plistlib.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'profile.plist').read_bytes())
+          bundle = os.environ['IOS_BUNDLE_ID']; team = os.environ['APPLE_TEAM_ID']
+          if profile['Entitlements']['application-identifier'] != team + '.' + bundle:
+              raise SystemExit('Profile must match the exact team and bundle ID')
+          if profile['ExpirationDate'] < datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None):
+              raise SystemExit('Provisioning profile expired')
+          development = os.environ['DELIVERY'] == 'development'
+          if bool(profile['Entitlements'].get('get-task-allow')) != development:
+              raise SystemExit('Profile type does not match delivery mode')
+          if not development and ('ProvisionedDevices' in profile or profile.get('ProvisionsAllDevices')):
+              raise SystemExit('TestFlight requires an App Store distribution profile')
+          profiles = pathlib.Path.home() / 'Library/MobileDevice/Provisioning Profiles'
+          profiles.mkdir(parents=True, exist_ok=True)
+          target = profiles / (profile['UUID'] + '.mobileprovision')
+          target.write_bytes(pathlib.Path(os.environ['RUNNER_TEMP'], 'profile.mobileprovision').read_bytes())
+          options = {'method': 'debugging' if development else 'app-store-connect', 'teamID': team,
+                     'signingStyle': 'manual', 'provisioningProfiles': {bundle: profile['UUID']}}
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'ExportOptions.plist').write_bytes(plistlib.dumps(options))
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('PROFILE_UUID=' + profile['UUID'] + '\n')
+          PY
+      - run: flutter pub get
+      - name: Prepare Flutter iOS release
+        run: flutter build ios --release --no-codesign --build-number "$BUILD_NUMBER"
+      - name: Archive and export signed IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          identity='Apple Distribution'
+          [[ "$DELIVERY" != development ]] || identity='Apple Development'
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release -destination 'generic/platform=iOS' -archivePath build/ios/archive/Runner.xcarchive DEVELOPMENT_TEAM="$APPLE_TEAM_ID" PRODUCT_BUNDLE_IDENTIFIER="$IOS_BUNDLE_ID" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$identity" PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" archive
+          xcodebuild -exportArchive -archivePath build/ios/archive/Runner.xcarchive -exportPath build/ios/ipa -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+      - name: Upload to App Store Connect
+        if: inputs.delivery == 'testflight'
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s' "$API_KEY_BASE64" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8"
+          ipa=(build/ios/ipa/*.ipa)
+          [[ ${#ipa[@]} == 1 ]] || { echo 'Expected exactly one IPA'; exit 1; }
+          xcrun altool --upload-app --type ios --file "${ipa[0]}" --apiKey "$API_KEY_ID" --apiIssuer "$API_ISSUER"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OrangeNotes-iOS-${{ inputs.delivery }}
+          path: orange_notes_mobile/build/ios/ipa/*.ipa
+          if-no-files-found: error
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/ios-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/signing.p12" "$RUNNER_TEMP/profile.mobileprovision" "$RUNNER_TEMP/profile.plist" "$RUNNER_TEMP/ExportOptions.plist"
+          if [[ -n "${PROFILE_UUID:-}" ]]; then rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"; fi
+          if [[ -n "${API_KEY_ID:-}" ]]; then rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8"; fi
