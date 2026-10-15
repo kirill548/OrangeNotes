@@ -277,6 +277,11 @@ class MobileStore {
           where: 'id=? AND workspace_id=1',
           whereArgs: [id],
         )).single;
+        if (existing['deleted'] != 0) {
+          throw DeltaError(
+            'Заметка удалена на другом устройстве. Сохранение отменено, чтобы не восстановить её без Вашего согласия.',
+          );
+        }
         if (_isHtml(existing['body'] as String)) {
           throw DeltaError(
             'HTML note is read-only; original formatting is preserved',
@@ -289,7 +294,7 @@ class MobileStore {
       final wire = r.makeDelta(entity, {
         'title': title,
         'body': body,
-        'lifecycle': 'active',
+        if (id == null) 'lifecycle': 'active',
       });
       final local = await _persist(tx, r, wire, outgoing: true);
       await tx.delete('note_tags', where: 'note_id=?', whereArgs: [local]);

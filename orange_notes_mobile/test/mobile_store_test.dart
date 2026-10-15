@@ -227,4 +227,69 @@ void main() {
       expect((await a.listNotes()).single.title, 'Локальная');
     },
   );
+  test(
+    'remote deletion rejects stale editor save without outbox resurrection',
+    () async {
+      final note = await a.saveNote(
+        title: 'Открытый редактор',
+        body: 'Исходное',
+      );
+      final initial = (await a.pendingOutbox(actorB)).single;
+      await b.receiveDelta(initial, actorA);
+      final remote = (await b.listNotes()).single;
+      await b.deleteNote(remote.id);
+      await a.receiveDelta((await b.pendingOutbox(actorA)).single, actorB);
+      final before = await a.pendingOutbox(actorB);
+      await expectLater(
+        a.saveNote(
+          id: note.id,
+          title: 'Несохранённое',
+          body: 'Запоздалый автосейв',
+        ),
+        throwsA(isA<DeltaError>()),
+      );
+      expect(await a.getNote(note.id), isNull);
+      expect(await a.pendingOutbox(actorB), before);
+      expect(
+        (await a.db.query(
+          'notes',
+          where: 'id=?',
+          whereArgs: [note.id],
+        )).single['deleted'],
+        1,
+      );
+    },
+  );
+  test(
+    'edits omit lifecycle so concurrent body delivery cannot restore deletion',
+    () async {
+      final note = await a.saveNote(title: 'Заметка', body: 'Исходное');
+      await b.receiveDelta((await a.pendingOutbox(actorB)).single, actorA);
+      final remote = (await b.listNotes()).single;
+      await a.saveNote(id: note.id, title: 'Правка', body: 'Новый текст');
+      final edit = (await a.pendingOutbox(actorB)).last;
+      final fields =
+          ((jsonDecode(edit)['ops'] as List).single['fields'] as Map);
+      expect(fields.containsKey('lifecycle'), isFalse);
+      await b.deleteNote(remote.id);
+      await b.receiveDelta(edit, actorA);
+      expect(await b.getNote(remote.id), isNull);
+      expect(
+        (await b.db.query(
+          'notes',
+          where: 'id=?',
+          whereArgs: [remote.id],
+        )).single['body'],
+        'Новый текст',
+      );
+      expect(
+        (await b.db.query(
+          'notes',
+          where: 'id=?',
+          whereArgs: [remote.id],
+        )).single['deleted'],
+        1,
+      );
+    },
+  );
 }
