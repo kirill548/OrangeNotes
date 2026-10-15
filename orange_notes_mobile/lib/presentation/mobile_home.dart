@@ -14,7 +14,7 @@ class MobileHome extends StatefulWidget {
   State<MobileHome> createState() => _MobileHomeState();
 }
 
-class _MobileHomeState extends State<MobileHome> {
+class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
   final _search = TextEditingController();
   String? _tag;
   late Future<List<NoteRecord>> _notes;
@@ -22,7 +22,28 @@ class _MobileHomeState extends State<MobileHome> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    widget.pairing.addListener(_refresh);
     _reload();
+  }
+
+  void _refresh() {
+    if (mounted) setState(_reload);
+  }
+
+  @override
+  void didUpdateWidget(covariant MobileHome oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pairing != widget.pairing) {
+      oldWidget.pairing.removeListener(_refresh);
+      widget.pairing.addListener(_refresh);
+    }
+    if (oldWidget.store != widget.store) _reload();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refresh();
   }
 
   void _reload() {
@@ -32,6 +53,8 @@ class _MobileHomeState extends State<MobileHome> {
 
   @override
   void dispose() {
+    widget.pairing.removeListener(_refresh);
+    WidgetsBinding.instance.removeObserver(this);
     _search.dispose();
     super.dispose();
   }

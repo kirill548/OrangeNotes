@@ -21,6 +21,26 @@ class MobileSync extends PairingController {
   bool _busy = false, _disposed = false;
   String _status = 'Сохранено на устройстве. Сеть не подключена.';
   Tls13Server? _server;
+  Future<void>? _initialization, _shutdown;
+  Future<void> _tail = Future<void>.value();
+  final Set<Future<void>> _receiving = {};
+  void _ensureAlive() {
+    if (_disposed) throw StateError('Подключение закрыто.');
+  }
+
+  Future<void> _run(Future<void> Function() action) {
+    if (_disposed) {
+      return Future<void>.error(StateError('Подключение закрыто.'));
+    }
+    final result = _tail.then((_) async {
+      await initialize();
+      _ensureAlive();
+      await action();
+    });
+    _tail = result.catchError((Object _) {});
+    return result;
+  }
+
   @override
   String get status =>
       '$_status\nУстройство: ${store.actorId}\nПространство: ${store.workspaceId}';
@@ -38,18 +58,22 @@ class MobileSync extends PairingController {
     if (!_disposed) notifyListeners();
   }
 
-  Future<void> initialize() async {
+  Future<void> initialize() => _initialization ??= _load();
+  Future<void> _load() async {
     try {
       final identity = await storage.read(key: 'p2p_identity_${store.actorId}');
+      if (_disposed) return;
       if (identity != null) {
         _identity = jsonDecode(identity) as Map<String, dynamic>;
       }
       final peers = await storage.read(key: 'p2p_peers_${store.actorId}');
+      if (_disposed) return;
       if (peers != null) {
         for (final item in jsonDecode(peers) as List) {
           final p = _validatePeer(Map<String, dynamic>.from(item as Map));
           if (p['workspace_id'] == store.workspaceId) {
             _peers[p['actor_id'] as String] = p;
+            if (_disposed) return;
             await store.grantPeer(p['actor_id'] as String);
           }
         }
@@ -119,12 +143,14 @@ class MobileSync extends PairingController {
     value: jsonEncode(_peers.values.toList()),
   );
   @override
-  Future<void> importIdentity() async {
+  Future<void> importIdentity() => _run(_importIdentity);
+  Future<void> _importIdentity() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['json'],
       withData: true,
     );
+    _ensureAlive();
     if (result == null) return;
     final file = result.files.single;
     if (file.size > 128 * 1024) {
@@ -161,7 +187,9 @@ class MobileSync extends PairingController {
     password: v['password'] as String?,
   );
   @override
-  Future<void> pairQr(String raw, {required bool confirmed}) async {
+  Future<void> pairQr(String raw, {required bool confirmed}) =>
+      _run(() => _pairQr(raw, confirmed: confirmed));
+  Future<void> _pairQr(String raw, {required bool confirmed}) async {
     if (!confirmed || raw.length > 16384) {
       throw const FormatException('Подтвердите полный отпечаток.');
     }
@@ -171,12 +199,18 @@ class MobileSync extends PairingController {
       await store.joinEmptyWorkspace(p['workspace_id'] as String);
     }
     final actor = p['actor_id'] as String;
+    final previous = _peers[actor];
+    await store.grantPeer(actor);
     _peers[actor] = p;
     try {
       await _savePeers();
-      await store.grantPeer(actor);
     } catch (_) {
-      _peers.remove(actor);
+      if (previous == null) {
+        _peers.remove(actor);
+        await store.revokePeer(actor);
+      } else {
+        _peers[actor] = previous;
+      }
       rethrow;
     }
     await _server?.close();
@@ -186,7 +220,8 @@ class MobileSync extends PairingController {
   }
 
   @override
-  Future<void> revoke(String actorId) async {
+  Future<void> revoke(String actorId) => _run(() => _revoke(actorId));
+  Future<void> _revoke(String actorId) async {
     if (_busy) throw StateError('Дождитесь завершения обмена.');
     final previous = _peers.remove(actorId);
     try {
@@ -203,7 +238,8 @@ class MobileSync extends PairingController {
   }
 
   @override
-  Future<void> syncNow(String actorId) async {
+  Future<void> syncNow(String actorId) => _run(() => _syncNow(actorId));
+  Future<void> _syncNow(String actorId) async {
     if (_busy) throw StateError('Обмен уже выполняется.');
     final p = _peers[actorId];
     if (p == null || _identity == null) {
@@ -229,7 +265,16 @@ class MobileSync extends PairingController {
           if (workspace != store.workspaceId || !_peers.containsKey(actor)) {
             throw StateError('Нет доступа к пространству.');
           }
-          await store.receiveDelta(wire, actor);
+          _ensureAlive();
+          final transaction = store.receiveDelta(wire, actor).then<void>((_) {
+            _changed();
+          });
+          _receiving.add(transaction);
+          try {
+            await transaction;
+          } finally {
+            _receiving.remove(transaction);
+          }
         },
         localActorId: store.actorId,
       );
@@ -259,6 +304,7 @@ class MobileSync extends PairingController {
               serverHostname: p['server_hostname'] as String,
             )
             .timeout(remaining);
+        _ensureAlive();
         if (!_peers.containsKey(actorId)) {
           throw StateError('Устройство отключено.');
         }
@@ -271,15 +317,27 @@ class MobileSync extends PairingController {
       _status = 'Обмен не завершён. Изменения сохранены на устройстве.';
       rethrow;
     } finally {
+      if (_disposed) await _server?.close();
       _busy = false;
       _changed();
     }
   }
 
+  Future<void> shutdown() => _shutdown ??= _stop();
+  Future<void> _stop() async {
+    _disposed = true;
+    await _initialization;
+    await _server?.close();
+    await _tail;
+    await _server?.close();
+    await Future.wait(_receiving.toList());
+  }
+
   @override
   void dispose() {
-    _disposed = true;
-    _server?.close();
+    if (!_disposed) {
+      shutdown();
+    }
     super.dispose();
   }
 }

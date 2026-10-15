@@ -38,3 +38,23 @@ Secrets Environment:
 В этом этапе аккаунт Apple, сертификаты и профили не предоставлены. Подписанный запуск и TestFlight не подтверждены. Запрашивать или присылать приватные ключи в чат не требуется: они добавляются владельцем напрямую в GitHub Secrets.
 
 Официальные инструкции: [Flutter iOS deployment](https://docs.flutter.dev/deployment/ios), [GitHub signing on macOS runners](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications).
+
+## Текущий способ установки
+
+15 октября 2026 пользователь выбрал unsigned IPA и повторную подпись:
+подписки Apple Developer Program пока нет. TestFlight в этом состоянии
+не активирован и не используется как обещанный канал установки.
+
+Скачайте `OrangeNotes-iOS-unsigned-requires-resigning` из артефактов успешного
+Mobile CI. Внутри — `OrangeNotes-iOS-unsigned.ipa` и `SHA256SUMS.txt`.
+Unsigned-архив нельзя установить простым открытием файла на iPhone.
+Следуйте официальным инструкциям выбранного инструмента подписи:
+[AltStore Classic](https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows)
+или [Sideloadly](https://sideloadly.io/). Apple ID вводится только в выбранном
+инструменте; приложение Orange Notes, репозиторий и чат его не запрашивают.
+У бесплатной подписи есть ограничения Apple и необходимость периодического
+обновления. Первая установка может потребовать компьютер и кабель; работа
+обновлений по Wi-Fi зависит от настройки инструмента и устройства.
+
+Работа сканера, микрофона, Keychain и mTLS после сторонней повторной подписи
+должна быть проверена на физическом iPhone. Успешная сборка IPA этого не доказывает.

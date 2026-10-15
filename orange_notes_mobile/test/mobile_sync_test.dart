@@ -6,6 +6,35 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:orange_notes_mobile/data/mobile_store.dart';
 import 'package:orange_notes_mobile/services/mobile_sync.dart';
 
+class FailingStorage extends FlutterSecureStorage {
+  bool failWrites = false;
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) {
+    if (failWrites) {
+      return Future<void>.error(StateError('Keychain unavailable'));
+    }
+    return super.write(
+      key: key,
+      value: value,
+      iOptions: iOptions,
+      aOptions: aOptions,
+      lOptions: lOptions,
+      webOptions: webOptions,
+      mOptions: mOptions,
+      wOptions: wOptions,
+    );
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -87,4 +116,42 @@ void main() {
       expect(sync.status, isNot(contains('Исходящие изменения подтверждены')));
     },
   );
+  test('shutdown blocks queued changes before SQLite is closed', () async {
+    await sync.shutdown();
+    await expectLater(sync.pairQr(qr(), confirmed: true), throwsStateError);
+    expect(sync.devices, isEmpty);
+  });
+  test('failed replacement preserves previous durable trust', () async {
+    final vault = FailingStorage();
+    final controller = MobileSync(store, storage: vault);
+    await controller.initialize();
+    await controller.pairQr(qr(), confirmed: true);
+    vault.failWrites = true;
+    await expectLater(
+      controller.pairQr(qr(host: '192.168.1.30'), confirmed: true),
+      throwsStateError,
+    );
+    expect(controller.devices.single.actorId, peer);
+    expect(await store.pendingOutbox(peer), isEmpty);
+    vault.failWrites = false;
+    final saved = jsonDecode(
+      (await vault.read(key: 'p2p_peers_${store.actorId}'))!,
+    );
+    expect(saved.single['host'], '192.168.1.20');
+    await controller.shutdown();
+    controller.dispose();
+  });
+  test('failed new trust write leaves no database grant', () async {
+    final vault = FailingStorage()..failWrites = true;
+    final controller = MobileSync(store, storage: vault);
+    await controller.initialize();
+    await expectLater(
+      controller.pairQr(qr(), confirmed: true),
+      throwsStateError,
+    );
+    expect(controller.devices, isEmpty);
+    await expectLater(store.pendingOutbox(peer), throwsA(isA<Exception>()));
+    await controller.shutdown();
+    controller.dispose();
+  });
 }

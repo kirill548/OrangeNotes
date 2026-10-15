@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Orange Notes Mobile</string>
+	<string>Orange Notes</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -43,25 +43,10 @@
 					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
 					<key>UISceneStoryboardFile</key>
 					<string>Main</string>
-					<key>NSCameraUsageDescription</key><string>Камера нужна для QR-кода доверенного устройства.</string>
-	<key>NSMicrophoneUsageDescription</key><string>Микрофон нужен для диктовки заметок.</string>
-	<key>NSSpeechRecognitionUsageDescription</key><string>Распознавание речи вставляет продиктованный текст в заметку.</string>
-	<key>NSLocalNetworkUsageDescription</key><string>Локальная сеть нужна для обмена заметками с доверенными устройствами.</string>
-	<key>NSBonjourServices</key><array><string>_orangenotes._tcp</string></array>
-</dict>
+				</dict>
 			</array>
-			<key>NSCameraUsageDescription</key><string>Камера нужна для QR-кода доверенного устройства.</string>
-	<key>NSMicrophoneUsageDescription</key><string>Микрофон нужен для диктовки заметок.</string>
-	<key>NSSpeechRecognitionUsageDescription</key><string>Распознавание речи вставляет продиктованный текст в заметку.</string>
-	<key>NSLocalNetworkUsageDescription</key><string>Локальная сеть нужна для обмена заметками с доверенными устройствами.</string>
-	<key>NSBonjourServices</key><array><string>_orangenotes._tcp</string></array>
-</dict>
-		<key>NSCameraUsageDescription</key><string>Камера нужна для QR-кода доверенного устройства.</string>
-	<key>NSMicrophoneUsageDescription</key><string>Микрофон нужен для диктовки заметок.</string>
-	<key>NSSpeechRecognitionUsageDescription</key><string>Распознавание речи вставляет продиктованный текст в заметку.</string>
-	<key>NSLocalNetworkUsageDescription</key><string>Локальная сеть нужна для обмена заметками с доверенными устройствами.</string>
-	<key>NSBonjourServices</key><array><string>_orangenotes._tcp</string></array>
-</dict>
+		</dict>
+	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -81,10 +66,17 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>NSCameraUsageDescription</key><string>Камера нужна для QR-кода доверенного устройства.</string>
-	<key>NSMicrophoneUsageDescription</key><string>Микрофон нужен для диктовки заметок.</string>
-	<key>NSSpeechRecognitionUsageDescription</key><string>Распознавание речи вставляет продиктованный текст в заметку.</string>
-	<key>NSLocalNetworkUsageDescription</key><string>Локальная сеть нужна для обмена заметками с доверенными устройствами.</string>
-	<key>NSBonjourServices</key><array><string>_orangenotes._tcp</string></array>
+	<key>NSCameraUsageDescription</key>
+	<string>Камера нужна для QR-кода доверенного устройства.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Микрофон нужен для диктовки заметок.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Распознавание речи вставляет продиктованный текст в заметку.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Локальная сеть нужна для обмена заметками с доверенными устройствами.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_orangenotes._tcp</string>
+	</array>
 </dict>
 </plist>

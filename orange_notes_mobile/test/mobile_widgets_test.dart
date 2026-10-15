@@ -9,6 +9,7 @@ import 'package:orange_notes_mobile/presentation/pairing_screen.dart';
 import 'package:orange_notes_mobile/presentation/graph_screen.dart';
 
 class TestPairing extends PairingController {
+  void receivedChanges() => notifyListeners();
   @override
   String get status => 'Не подключено';
   @override
@@ -189,6 +190,9 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Удалить'));
     await settle(tester);
     await settle(tester);
+    final remaining = (await tester.runAsync(() => store.listNotes()))!;
+    expect(remaining.map((note) => note.title), ['Оставшаяся']);
+    await settle(tester);
     expect(find.text('Orange Notes'), findsOneWidget);
     expect(find.text('Оставшаяся'), findsOneWidget);
     expect(find.text('Удаляемая'), findsNothing);
@@ -215,4 +219,40 @@ void main() {
     expect(find.textContaining('Голосовой ввод недоступен.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  testWidgets(
+    'Incoming sync and app resume refresh local list without navigation',
+    (tester) async {
+      final pairing = TestPairing();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MobileHome(store: store, pairing: pairing),
+        ),
+      );
+      await settle(tester);
+      expect(find.text('Входящая заметка'), findsNothing);
+      await tester.runAsync(
+        () =>
+            store.saveNote(title: 'Входящая заметка', body: 'Получена по сети'),
+      );
+      pairing.receivedChanges();
+      await settle(tester);
+      expect(find.text('Входящая заметка'), findsOneWidget);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.runAsync(
+        () =>
+            store.saveNote(title: 'Изменение в фоне', body: 'Локальная копия'),
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await settle(tester);
+      expect(find.text('Изменение в фоне'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      pairing.receivedChanges();
+      expect(tester.takeException(), isNull);
+      pairing.dispose();
+    },
+  );
 }

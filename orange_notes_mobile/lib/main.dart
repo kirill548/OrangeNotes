@@ -21,9 +21,19 @@ class _AppState extends State<OrangeNotesApp> {
   MobileSync? _sync;
   @override
   void dispose() {
-    _sync?.dispose();
-    _store.then((s) => s.close());
+    _closeStorage();
     super.dispose();
+  }
+
+  Future<void> _closeStorage() async {
+    try {
+      final store = await _store;
+      await _sync?.shutdown();
+      _sync?.dispose();
+      await store.close();
+    } catch (_) {
+      /* Opening failure is already displayed by FutureBuilder. */
+    }
   }
 
   @override

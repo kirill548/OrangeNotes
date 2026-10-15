@@ -2,9 +2,9 @@ name: Mobile analysis and native builds
 on:
   push:
     branches: [v0.2.0-dev]
-    paths: ['orange_notes_mobile/**', 'tools/mobile_protocol_fixtures.py', 'app/services/p2p_sync.py', '.github/workflows/mobile-ci.yml']
+    paths: ['orange_notes_mobile/**', 'tools/mobile_protocol_fixtures.py', 'tools/mobile_interop_smoke.py', 'app/services/p2p_transport.py', 'app/services/p2p_sync.py', '.github/workflows/mobile-ci.yml']
   pull_request:
-    paths: ['orange_notes_mobile/**', 'tools/mobile_protocol_fixtures.py', 'app/services/p2p_sync.py', '.github/workflows/mobile-ci.yml']
+    paths: ['orange_notes_mobile/**', 'tools/mobile_protocol_fixtures.py', 'tools/mobile_interop_smoke.py', 'app/services/p2p_transport.py', 'app/services/p2p_sync.py', '.github/workflows/mobile-ci.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -37,11 +37,16 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze --fatal-infos
       - run: flutter test --coverage --reporter expanded
+      - name: Real Python-Dart mutual TLS interoperability
+        working-directory: .
+        run: python tools/mobile_interop_smoke.py --dart "$(command -v dart)" --output orange_notes_mobile/mobile-interop.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mobile-coverage
-          path: orange_notes_mobile/coverage/lcov.info
+          path: |
+            orange_notes_mobile/coverage/lcov.info
+            orange_notes_mobile/mobile-interop.json
   android:
     needs: analyze-test
     runs-on: ubuntu-latest
