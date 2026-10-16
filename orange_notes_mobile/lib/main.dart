@@ -58,8 +58,11 @@ class OrangeNotesApp extends ConsumerWidget {
     home: ref
         .watch(mobileSessionProvider)
         .when(
-          data: (session) =>
-              MobileHome(store: session.store, pairing: session.sync),
+          data: (session) => MobileHome(
+            store: session.store,
+            pairing: session.sync,
+            aiGateway: session.sync.aiGateway,
+          ),
           loading: () =>
               const Scaffold(body: Center(child: CircularProgressIndicator())),
           error: (error, stack) => const Scaffold(

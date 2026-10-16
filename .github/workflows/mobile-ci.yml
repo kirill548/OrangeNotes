@@ -2,9 +2,9 @@ name: Mobile analysis and native builds
 on:
   push:
     branches: [v0.2.0-dev]
-    paths: ['orange_notes_mobile/**', 'tools/mobile_protocol_fixtures.py', 'tools/mobile_interop_smoke.py', 'app/services/p2p_transport.py', 'app/services/p2p_sync.py', '.github/workflows/mobile-ci.yml']
+    paths: ['orange_notes_mobile/**', 'tools/mobile_protocol_fixtures.py', 'tools/mobile_interop_smoke.py', 'app/services/p2p_transport.py', 'app/services/p2p_sync.py', 'app/services/p2p_ai_protocol.py', 'app/services/p2p_ai_backend.py', 'tests/test_mobile_ai_relay.py', 'tools/mobile_ai_interop_smoke.py', 'requirements-network*.txt', '.github/workflows/mobile-ci.yml']
   pull_request:
-    paths: ['orange_notes_mobile/**', 'tools/mobile_protocol_fixtures.py', 'tools/mobile_interop_smoke.py', 'app/services/p2p_transport.py', 'app/services/p2p_sync.py', '.github/workflows/mobile-ci.yml']
+    paths: ['orange_notes_mobile/**', 'tools/mobile_protocol_fixtures.py', 'tools/mobile_interop_smoke.py', 'app/services/p2p_transport.py', 'app/services/p2p_sync.py', 'app/services/p2p_ai_protocol.py', 'app/services/p2p_ai_backend.py', 'tests/test_mobile_ai_relay.py', 'tools/mobile_ai_interop_smoke.py', 'requirements-network*.txt', '.github/workflows/mobile-ci.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,6 +25,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install network interoperability test dependencies
+        working-directory: .
+        run: python -m pip install -r requirements-network-test.txt
       - name: Verify desktop reference fixtures
         working-directory: .
         run: python tools/mobile_protocol_fixtures.py --check
@@ -40,6 +43,9 @@ jobs:
       - name: Real Python-Dart mutual TLS interoperability
         working-directory: .
         run: python tools/mobile_interop_smoke.py --dart "$(command -v dart)" --output orange_notes_mobile/mobile-interop.json
+      - name: Real mobile AI relay over mutual TLS
+        working-directory: .
+        run: python tools/mobile_ai_interop_smoke.py --flutter "$(command -v flutter)" --output orange_notes_mobile/mobile-ai-interop.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -47,6 +53,7 @@ jobs:
           path: |
             orange_notes_mobile/coverage/lcov.info
             orange_notes_mobile/mobile-interop.json
+            orange_notes_mobile/mobile-ai-interop.json
   android:
     needs: analyze-test
     runs-on: ubuntu-latest

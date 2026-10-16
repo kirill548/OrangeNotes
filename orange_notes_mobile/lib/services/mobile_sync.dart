@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,6 +9,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../data/mobile_store.dart';
 import '../presentation/pairing_screen.dart';
 import 'crdt_engine.dart';
+import 'ai_gateway.dart';
 import 'p2p_transport.dart';
 
 /// Explicit foreground synchronization. No background networking at startup.
@@ -24,6 +26,41 @@ class MobileSync extends PairingController {
   Future<void>? _initialization, _shutdown;
   Future<void> _tail = Future<void>.value();
   final Set<Future<void>> _receiving = {};
+  late final AiGateway aiGateway = _SessionAiGateway(this);
+
+  AiGateway _gatewayForRequest() {
+    _ensureAlive();
+    final local = LocalAiGateway(store);
+    final candidates = _peers.values.where((p) => p['ai_port'] is int);
+    if (_identity == null || candidates.isEmpty) return local;
+    final p = candidates.first;
+    try {
+      if (_identity!['actor_id'] != store.actorId ||
+          p['workspace_id'] != store.workspaceId) {
+        return local;
+      }
+      return FallbackAiGateway(
+        DesktopAiGateway(
+          context: _context(_identity!),
+          localActorId: store.actorId,
+          workspaceId: store.workspaceId,
+          peer: PeerIdentity(
+            p['actor_id'] as String,
+            store.workspaceId,
+            p['fingerprint_sha256'] as String,
+          ),
+          host: p['host'] as String,
+          port: p['ai_port'] as int,
+          serverHostname: p['server_hostname'] as String,
+        ),
+        local,
+      );
+    } catch (_) {
+      // Invalid or unavailable device credentials never disable offline notes.
+      return local;
+    }
+  }
+
   void _ensureAlive() {
     if (_disposed) throw StateError('Подключение закрыто.');
   }
@@ -119,7 +156,15 @@ class MobileSync extends PairingController {
         'Устройство должно находиться в локальной сети.',
       );
     }
+    if (p.containsKey('ai_port') &&
+        (p['ai_port'] is! int ||
+            p['ai_port'] < 1 ||
+            p['ai_port'] > 65535 ||
+            p['ai_port'] == p['port'])) {
+      throw const FormatException('Неверный отдельный порт помощника.');
+    }
     return {
+      if (p.containsKey('ai_port')) 'ai_port': p['ai_port'],
       for (final key in [
         'actor_id',
         'workspace_id',
@@ -170,6 +215,7 @@ class MobileSync extends PairingController {
       key: 'p2p_identity_${store.actorId}',
       value: jsonEncode(value),
     );
+    aiGateway.cancel();
     _identity = value;
     await _server?.close();
     _server = null;
@@ -195,6 +241,7 @@ class MobileSync extends PairingController {
     }
     if (_busy) throw StateError('Дождитесь завершения обмена.');
     final p = _validatePeer(Map<String, dynamic>.from(jsonDecode(raw) as Map));
+    aiGateway.cancel();
     if (p['workspace_id'] != store.workspaceId) {
       await store.joinEmptyWorkspace(p['workspace_id'] as String);
     }
@@ -223,6 +270,7 @@ class MobileSync extends PairingController {
   Future<void> revoke(String actorId) => _run(() => _revoke(actorId));
   Future<void> _revoke(String actorId) async {
     if (_busy) throw StateError('Дождитесь завершения обмена.');
+    aiGateway.cancel();
     final previous = _peers.remove(actorId);
     try {
       await _savePeers();
@@ -230,6 +278,7 @@ class MobileSync extends PairingController {
       if (previous != null) _peers[actorId] = previous;
       rethrow;
     }
+    aiGateway.cancel();
     await store.revokePeer(actorId);
     await _server?.close();
     _server = null;
@@ -326,6 +375,8 @@ class MobileSync extends PairingController {
   Future<void> shutdown() => _shutdown ??= _stop();
   Future<void> _stop() async {
     _disposed = true;
+    aiGateway.cancel();
+    await (aiGateway as _SessionAiGateway).idle;
     await _initialization;
     await _server?.close();
     await _tail;
@@ -339,5 +390,64 @@ class MobileSync extends PairingController {
       shutdown();
     }
     super.dispose();
+  }
+}
+
+/// Resolves current trust for each explicit request; no network at construction.
+class _SessionAiGateway implements AiGateway {
+  _SessionAiGateway(this.owner);
+  final MobileSync owner;
+  AiGateway? _active;
+  Completer<void>? _request;
+  Future<void> get idle => _request?.future ?? Future<void>.value();
+  int _generation = 0;
+  @override
+  void cancel() {
+    _generation++;
+    _active?.cancel();
+  }
+
+  @override
+  Stream<AiEvent> ask(
+    String prompt, {
+    List<AiContext> contexts = const [],
+  }) async* {
+    if (_request != null) throw StateError('Дождитесь ответа помощника.');
+    final request = Completer<void>();
+    _request = request;
+    final generation = ++_generation;
+    try {
+      await owner.initialize();
+      owner._ensureAlive();
+      if (generation != _generation) return;
+      // Context must still belong to the current active workspace.
+      final notes = await owner.store.listNotes();
+      for (final context in contexts) {
+        if (!notes.any(
+          (n) =>
+              n.uuid == context.noteId &&
+              n.title == context.title &&
+              n.body == context.body,
+        )) {
+          yield const AiEvent(
+            AiEventKind.error,
+            text: 'Заметка изменилась. Прикрепите её заново.',
+          );
+          return;
+        }
+      }
+      if (generation != _generation) return;
+      final gateway = owner._gatewayForRequest();
+      _active = gateway;
+      try {
+        yield* gateway.ask(prompt, contexts: contexts);
+      } finally {
+        gateway.cancel();
+        if (identical(_active, gateway)) _active = null;
+      }
+    } finally {
+      if (identical(_request, request)) _request = null;
+      request.complete();
+    }
   }
 }

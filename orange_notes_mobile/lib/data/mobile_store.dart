@@ -29,7 +29,7 @@ class MobileStore {
     final database = await factory.openDatabase(
       location,
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
         onConfigure: (db) async {
           await db.execute('PRAGMA foreign_keys=ON');
           await db.rawQuery('PRAGMA journal_mode=WAL');
@@ -57,6 +57,10 @@ class MobileStore {
             'local_workspace_id': 1,
             'actor_id': actor,
           });
+          await _installSearch(database: db);
+        },
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) await _installSearch(database: db);
         },
       ),
     );
@@ -93,6 +97,109 @@ class MobileStore {
     'CREATE TABLE note_tags(note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,tag TEXT NOT NULL,PRIMARY KEY(note_id,tag))',
     'CREATE TABLE sync_peers(actor_id TEXT PRIMARY KEY,trusted INTEGER NOT NULL DEFAULT 1)',
   ];
+
+  /// Optional SQLite FTS extensions vary between OS distributions. Failure to
+  /// load either extension preserves the original notes and enables scan search.
+  static Future<void> _installSearch({
+    required DatabaseExecutor database,
+  }) async {
+    var installed = false;
+    for (final definition in [
+      "fts5(title,body,tokenize='unicode61')",
+      'fts4(title,body,tokenize=unicode61)',
+    ]) {
+      try {
+        await database.execute(
+          'CREATE VIRTUAL TABLE note_search USING $definition',
+        );
+        installed = true;
+        break;
+      } on DatabaseException {
+        // Missing optional module/tokenizer: try the next supported engine.
+      }
+    }
+    if (!installed) return;
+    await database.execute(
+      'INSERT INTO note_search(rowid,title,body) SELECT id,title,body FROM notes',
+    );
+    await database.execute(
+      'CREATE TRIGGER note_search_insert AFTER INSERT ON notes BEGIN INSERT INTO note_search(rowid,title,body) VALUES(new.id,new.title,new.body); END',
+    );
+    await database.execute(
+      'CREATE TRIGGER note_search_delete AFTER DELETE ON notes BEGIN DELETE FROM note_search WHERE rowid=old.id; END',
+    );
+    await database.execute(
+      'CREATE TRIGGER note_search_update AFTER UPDATE OF title,body ON notes BEGIN DELETE FROM note_search WHERE rowid=old.id; INSERT INTO note_search(rowid,title,body) VALUES(new.id,new.title,new.body); END',
+    );
+  }
+
+  /// Treat query text as words, never as an FTS expression or SQL fragment.
+  static List<String> searchWords(String query) {
+    const stop = {
+      'найди',
+      'найти',
+      'покажи',
+      'пожалуйста',
+      'мои',
+      'моих',
+      'заметки',
+      'заметках',
+      'заметку',
+      'про',
+      'что',
+      'как',
+      'где',
+      'мне',
+      'это',
+      'по',
+      'на',
+      'для',
+      'и',
+      'в',
+      'с',
+      'о',
+      'об',
+    };
+    return RegExp(r'[a-zа-яё0-9]+', caseSensitive: false)
+        .allMatches(query.toLowerCase())
+        .map((m) => m.group(0)!)
+        .where((word) => word.length > 1 && !stop.contains(word))
+        .toSet()
+        .take(16)
+        .toList();
+  }
+
+  Future<List<NoteRecord>> searchNotes(String query, {int limit = 5}) async {
+    if (limit < 1 || limit > 100 || utf8.encode(query).length > 8192) {
+      throw ArgumentError('Search limit');
+    }
+    final words = searchWords(query);
+    if (words.isEmpty) return [];
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='note_search'",
+    );
+    if (tables.isNotEmpty) {
+      try {
+        final expression = words.map((word) => '"$word"*').join(' OR ');
+        final rows = await db.rawQuery(
+          '$_select AND n.id IN (SELECT rowid FROM note_search WHERE note_search MATCH ?) ORDER BY n.updated_at DESC,n.id DESC LIMIT ?',
+          [expression, limit],
+        );
+        return await Future.wait(rows.map(_record));
+      } on DatabaseException {
+        // An OS SQLite build may open an existing database without FTS support.
+      }
+    }
+    final notes = await listNotes();
+    return notes
+        .where((note) {
+          final text = '${note.title}\n${visibleBody(note.body)}'.toLowerCase();
+          return words.any(text.contains);
+        })
+        .take(limit)
+        .toList();
+  }
+
   Future<Replica> _replay(DatabaseExecutor tx) async {
     final r = Replica(workspaceId, actorId);
     for (final row in await tx.query(

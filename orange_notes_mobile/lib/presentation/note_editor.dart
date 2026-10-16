@@ -6,9 +6,12 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../data/mobile_store.dart';
 import '../domain/note.dart';
 import 'voice_input.dart';
+import 'ai_chat_screen.dart';
+import '../services/ai_gateway.dart';
 
 class NoteEditor extends StatefulWidget {
-  const NoteEditor({super.key, required this.store, this.note});
+  const NoteEditor({super.key, required this.store, this.note, this.aiGateway});
+  final AiGateway? aiGateway;
   final MobileStore store;
   final NoteRecord? note;
   @override
@@ -231,7 +234,11 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     await Navigator.push(
       context,
       MaterialPageRoute<void>(
-        builder: (_) => NoteEditor(store: widget.store, note: matches.single),
+        builder: (_) => NoteEditor(
+          store: widget.store,
+          note: matches.single,
+          aiGateway: widget.aiGateway,
+        ),
       ),
     );
     _loadBacklinks();
@@ -403,6 +410,38 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
                 'Голос распознаётся средствами телефона. Доступность без интернета зависит от системы.',
                 style: TextStyle(fontSize: 12),
               ),
+            if (widget.aiGateway != null)
+              OutlinedButton.icon(
+                icon: const Icon(Icons.chat_bubble_outline),
+                label: const Text('Спросить ИИ по заметке'),
+                onPressed: () async {
+                  await _save();
+                  if (!context.mounted || _dirty) return;
+                  final selected = await widget.store.getNote(_id ?? -1);
+                  if (!context.mounted) return;
+                  if (selected == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Сначала сохраните заметку.'),
+                      ),
+                    );
+                    return;
+                  }
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => AiChatScreen(
+                        gateway: widget.aiGateway!,
+                        noteContext: AiContext(
+                          noteId: selected.uuid,
+                          title: selected.title,
+                          body: selected.body,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
             const SizedBox(height: 12),
             Semantics(liveRegion: true, child: Text(_status)),
             const Divider(height: 32),
@@ -425,8 +464,11 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
                   await Navigator.push(
                     context,
                     MaterialPageRoute<void>(
-                      builder: (_) =>
-                          NoteEditor(store: widget.store, note: note),
+                      builder: (_) => NoteEditor(
+                        store: widget.store,
+                        note: note,
+                        aiGateway: widget.aiGateway,
+                      ),
                     ),
                   );
                   _loadBacklinks();

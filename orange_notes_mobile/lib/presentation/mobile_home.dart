@@ -3,11 +3,19 @@ import 'package:flutter/material.dart';
 import '../data/mobile_store.dart';
 import '../domain/note.dart';
 import 'note_editor.dart';
+import 'ai_chat_screen.dart';
+import '../services/ai_gateway.dart';
 import 'graph_screen.dart';
 import 'pairing_screen.dart';
 
 class MobileHome extends StatefulWidget {
-  const MobileHome({super.key, required this.store, required this.pairing});
+  const MobileHome({
+    super.key,
+    required this.store,
+    required this.pairing,
+    this.aiGateway,
+  });
+  final AiGateway? aiGateway;
   final MobileStore store;
   final PairingController pairing;
   @override
@@ -63,7 +71,11 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
     await Navigator.push(
       context,
       MaterialPageRoute<void>(
-        builder: (_) => NoteEditor(store: widget.store, note: note),
+        builder: (_) => NoteEditor(
+          store: widget.store,
+          note: note,
+          aiGateway: widget.aiGateway,
+        ),
       ),
     );
     if (mounted) setState(_reload);
@@ -74,6 +86,17 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
     appBar: AppBar(
       title: const Text('Orange Notes'),
       actions: [
+        if (widget.aiGateway != null)
+          IconButton(
+            tooltip: 'Помощник',
+            icon: const Icon(Icons.chat_bubble_outline),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => AiChatScreen(gateway: widget.aiGateway!),
+              ),
+            ),
+          ),
         IconButton(
           tooltip: 'Граф заметок',
           icon: const Icon(Icons.hub_outlined),

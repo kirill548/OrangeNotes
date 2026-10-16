@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:orange_notes_mobile/data/mobile_store.dart';
 import 'package:orange_notes_mobile/services/mobile_sync.dart';
+import 'package:orange_notes_mobile/services/ai_gateway.dart';
 
 class FailingStorage extends FlutterSecureStorage {
   bool failWrites = false;
@@ -154,4 +155,91 @@ void main() {
     await controller.shutdown();
     controller.dispose();
   });
+  test(
+    'AI without identity uses local search without contacting a peer',
+    () async {
+      await store.saveNote(title: 'Отчёт', body: 'Сдать отчёт в пятницу');
+      final events = await sync.aiGateway.ask('отчёт').toList();
+      expect(
+        events.any(
+          (e) => e.kind == AiEventKind.status && e.text == 'local_search',
+        ),
+        isTrue,
+      );
+      expect(
+        events
+            .where((e) => e.kind == AiEventKind.token)
+            .map((e) => e.text)
+            .join(),
+        contains('пятницу'),
+      );
+      expect(
+        events.any(
+          (e) => e.kind == AiEventKind.status && e.text == 'connecting',
+        ),
+        isFalse,
+      );
+    },
+  );
+  test(
+    'AI rejects foreign or stale attached snapshots before fallback',
+    () async {
+      final note = await store.saveNote(title: 'Личное', body: 'Точный текст');
+      for (final context in [
+        const AiContext(
+          noteId: '30000000-0000-4000-8000-000000000099',
+          title: 'Чужая',
+          body: 'Секрет',
+        ),
+        AiContext(
+          noteId: note.uuid,
+          title: note.title,
+          body: 'Устаревший текст',
+        ),
+      ]) {
+        final events = await sync.aiGateway
+            .ask('Покажи', contexts: [context])
+            .toList();
+        expect(events.single.kind, AiEventKind.error);
+        expect(events.any((e) => e.kind == AiEventKind.token), isFalse);
+      }
+      expect((await store.getNote(note.id))!.body, 'Точный текст');
+    },
+  );
+  test('AI rejects deleted attachment and shutdown cancels access', () async {
+    final note = await store.saveNote(title: 'Удаляемая', body: 'Текст');
+    await store.deleteNote(note.id);
+    final events = await sync.aiGateway
+        .ask(
+          'Покажи',
+          contexts: [
+            AiContext(noteId: note.uuid, title: note.title, body: note.body),
+          ],
+        )
+        .toList();
+    expect(events.single.kind, AiEventKind.error);
+    await sync.shutdown();
+    await expectLater(sync.aiGateway.ask('Текст').toList(), throwsStateError);
+  });
+  test(
+    'AI endpoint is explicit and cannot reuse synchronization port',
+    () async {
+      for (final port in [0, -1, 65536, 7443, '7444']) {
+        final payload = jsonDecode(qr()) as Map<String, dynamic>;
+        payload['ai_port'] = port;
+        await expectLater(
+          sync.pairQr(jsonEncode(payload), confirmed: true),
+          throwsFormatException,
+        );
+        expect(sync.devices, isEmpty);
+      }
+      final payload = jsonDecode(qr()) as Map<String, dynamic>;
+      payload['ai_port'] = 7444;
+      await sync.pairQr(jsonEncode(payload), confirmed: true);
+      expect(sync.devices.single.actorId, peer);
+      // A grant without a local TLS identity still cannot initiate remote AI.
+      final events = await sync.aiGateway.ask('Текст').toList();
+      expect(events.first.text, 'local_search');
+    },
+  );
 }
