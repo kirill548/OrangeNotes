@@ -1,3 +1,4 @@
+# Publish the iOS artifact of cross-platform Orange Notes; other platforms are managed separately.
 # Requires PowerShell 7+, Git and GitHub CLI. Publishing is explicit; use -DryRun first.
 [CmdletBinding()]
 param(
@@ -29,12 +30,12 @@ $hash = (Get-FileHash -LiteralPath $ipa.FullName -Algorithm SHA256).Hash.ToLower
 $checksumPath = Join-Path $ipa.DirectoryName 'SHA256SUMS.txt'
 if ($notes.FullName -eq $checksumPath) { throw 'Release notes cannot be the generated checksum file.' }
 $releaseArguments = @('release', 'create', $Tag, $ipa.FullName, $checksumPath,
-    '--repo', $Repository, '--verify-tag', '--title', "Orange Notes iOS $Tag",
+    '--repo', $Repository, '--verify-tag', '--title', "Orange Notes $Tag",
     '--notes-file', $notes.FullName)
 if ($Draft) { $releaseArguments += '--draft' }
 if ($DryRun) {
     Write-Output "Validated IPA structure. SHA256: $hash"
-    Write-Output "Would create $Repository release $Tag with IPA, SHA256SUMS.txt and supplied notes."
+    Write-Output "Would create cross-platform Orange Notes release $Tag in $Repository with its iOS IPA, SHA256SUMS.txt and supplied notes."
     Write-Output 'Dry run: no files written and no GitHub request sent.'
     return
 }

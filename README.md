@@ -1,8 +1,21 @@
 # Orange Notes
 
-**Orange Notes — современный open-source менеджер заметок для iOS.** Создавайте и редактируйте заметки без сети, связывайте их через `[[wiki-ссылки]]`, исследуйте граф знаний и синхронизируйте данные с доверенными устройствами.
+**Orange Notes — кроссплатформенное (универсальное) приложение для заметок с открытым исходным кодом.** Создавайте и редактируйте заметки без сети, связывайте их через `[[wiki-ссылки]]`, исследуйте граф знаний и синхронизируйте данные с доверенными устройствами.
 
-Мобильный клиент развивается в `orange_notes_mobile/`. Этот репозиторий также содержит десктопное приложение и общее P2P-ядро. Текущая мобильная версия — **0.2.0**. `v1.0.0` в инструкции публикации — пример будущего первого релиза отдельного iOS-репозитория, а не уже выпущенная версия.
+Проект объединяет Desktop (Windows, Linux, macOS), мобильные клиенты iOS/Android и направление Web. Это общий кроссплатформенный репозиторий: десктопный клиент находится в `app/`, мобильный — в `orange_notes_mobile/`. Текущий релиз — **v0.2.0**; готовность конкретных платформ и пакетов указана ниже.
+
+## Платформы и готовность
+
+| Платформа | Клиент / стек | Доступность |
+|---|---|---|
+| Windows x64 | Python 3.12, PySide6 / Qt6 | Десктопные пакеты предыдущих релизов; исходники в `app/` |
+| Linux x64 | Python 3.12, PySide6 / Qt6 | tar.gz, AppImage, DEB; Flatpak — экспериментальный формат |
+| macOS Intel / Apple Silicon | Python 3.12, PySide6 / Qt6 | Отдельные `.app` / DMG для каждой архитектуры |
+| Android | Flutter / Dart, Kotlin host | Debug APK собран в Mobile CI; установка на физическом устройстве требует проверки |
+| iOS 15+ | Flutter / Dart, Swift / UIKit host | Unsigned IPA в релизе v0.2.0; требуется переподпись |
+| Web | Планируемый браузерный клиент | Web-host, браузерное хранилище и транспорт ещё не реализованы; готовая Web-сборка не заявляется |
+
+Универсальное позиционирование описывает весь продукт. Наличие Flutter не означает, что мобильный код уже работает в браузере: текущие `dart:io`, SQLite и mTLS требуют отдельных Web-адаптеров. Паритет функций между клиентами достигается поэтапно.
 
 ## Возможности
 
@@ -19,14 +32,16 @@ AI Relay пока требует настройки разработчиком. 
 | Слой | Реализация |
 |---|---|
 | Мобильный интерфейс | Flutter / Dart, Material 3, Riverpod |
+| Android-оболочка | Gradle, Kotlin, Android SDK |
 | iOS-оболочка | Xcode Runner, Swift / UIKit, Flutter plugins; iOS 15+ |
 | Данные | sqflite / SQLite, FTS5 с FTS4 и обычным поиском как запасными вариантами |
 | Связи и синхронизация | Wiki-index, LWW-CRDT, UUID, транзакционные очереди |
 | Подключения | mTLS, проверка сертификата и SHA256-отпечатка, отдельные разрешения ИИ |
 | Десктопный узел | Python 3.12 / PySide6, локальный Ollama, проверка Grounding |
-| Автоматизация | GitHub Actions: Flutter analysis/tests, Android APK, unsigned iOS IPA |
+| Web-направление | Браузерный UI и адаптеры хранения/сети — следующий этап; стек готового клиента пока не зафиксирован |
+| Автоматизация | GitHub Actions: Python/Qt на четырёх ОС/архитектурах, Flutter analysis/tests, Android APK, unsigned iOS IPA |
 
-**SwiftUI и React Native не используются.** Основной UI написан на Flutter; Swift служит нативной точкой входа iOS. Мобильная БД — самостоятельная схема с совместимым протоколом синхронизации, а не копия десктопного SQLite-файла.
+**SwiftUI и React Native не используются.** Мобильный UI написан на Flutter, десктопный — на PySide6/Qt; Swift служит нативной точкой входа iOS. Мобильная БД — самостоятельная схема с совместимым протоколом синхронизации, а не копия десктопного SQLite-файла.
 
 ```text
 orange_notes_mobile/
@@ -62,7 +77,38 @@ flutter run -d <DEVICE_ID>
 
 Для iOS Simulator выберите его идентификатор из `flutter devices`. Для физического телефона откройте `ios/Runner.xcworkspace` в Xcode, настройте собственные Team/Bundle ID и подпись; используйте workspace, а не `.xcodeproj`. Windows/Linux подходят для Dart-проверок и Android-разработки, но не для локальной сборки iOS.
 
-### Сборка unsigned IPA на macOS
+### Desktop: запуск и сборка
+
+Из корня репозитория на целевой ОС, с Python 3.12 x64:
+
+```sh
+python -m pip install -r requirements.txt
+python app/main.py
+# Для упаковки:
+python -m pip install -r requirements-build.txt
+python tools/build.py --clean --edition lite
+```
+
+Десктопный упаковщик пока использует версию 0.1.5; наличие мобильного релиза 0.2.0 не переименовывает старые десктопные пакеты автоматически. Подробнее: [дистрибутивы Desktop](DISTRIBUTION.md).
+
+### Android: запуск и тестовый APK
+
+Из `orange_notes_mobile/`, с Android SDK и JDK 17:
+
+```sh
+flutter pub get
+flutter devices
+flutter run
+flutter build apk --debug
+```
+
+APK появляется в `build/app/outputs/flutter-apk/app-debug.apk`. Это тестовая сборка; публикация магазина требует собственной конфигурации release-подписи.
+
+### Web
+
+Готового Web-host в репозитории пока нет. Команда `flutter build web` не является подтверждённым способом сборки Orange Notes; сначала нужны браузерные адаптеры и отдельная квалификация.
+
+### iOS: сборка unsigned IPA на macOS
 
 Из каталога `orange_notes_mobile/`:
 
@@ -78,27 +124,41 @@ shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
 
 Это упаковка неподписанного device-бандла, не подписанный экспорт App Store. Готовые CI-пакеты находятся в артефактах workflow [Mobile analysis and native builds](.github/workflows/mobile-ci.yml). При публикации сопровождающий прикрепляет IPA и SHA256 к GitHub Release.
 
-## Установка приложения (.ipa)
+## Установка и тестирование
+
+### Desktop: Windows, Linux и macOS
+
+В [GitHub Releases](https://github.com/kirill548/OrangeNotes/releases) выберите релиз с нужным платформенным пакетом. Windows: распакуйте ZIP целиком и запустите EXE. Linux: выберите tar.gz/AppImage/DEB по своей системе. macOS: выберите Intel или Apple Silicon и откройте соответствующий `.app`/DMG. Инструкции и ограничения — в [DISTRIBUTION.md](DISTRIBUTION.md). Релиз v0.2.0 содержит iOS-артефакт; десктопные пакеты доступны в предыдущих релизах.
+
+### Android: тестовый APK
+
+Скачайте `OrangeNotes-Android-debug` из успешного [Mobile CI](https://github.com/kirill548/OrangeNotes/actions/runs/38926750683), распакуйте архив и передайте `app-debug.apk` на телефон. Разрешите установку для выбранного источника, затем откройте APK. Пакет тестовый; успешный CI не заменяет ручную проверку на телефоне.
+
+### Web
+
+Публичный браузерный клиент и ссылка для установки PWA пока не опубликованы.
+
+### iOS: установка приложения (.ipa)
 
 1. Откройте [GitHub Releases проекта](https://github.com/kirill548/OrangeNotes/releases), выберите нужную версию и разверните **Assets**.
 2. Скачайте `OrangeNotes-iOS-unsigned.ipa` и `SHA256SUMS.txt`, если они прикреплены. Если IPA в релизе нет, используйте артефакт успешного Mobile CI — старые десктопные релизы не содержат мобильный пакет автоматически.
 3. Сверьте SHA256: на macOS `shasum -a 256 OrangeNotes-iOS-unsigned.ipa`, в PowerShell `Get-FileHash ./OrangeNotes-iOS-unsigned.ipa -Algorithm SHA256`.
 4. Выберите один способ подписи ниже. Простое открытие unsigned IPA на iPhone его не установит.
 
-### AltStore Classic
+#### AltStore Classic
 
 1. Установите AltServer на компьютер и AltStore Classic на iPhone по [официальной инструкции](https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows).
 2. Передайте IPA в «Файлы» на iPhone. Откройте AltStore Classic → **My Apps**, нажмите **+** и выберите IPA; держите AltServer доступным во время установки.
 3. Завершите подпись собственным Apple ID в выбранном инструменте. При запросе iOS подтвердите доверие профилю и включите режим разработчика.
 4. Откройте Orange Notes. Для бесплатного аккаунта нужна периодическая переподпись; AltStore описывает срок 7 дней и обновление через **Refresh All** в [руководстве](https://faq.altstore.io/altstore-classic/your-altstore).
 
-### Sideloadly
+#### Sideloadly
 
 1. Установите [Sideloadly](https://sideloadly.io/) на Windows/macOS. Подготовьте Apple-компоненты по инструкции программы, подключите iPhone по USB и подтвердите доверие компьютеру.
 2. Выберите телефон, добавьте скачанный IPA и укажите собственный Apple ID. Нажмите **Start** и дождитесь завершения подписи и установки.
 3. При необходимости подтвердите профиль в настройках iOS и включите **Developer Mode**. Условия обновления подписи и настройки Wi-Fi описаны в [официальном FAQ](https://sideloadly.io/faq).
 
-### Scarlet
+#### Scarlet
 
 1. Установите Scarlet по инструкции [сайта проекта](https://usescarlet.com/).
 2. Убедитесь, что выбранный способ установки предоставляет действующий сертификат подписи; если требуется, импортируйте собственный сертификат и профиль.
@@ -114,7 +174,7 @@ shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
 - [Архитектура P2P](docs/P2P_SYNC_ARCHITECTURE.md)
 - [Мобильный AI Relay](docs/MOBILE_AI_RELAY.md)
 - [План развития](ROADMAP.md)
-- [Инициализация отдельного репозитория и первый релиз](docs/IOS_REPOSITORY_BOOTSTRAP.md)
+- [Подготовка iOS-артефакта универсального приложения](docs/IOS_REPOSITORY_BOOTSTRAP.md)
 - [Правила для AI-агентов](AGENTS.md)
 
 ## Лицензия

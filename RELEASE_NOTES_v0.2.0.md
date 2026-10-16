@@ -1,6 +1,6 @@
 # Orange Notes v0.2.0
 
-Мобильный клиент Flutter для iOS/Android, локальная работа с заметками, защищённый P2P-прототип и мобильный AI Relay.
+Orange Notes — кроссплатформенное (универсальное) приложение для заметок: Desktop (Windows/Linux/macOS), мобильные клиенты iOS/Android и направление Web. В v0.2.0 добавлены мобильный клиент Flutter, защищённый P2P-прототип и мобильный AI Relay. Web пока не реализован; готовая браузерная сборка не заявляется.
 
 ## Что добавлено
 
@@ -21,9 +21,9 @@
 - Сетевой поднабор: 164 PASS на каждой платформе; эти проверки входят в общую регрессию.
 - Целостность IPA проверена по ZIP CRC и SHA256. Минимальная версия iOS — 15.0; Bundle ID — `org.orangenotes.orangeNotesMobile`, версия — `0.2.0+1`.
 
-## Установка на iPhone
+## iOS-артефакт: установка на iPhone
 
-Скачайте `OrangeNotes-iOS-unsigned.ipa` и `SHA256SUMS.txt` из Assets этого релиза. Сверьте SHA256, затем подпишите и установите пакет через AltStore Classic или Sideloadly по [инструкции README](https://github.com/kirill548/OrangeNotes/tree/v0.2.0#установка-приложения-ipa).
+Скачайте `OrangeNotes-iOS-unsigned.ipa` и `SHA256SUMS.txt` из Assets этого релиза. Сверьте SHA256, затем подпишите и установите пакет через AltStore Classic или Sideloadly по [инструкции README](https://github.com/kirill548/OrangeNotes/blob/main/README.md#ios-установка-приложения-ipa).
 
 IPA **не подписан**: прямое открытие файла не устанавливает приложение. Для переподписи используется собственный Apple ID и действуют ограничения выбранного инструмента и аккаунта. Это не TestFlight и не публикация в App Store.
 
