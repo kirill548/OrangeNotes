@@ -1,40 +1,101 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+*.iml
+*.swp
+*.swo
+
+# Python / desktop
 __pycache__/
 *.py[cod]
 .venv/
-build/
-dist/
-runtime/
-*.sqlite*
-*.db
-*.db-*
-*.log
-worker_status.json
-*.lock
-.env
-.env.*
-*_preview.png
-preview.png
-notes-export*/
-.DS_Store
-Thumbs.db
-
-# Local verification fixtures, downloaded dependencies and user/runtime state
-work/
+venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Flutter / Dart / Android
+.dart_tool/
+.pub-cache/
+.pub/
+.flutter-plugins
+.flutter-plugins-dependencies
+.flutter-plugins-dependencies.*
+.gradle/
+local.properties
+.cxx/
+.externalNativeBuild/
+*.apk
+*.aab
+*.symbols
+*.map.json
+
+# iOS / Xcode / Swift package cache
+.build/
+DerivedData/
+Pods/
+.symlinks/
+.swiftpm/
+xcuserdata/
+*.xcuserstate
+*.mode1v3
+*.mode2v3
+*.pbxuser
+*.perspectivev3
+*.xcarchive/
+*.dSYM/
+*.dSYM.zip
+*.ipa
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Flutter/Flutter.framework/
+**/ios/Flutter/App.framework/
+**/ios/Flutter/Flutter.podspec
+**/ios/Runner/GeneratedPluginRegistrant.*
+# Keep project.pbxproj, shared schemes, workspace contents and dependency locks.
+
+# Build / verification output
+build/
+dist/
+coverage/
+runtime/
+work/
+outputs/
+*.log
+worker_status.json
+*_preview.png
+preview.png
+notes-export*/
+
+# Private configuration / signing / local data
+.env
+.env.*
+!.env.example
+*.p8
+*.p12
+*.pfx
+*.pem
+*.key
+*.mobileprovision
+*.provisionprofile
+*.jks
+*.keystore
+key.properties
+ExportOptions.local.plist
+*.sqlite*
+*.db
+*.db-*
+ai_benchmark_live.json
+
+# Portable engines, model weights and private settings
+/ai/
+/stt/
 *.gguf
 *.onnx
 *.safetensors
-*.pfx
-*.p12
-*.pem
-*.key
-# Live benchmark outputs may contain private prompts/context
-ai_benchmark_live.json
-
-# Portable downloaded engines, model weights and private AI configuration
-/ai/
-/stt/
+# App dependency lockfiles (pubspec.lock, Podfile.lock, Package.resolved) stay tracked.
