@@ -1,7 +1,7 @@
-name: v0.2.0 P2P network regression
+name: Cross-platform stability and P2P regression
 on:
   push:
-    branches: [v0.2.0-dev]
+    branches: [main, v0.2.0-dev]
   pull_request:
   workflow_dispatch:
 permissions:

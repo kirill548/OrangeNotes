@@ -9,7 +9,7 @@ import plistlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_VERSION = '0.1.5'
+APP_VERSION = '0.2.1'
 
 
 def bundle_directory(target=None, output_directory=None):

@@ -184,7 +184,7 @@ class STTManager:
 
     def _download(self, specification, target, cancelled, progress, offset, total):
         _validate_url(specification['url'])
-        request = urllib.request.Request(specification['url'], headers={'User-Agent': 'OrangeNotes-STT/0.1.4'})
+        request = urllib.request.Request(specification['url'], headers={'User-Agent': 'OrangeNotes-STT/0.2.1'})
         opener = urllib.request.build_opener(_Redirect())
         digest = hashlib.sha256()
         size = 0

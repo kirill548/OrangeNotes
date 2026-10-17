@@ -78,110 +78,112 @@ class PairingScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Синхронизация')),
-    body: AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) => ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Text(
-            controller.status,
-            semanticsLabel: 'Статус синхронизации: ${controller.status}',
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Заметки доступны без сети. Для обмена подключите доверенное устройство в той же локальной сети.',
-          ),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: () async {
-              try {
-                await controller.importIdentity();
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Не удалось подключить сертификат: $e'),
-                    ),
-                  );
-                }
-              }
-            },
-            icon: const Icon(Icons.verified_user_outlined),
-            label: const Text('Подключить сертификат устройства'),
-          ),
-          const SizedBox(height: 8),
-          FilledButton.icon(
-            onPressed: () => _scan(context),
-            icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('Сканировать QR-код'),
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'Доверенные устройства',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          if (controller.devices.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Text('Устройства ещё не подключены.'),
+    body: SafeArea(
+      child: AnimatedBuilder(
+        animation: controller,
+        builder: (context, _) => ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            Text(
+              controller.status,
+              semanticsLabel: 'Статус синхронизации: ${controller.status}',
             ),
-          for (final device in controller.devices)
-            ListTile(
-              title: Text(device.name),
-              subtitle: Text(
-                device.fingerprint,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              onTap: () async {
+            const SizedBox(height: 16),
+            const Text(
+              'Заметки доступны без сети. Для обмена подключите доверенное устройство в той же локальной сети.',
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: () async {
                 try {
-                  await controller.syncNow(device.actorId);
+                  await controller.importIdentity();
                 } catch (e) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Обмен не завершён: $e')),
+                      SnackBar(
+                        content: Text('Не удалось подключить сертификат: $e'),
+                      ),
                     );
                   }
                 }
               },
-              trailing: IconButton(
-                tooltip: 'Отключить устройство',
-                icon: const Icon(Icons.link_off),
-                onPressed: () async {
-                  final yes = await showDialog<bool>(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: const Text('Отключить устройство?'),
-                      content: const Text(
-                        'Новые изменения больше не будут передаваться этому устройству. Уже полученные копии заметок останутся на нём.',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context, false),
-                          child: const Text('Отмена'),
-                        ),
-                        FilledButton(
-                          onPressed: () => Navigator.pop(context, true),
-                          child: const Text('Отключить'),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (yes == true) {
-                    try {
-                      await controller.revoke(device.actorId);
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Не удалось отключить: $e')),
-                        );
-                      }
+              icon: const Icon(Icons.verified_user_outlined),
+              label: const Text('Подключить сертификат устройства'),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              onPressed: () => _scan(context),
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text('Сканировать QR-код'),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Доверенные устройства',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            if (controller.devices.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Text('Устройства ещё не подключены.'),
+              ),
+            for (final device in controller.devices)
+              ListTile(
+                title: Text(device.name),
+                subtitle: Text(
+                  device.fingerprint,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () async {
+                  try {
+                    await controller.syncNow(device.actorId);
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Обмен не завершён: $e')),
+                      );
                     }
                   }
                 },
+                trailing: IconButton(
+                  tooltip: 'Отключить устройство',
+                  icon: const Icon(Icons.link_off),
+                  onPressed: () async {
+                    final yes = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Отключить устройство?'),
+                        content: const Text(
+                          'Новые изменения больше не будут передаваться этому устройству. Уже полученные копии заметок останутся на нём.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('Отмена'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('Отключить'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (yes == true) {
+                      try {
+                        await controller.revoke(device.actorId);
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Не удалось отключить: $e')),
+                          );
+                        }
+                      }
+                    }
+                  },
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     ),
   );

@@ -2,6 +2,8 @@
 
 Статус: инфраструктура сборки подготовлена. Наличие workflow не означает успешную сборку, подпись, загрузку в TestFlight или проверку на физическом iPhone. Результаты конкретного запуска фиксируются отдельно.
 
+Для Stability & Hardening Update v0.2.1 требуется новый артефакт с версией **0.2.1+2**, собранный из релизного коммита с исправлениями стресс-аудита. IPA v0.2.0 повторно не используется. Перед публикацией проверяются Info.plist, ZIP CRC и SHA256; результат CI и сумма указываются в описании релиза.
+
 ## Без аккаунта Apple Developer
 
 Workflow [mobile-ci.yml](../.github/workflows/mobile-ci.yml) на `macos-latest` выполняет `flutter build ios --release --no-codesign`. Затем помещает `Runner.app` в `Payload/` и создаёт `OrangeNotes-iOS-unsigned.ipa` с SHA256. Это сборка для устройства, а не симулятора.

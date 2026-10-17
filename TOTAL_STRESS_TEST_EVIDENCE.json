@@ -1,0 +1,236 @@
+{
+  "date": "2026-10-17",
+  "base_commit": "6663301",
+  "published_release_changed": false,
+  "flutter": {
+    "passed": 94,
+    "failed": 0,
+    "analyze": "PASS"
+  },
+  "python": {
+    "passed": 1421,
+    "skipped": 13,
+    "failed": 0,
+    "subtests_passed": 1341,
+    "warnings": 1,
+    "pytest_seconds": 147.44,
+    "exit_code": 0,
+    "elapsed_seconds": 148.06200000000013
+  },
+  "core": [
+    {
+      "kind": "notes",
+      "rows": 50000,
+      "fk_errors": 0,
+      "integrity": "ok",
+      "read_rows": 50000,
+      "read_all_seconds": 0.06981680000080814,
+      "elapsed_seconds": 95.14168340000015,
+      "database_bytes": 16113336
+    },
+    {
+      "kind": "large",
+      "stored_bytes": 105906176,
+      "plain_bytes": 105906176,
+      "integrity": "ok",
+      "elapsed_seconds": 0.9347293999999238,
+      "database_bytes": 213274864
+    },
+    {
+      "kind": "parallel",
+      "writes": 1000,
+      "fk_errors": 0,
+      "integrity": "ok",
+      "elapsed_seconds": 1.0580400999997437,
+      "writes_per_second": 945.1437615646536,
+      "database_bytes": 163920
+    },
+    {
+      "kind": "markdown",
+      "characters": 46029,
+      "height": 46123.0,
+      "emoji_preserved": true,
+      "elapsed_seconds": 0.40507369999977527,
+      "execution": "separate escalated rerun; initial dependency ACL failure"
+    },
+    {
+      "kind": "seeded",
+      "seed_method": "raw SQLite executemany, actual Store schema",
+      "rows": 50000,
+      "read_rows": 50000,
+      "read_all_seconds": 0.039953800000148476,
+      "ten_real_api_renames_seconds": 3.8483697000001484,
+      "integrity": "ok",
+      "fk_errors": 0,
+      "elapsed_seconds": 4.471685999999863
+    },
+    {
+      "kind": "seeded_after_patch",
+      "rows": 50000,
+      "read_all_seconds": 0.04543850000027305,
+      "ten_real_api_renames_seconds": 0.9601606999995056,
+      "integrity": "ok",
+      "fk_errors": 0,
+      "elapsed_seconds": 1.4777647999999317,
+      "comparison": "3.84837s before / 0.96016s after = 4.008x; short synthetic samehost no repeated statistical CI"
+    }
+  ],
+  "resources": {
+    "nodes": 1000,
+    "edges": 4000,
+    "cycles": 30,
+    "warmup_cycles": 3,
+    "wall_seconds": 3.85614170000008,
+    "cpu_seconds": 3.421875,
+    "traced_peak_bytes": 2264593,
+    "samples": [
+      {
+        "rss_bytes": 66387968,
+        "handles_or_fds": 288,
+        "unavailable_reason": null,
+        "cycles": 10,
+        "traced_bytes": 295493,
+        "live_views": 0,
+        "live_child_threads": 0
+      },
+      {
+        "rss_bytes": 70389760,
+        "handles_or_fds": 288,
+        "unavailable_reason": null,
+        "cycles": 20,
+        "traced_bytes": 725154,
+        "live_views": 0,
+        "live_child_threads": 0
+      },
+      {
+        "rss_bytes": 72462336,
+        "handles_or_fds": 288,
+        "unavailable_reason": null,
+        "cycles": 30,
+        "traced_bytes": 740451,
+        "live_views": 0,
+        "live_child_threads": 0
+      }
+    ],
+    "scope": "Qt offscreen synthetic lifecycle; not a device soak or proof of zero native leaks"
+  },
+  "large_backup": {
+    "backup_bytes": 106131456,
+    "backup_seconds": 0.25002300000051036,
+    "validation": "PASS",
+    "body_bytes": 105906176,
+    "scope": "actual Store.backup_to / validate_backup; synthetic disk file, not generic text import",
+    "temporary_files_removed": true
+  },
+  "finding_counts": {
+    "CRITICAL": 0,
+    "HIGH": 5,
+    "MEDIUM": 9,
+    "LOW": 2,
+    "fixed": 11,
+    "open_limitations": 5
+  },
+  "scope_exclusions": [
+    "physical phones",
+    "new Linux/macOS CI",
+    "Web client absent",
+    "real power loss",
+    "live LLM/STT",
+    "multiday soak"
+  ],
+  "cleanup": {
+    "Removed": [
+      {
+        "Path": "work/total-stress/backup-final",
+        "Bytes": 17117184.0
+      },
+      {
+        "Path": "work/total-stress/backup-fixed",
+        "Bytes": 19317367.0
+      },
+      {
+        "Path": "work/total-stress/backup-tmp",
+        "Bytes": 1851392.0
+      },
+      {
+        "Path": "work/total-stress/core-pytest",
+        "Bytes": 368640.0
+      },
+      {
+        "Path": "work/total-stress/core-pytest-final",
+        "Bytes": 2457600.0
+      },
+      {
+        "Path": "work/total-stress/core-pytest-fixed",
+        "Bytes": 2457600.0
+      },
+      {
+        "Path": "work/total-stress/full-regression",
+        "Bytes": 4121403.0
+      },
+      {
+        "Path": "work/total-stress/full-regression-stable",
+        "Bytes": 41920857.0
+      },
+      {
+        "Path": "work/total-stress/large-guard",
+        "Bytes": 4231168.0
+      },
+      {
+        "Path": "work/total-stress/resource-pytest",
+        "Bytes": 827392.0
+      },
+      {
+        "Path": "work/total-stress/security-final",
+        "Bytes": 3473408.0
+      },
+      {
+        "Path": "work/total-stress/security-fixed",
+        "Bytes": 3473408.0
+      },
+      {
+        "Path": "work/total-stress/security-sync-regression",
+        "Bytes": 23503479.0
+      },
+      {
+        "Path": "work/total-stress/security-tmp",
+        "Bytes": 3104768.0
+      },
+      {
+        "Path": "work/total-stress/sync-independent-tmp",
+        "Bytes": 1781760.0
+      },
+      {
+        "Path": "orange_notes_mobile/build",
+        "Bytes": 73643698.0
+      },
+      {
+        "Path": "orange_notes_mobile/.dart_tool",
+        "Bytes": 25312523.0
+      }
+    ],
+    "Skipped": []
+  },
+  "native_crash": {
+    "before": "0xc0000374 / 3221226356",
+    "scope": "Qt teardown late startup tick",
+    "focused_after_passed": 35,
+    "final_full_run_reproduced": false
+  },
+  "patch_sha256": "f7de0d0e20a9cefbb910fbdd6124bd585f37aaea12b7f326fcebf12ae276b5bd",
+  "cleanup_final": [
+    {
+      "Name": "full-regression-final",
+      "Bytes": 62021085.0
+    },
+    {
+      "Name": "lifecycle-final",
+      "Bytes": 17309696.0
+    },
+    {
+      "Name": "large-threshold-fixed",
+      "Bytes": 16248832.0
+    }
+  ],
+  "cleanup_measured_mib": 309.5
+}

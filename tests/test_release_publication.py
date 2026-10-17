@@ -68,7 +68,7 @@ class CandidateProvenanceTests(unittest.TestCase):
             records = [{'file': p.name, 'size': p.stat().st_size,
                         'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p in files]
             (folder / 'CANDIDATE_MANIFEST.json').write_text(json.dumps(
-                {'version': '0.1.5', 'source_commit': commit, 'packages': records}), encoding='utf-8')
+                {'version': '0.2.1', 'source_commit': commit, 'packages': records}), encoding='utf-8')
 
     def test_exact_candidate_manifests_recorded_in_global_checksums(self):
         with tempfile.TemporaryDirectory() as tmp:

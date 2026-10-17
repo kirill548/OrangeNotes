@@ -25,7 +25,7 @@ def main():
             for chunk in iter(lambda:stream.read(1024*1024),b''):
                 digest.update(chunk)
         records.append({'file':path.name,'size':path.stat().st_size,'sha256':digest.hexdigest()})
-    manifest={'version':'0.1.5','status':'candidate','source_commit':args.commit.lower(),
+    manifest={'version':'0.2.1','status':'candidate','source_commit':args.commit.lower(),
               'os':platform.system(),'architecture':platform.machine(),'packages':records,
               'live_llm_qualified':False,'release_published':False}
     (args.directory/'CANDIDATE_MANIFEST.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')

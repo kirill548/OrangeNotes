@@ -6,7 +6,7 @@ from app.utils.shortcuts import shortcut as native_shortcut
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap, QTextCharFormat, QTextCursor, QTextDocument, QShortcut, QKeySequence
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QListWidget, QListWidgetItem, QLineEdit, QTextEdit, QLabel, QPushButton, QComboBox, QCheckBox, QToolBar, QSystemTrayIcon, QMenu, QMessageBox, QInputDialog, QDialog, QFileDialog)
 from app.services.scheduler import Scheduler, next_occurrence
-from app.database.store import Store
+from app.database.store import Store, plain_body
 from app.ui.reminders import ReminderDialog
 from app.ui.design import build, card
 from app.ui.icons import icon, note_symbol
@@ -14,11 +14,21 @@ from app.services.day_focus import DayFocus
 from app.utils.timezones import utc_stamp, event_due_local, event_scheduled_local, device_zone
 
 
+# Display safety threshold only: original data remains intact in SQLite/backups.
+MAX_RICH_DOCUMENT_CHARS = 8_000_000
+LARGE_DOCUMENT_PREVIEW_CHARS = 4096
+
+
+def large_document_preview(body):
+    return plain_body(body[:LARGE_DOCUMENT_PREVIEW_CHARS])[:240] + ' · Большая заметка'
+
+
 class Window(QMainWindow):
     def event(self, event):
         # deleteLater() may bypass closeEvent (tests, parent teardown).
         # Join child workers before Qt destroys their QThread wrappers.
         if event.type() == QEvent.Type.DeferredDelete and hasattr(self, 'knowledge_indexer'):
+            self._stop_window_timers()
             self.stop_knowledge_workers()
         return super().event(event)
 
@@ -289,15 +299,22 @@ class Window(QMainWindow):
             if kind=='today' and (not upcoming or upcoming.date()>datetime.now().date()): continue
             if self.filter.currentIndex()==1 and not upcoming: continue
             if self.filter.currentIndex()==2 and row['folder_id'] is not None: continue
+            oversized = len(row['body']) > MAX_RICH_DOCUMENT_CHARS
             cached=self._plain_cache.get(row['id'])
-            if cached and cached[0]==row['body']:
+            if oversized:
+                # Do not construct a huge QTextDocument merely to draw a card.
+                plain = large_document_preview(row['body'])
+            elif cached and cached[0]==row['body']:
                 plain=cached[1]
             else:
                 doc=QTextDocument()
                 doc.setHtml(row['body'])
                 plain=doc.toPlainText()
                 self._plain_cache[row['id']]=(row['body'],plain)
-            if query and query not in (row['title']+' '+plain).casefold(): continue
+            if query:
+                # Preserve full visible-text search semantics without Qt layout.
+                search_body = plain_body(row['body']) if oversized else plain
+                if query not in (row['title']+' '+search_body).casefold(): continue
             reminder_text = self.event_text(events[row['id']]) if row['id'] in events else self.schedule_text(r) if upcoming else ''
             entries.append((row,plain,reminder_text,upcoming))
         self.notes.blockSignals(True)
@@ -378,6 +395,19 @@ class Window(QMainWindow):
             self.refresh_list()
 
     def load_note(self,note_id):
+        size = self.store.rows('SELECT length(body) FROM notes WHERE id=?', (note_id,))
+        if size and size[0][0] > MAX_RICH_DOCUMENT_CHARS:
+            # Reject before changing current/dirty state or inserting any text;
+            # a shortened preview must never be autosaved over the original.
+            self.notes.blockSignals(True)
+            selected = next((self.notes.item(i) for i in range(self.notes.count())
+                             if self.notes.item(i).data(Qt.UserRole) == self.current), None)
+            self.notes.setCurrentItem(selected)
+            self.notes.blockSignals(False)
+            QMessageBox.warning(self, 'Большая заметка',
+                                'Эта заметка слишком большая для безопасного открытия в редакторе. '
+                                'Исходный текст сохранён полностью. Вы можете сохранить резервную копию базы.')
+            return False
         if self.panel:
             self.panel.hide()
         rows = self.store.rows('SELECT * FROM notes WHERE id=?',(note_id,))
@@ -1300,6 +1330,8 @@ class Window(QMainWindow):
         self.refresh_list()
 
     def tick(self):
+        if self.quitting or getattr(self, '_shutdown_started', False):
+            return
         try:
             if not self.background_managed:
                 self.scheduler.tick()
@@ -1370,6 +1402,16 @@ class Window(QMainWindow):
         self.raise_()
         self.activateWindow()
 
+    def _stop_window_timers(self):
+        self._shutdown_started = True
+        for name in ('clock', 'debounce', 'startup_tick'):
+            timer = getattr(self, name, None)
+            if timer is not None:
+                timer.stop()
+        monitor = getattr(self, 'ai_hardware_monitor', None)
+        if monitor is not None:
+            monitor.stop()
+
     def quit(self):
         if not self.close_reminder_panel(): return
         if not self.save(): return
@@ -1383,6 +1425,7 @@ class Window(QMainWindow):
             self.preferences.setValue('geometry',self.saveGeometry())
             self.preferences.setValue('splitter',self.splitter.saveState())
         self.tray.hide()
+        self._stop_window_timers()
         self.stop_knowledge_workers()
         QApplication.instance().quit()
 
@@ -1408,6 +1451,6 @@ class Window(QMainWindow):
                 event.ignore()
                 self.quit()
                 return
-            self.ai_hardware_monitor.stop()
+            self._stop_window_timers()
             self.stop_knowledge_workers()
             event.accept()

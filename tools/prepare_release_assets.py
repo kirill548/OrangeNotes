@@ -25,7 +25,7 @@ def verified_manifest(folder, packages, commit):
     if len(manifest_files) != 1:
         raise ValueError('Ambiguous candidate manifests: ' + folder.name)
     manifest = json.loads(manifest_files[0].read_text(encoding='utf-8'))
-    if manifest.get('version') != '0.1.5' or manifest.get('source_commit') != commit:
+    if manifest.get('version') != '0.2.1' or manifest.get('source_commit') != commit:
         raise ValueError('Candidate source/version mismatch: ' + folder.name)
     records = manifest.get('packages')
     if not isinstance(records, list):
@@ -66,7 +66,7 @@ def prepare(downloads, destination, commit=None):
         if not any(p.name.endswith(suffix) for p in linux.rglob("OrangeNotes-*")):
             raise ValueError("Missing Linux release format: " + suffix)
     if commit is not None:
-        provenance = {'version': '0.1.5', 'source_commit': commit,
+        provenance = {'version': '0.2.1', 'source_commit': commit,
                       'native_build_manifests': manifests}
         (destination / 'RELEASE_PROVENANCE.json').write_text(
             json.dumps(provenance, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

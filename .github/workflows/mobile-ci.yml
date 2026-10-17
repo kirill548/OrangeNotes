@@ -1,7 +1,7 @@
 name: Mobile analysis and native builds
 on:
   push:
-    branches: [v0.2.0-dev]
+    branches: [main, v0.2.0-dev]
     paths: ['orange_notes_mobile/**', 'tools/mobile_protocol_fixtures.py', 'tools/mobile_interop_smoke.py', 'app/services/p2p_transport.py', 'app/services/p2p_sync.py', 'app/services/p2p_ai_protocol.py', 'app/services/p2p_ai_backend.py', 'tests/test_mobile_ai_relay.py', 'tools/mobile_ai_interop_smoke.py', 'requirements-network*.txt', '.github/workflows/mobile-ci.yml']
   pull_request:
     paths: ['orange_notes_mobile/**', 'tools/mobile_protocol_fixtures.py', 'tools/mobile_interop_smoke.py', 'app/services/p2p_transport.py', 'app/services/p2p_sync.py', 'app/services/p2p_ai_protocol.py', 'app/services/p2p_ai_backend.py', 'tests/test_mobile_ai_relay.py', 'tools/mobile_ai_interop_smoke.py', 'requirements-network*.txt', '.github/workflows/mobile-ci.yml']

@@ -49,8 +49,8 @@ class ReleasePackagingTests(unittest.TestCase):
         self.module.prepare_bundle(folder, 'darwin')
         metadata = plistlib.loads(plist.read_bytes())
         self.assertEqual(metadata['CFBundleIdentifier'], 'org.orangenotes.desktop')
-        self.assertEqual(metadata['CFBundleVersion'], '0.1.5')
-        self.assertEqual(metadata['CFBundleShortVersionString'], '0.1.5')
+        self.assertEqual(metadata['CFBundleVersion'], '0.2.1')
+        self.assertEqual(metadata['CFBundleShortVersionString'], '0.2.1')
         self.assertIn('Микрофон', metadata['NSMicrophoneUsageDescription'])
 
     def test_32_bit_runtime_rejected_before_any_build(self):

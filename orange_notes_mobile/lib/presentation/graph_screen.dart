@@ -14,7 +14,7 @@ class GraphScreen extends StatefulWidget {
 }
 
 class _GraphScreenState extends State<GraphScreen> {
-  late Future<(List<NoteRecord>, List<Map<String, Object?>>)> _graph;
+  late Future<(List<NoteRecord>, List<Map<String, Object?>>, int)> _graph;
   final _transform = TransformationController();
   @override
   void initState() {
@@ -26,8 +26,8 @@ class _GraphScreenState extends State<GraphScreen> {
     _graph = _load();
   }
 
-  Future<(List<NoteRecord>, List<Map<String, Object?>>)> _load() async =>
-      (await widget.store.listNotes(), await widget.store.graph());
+  Future<(List<NoteRecord>, List<Map<String, Object?>>, int)> _load() =>
+      widget.store.graphPreview();
   @override
   void dispose() {
     _transform.dispose();
@@ -46,114 +46,122 @@ class _GraphScreenState extends State<GraphScreen> {
         ),
       ],
     ),
-    body: FutureBuilder<(List<NoteRecord>, List<Map<String, Object?>>)>(
-      future: _graph,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const Center(child: Text('Не удалось построить граф.'));
-        }
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final (notes, edges) = snapshot.data!;
-        if (notes.isEmpty) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                'Создайте заметки и свяжите их через [[Название заметки]]. Здесь появится граф связей.',
+    body: SafeArea(
+      child: FutureBuilder<(List<NoteRecord>, List<Map<String, Object?>>, int)>(
+        future: _graph,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return const Center(child: Text('Не удалось построить граф.'));
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final (notes, edges, total) = snapshot.data!;
+          if (notes.isEmpty) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'Создайте заметки и свяжите их через [[Название заметки]]. Здесь появится граф связей.',
+                ),
               ),
-            ),
-          );
-        }
-        // Bound the first view to keep hit targets and painting responsive on phones.
-        final shown = notes.take(300).toList();
-        final side = math.max(800.0, math.sqrt(shown.length) * 100);
-        final positions = _layout(shown, edges, side);
-        return Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                shown.length < notes.length
-                    ? 'Показаны первые ${shown.length} из ${notes.length} заметок. Увеличивайте двумя пальцами; нажмите узел, чтобы открыть.'
-                    : 'Увеличивайте двумя пальцами и перемещайте граф. Нажмите узел, чтобы открыть заметку.',
+            );
+          }
+          // Bound the first view to keep hit targets and painting responsive on phones.
+          final shown = notes.take(300).toList();
+          final side = math.max(800.0, math.sqrt(shown.length) * 100);
+          final positions = _layout(shown, edges, side);
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  shown.length < total
+                      ? 'Показаны первые ${shown.length} из $total заметок. Увеличивайте двумя пальцами; нажмите узел, чтобы открыть.'
+                      : 'Увеличивайте двумя пальцами и перемещайте граф. Нажмите узел, чтобы открыть заметку.',
+                ),
               ),
-            ),
-            Expanded(
-              child: InteractiveViewer(
-                transformationController: _transform,
-                constrained: false,
-                minScale: .2,
-                maxScale: 4,
-                boundaryMargin: const EdgeInsets.all(200),
-                child: SizedBox(
-                  width: side,
-                  height: side,
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: CustomPaint(
-                          painter: _EdgePainter(
-                            positions,
-                            edges,
-                            Theme.of(context).colorScheme.outlineVariant,
+              Expanded(
+                child: InteractiveViewer(
+                  transformationController: _transform,
+                  constrained: false,
+                  minScale: .2,
+                  maxScale: 4,
+                  boundaryMargin: const EdgeInsets.all(200),
+                  child: SizedBox(
+                    width: side,
+                    height: side,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: CustomPaint(
+                            painter: _EdgePainter(
+                              positions,
+                              edges,
+                              Theme.of(context).colorScheme.outlineVariant,
+                            ),
                           ),
                         ),
-                      ),
-                      for (final note in shown)
-                        Positioned(
-                          left: positions[note.id]!.dx - 56,
-                          top: positions[note.id]!.dy - 28,
-                          width: 112,
-                          height: 56,
-                          child: Semantics(
-                            button: true,
-                            label: 'Открыть ${note.title}',
-                            child: Material(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .primaryContainer,
-                              borderRadius: BorderRadius.circular(28),
-                              child: InkWell(
+                        for (final note in shown)
+                          Positioned(
+                            left: positions[note.id]!.dx - 56,
+                            top: positions[note.id]!.dy - 28,
+                            width: 112,
+                            height: 56,
+                            child: Semantics(
+                              button: true,
+                              label: 'Открыть ${note.title}',
+                              child: Material(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primaryContainer,
                                 borderRadius: BorderRadius.circular(28),
-                                onTap: () async {
-                                  await Navigator.push(
-                                    context,
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => NoteEditor(
-                                        store: widget.store,
-                                        note: note,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(28),
+                                  onTap: () async {
+                                    final fullNote = await widget.store.getNote(
+                                      note.id,
+                                    );
+                                    if (!context.mounted || fullNote == null) {
+                                      return;
+                                    }
+                                    await Navigator.push(
+                                      context,
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => NoteEditor(
+                                          store: widget.store,
+                                          note: fullNote,
+                                        ),
                                       ),
-                                    ),
-                                  );
-                                  if (mounted) setState(_reload);
-                                },
-                                child: Padding(
-                                  padding: const EdgeInsets.all(8),
-                                  child: Center(
-                                    child: Text(
-                                      note.title.isEmpty
-                                          ? 'Без названия'
-                                          : note.title,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
+                                    );
+                                    if (mounted) setState(_reload);
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8),
+                                    child: Center(
+                                      child: Text(
+                                        note.title.isEmpty
+                                            ? 'Без названия'
+                                            : note.title,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.center,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
-        );
-      },
+            ],
+          );
+        },
+      ),
     ),
   );
 }

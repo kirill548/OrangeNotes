@@ -28,6 +28,8 @@ class _AiChatScreenState extends State<AiChatScreen> {
   StreamSubscription<AiEvent>? _subscription;
   AiContext? _attached;
   bool _busy = false;
+  bool _historyTrimmed = false;
+  static const _maxMessages = 100;
   int _generation = 0;
   String _status = 'Готов к запросу';
 
@@ -67,6 +69,10 @@ class _AiChatScreenState extends State<AiChatScreen> {
       _busy = true;
       _status = 'Подключаюсь…';
       _messages.addAll([_ChatMessage(true, prompt), answer]);
+      if (_messages.length > _maxMessages) {
+        _messages.removeRange(0, _messages.length - _maxMessages);
+        _historyTrimmed = true;
+      }
       _input.clear();
     });
     _reveal();
@@ -149,106 +155,157 @@ class _AiChatScreenState extends State<AiChatScreen> {
     super.dispose();
   }
 
+  Widget _compactInput() => Row(
+    children: [
+      if (_attached != null)
+        IconButton(
+          tooltip: 'Убрать прикреплённую заметку: ${_attached!.title}',
+          onPressed: _busy ? null : () => setState(() => _attached = null),
+          icon: const Icon(Icons.attach_file),
+        ),
+      Expanded(
+        child: TextField(
+          controller: _input,
+          maxLines: 1,
+          decoration: const InputDecoration(hintText: 'Ваш вопрос'),
+        ),
+      ),
+      IconButton(
+        tooltip: _busy ? 'Остановить ответ' : 'Отправить',
+        onPressed: _busy ? _stop : _send,
+        icon: Icon(_busy ? Icons.stop : Icons.send),
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Помощник')),
     body: SafeArea(
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: Semantics(liveRegion: true, child: Text(_status)),
-          ),
-          if (_attached != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: InputChip(
-                avatar: const Icon(Icons.description_outlined),
-                label: Text(
-                  _attached!.title.isEmpty ? 'Без названия' : _attached!.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxHeight < 300;
+          if (constraints.maxHeight < 100) {
+            return SingleChildScrollView(
+              child: SizedBox(height: 100, child: _compactInput()),
+            );
+          }
+          return Column(
+            children: [
+              if (!compact)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: Semantics(liveRegion: true, child: Text(_status)),
                 ),
-                deleteButtonTooltipMessage: 'Убрать заметку из запроса',
-                onDeleted: _busy
-                    ? null
-                    : () => setState(() => _attached = null),
-              ),
-            ),
-          Expanded(
-            child: _messages.isEmpty
-                ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text(
-                        'Задайте вопрос. Прикреплённая заметка будет отправлена только доверенному компьютеру. Без подключения доступен локальный поиск. Помощник не изменяет заметки.',
-                      ),
+              if (!compact && _historyTrimmed)
+                const Text(
+                  'Показаны последние 100 сообщений. Заметки не изменены.',
+                ),
+              if (!compact && _attached != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: InputChip(
+                    avatar: const Icon(Icons.description_outlined),
+                    label: Text(
+                      _attached!.title.isEmpty
+                          ? 'Без названия'
+                          : _attached!.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  )
-                : ListView.builder(
-                    controller: _scroll,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _messages.length,
-                    itemBuilder: (context, index) {
-                      final message = _messages[index];
-                      return Card(
-                        color: message.user
-                            ? Theme.of(context).colorScheme.secondaryContainer
-                            : null,
+                    deleteButtonTooltipMessage: 'Убрать заметку из запроса',
+                    onDeleted: _busy
+                        ? null
+                        : () => setState(() => _attached = null),
+                  ),
+                ),
+              Expanded(
+                child: _messages.isEmpty
+                    ? const Center(
                         child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                message.user
-                                    ? 'Вы'
-                                    : (message.localSearch
-                                          ? 'Результаты поиска · на телефоне'
-                                          : 'Помощник'),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              SelectableText(
-                                message.text.isEmpty ? '…' : message.text,
-                              ),
-                            ],
+                          padding: EdgeInsets.all(24),
+                          child: Text(
+                            'Задайте вопрос. Прикреплённая заметка будет отправлена только доверенному компьютеру. Без подключения доступен локальный поиск. Помощник не изменяет заметки.',
                           ),
                         ),
-                      );
-                    },
-                  ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _input,
-                    minLines: 1,
-                    maxLines: 5,
-                    maxLength: 8192,
-                    decoration: const InputDecoration(
-                      hintText: 'Ваш вопрос',
-                      counterText: '',
-                      border: OutlineInputBorder(),
+                      )
+                    : ListView.builder(
+                        controller: _scroll,
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _messages.length,
+                        itemBuilder: (context, index) {
+                          final message = _messages[index];
+                          return Card(
+                            color: message.user
+                                ? Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer
+                                : null,
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    message.user
+                                        ? 'Вы'
+                                        : (message.localSearch
+                                              ? 'Результаты поиска · на телефоне'
+                                              : 'Помощник'),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  SelectableText(
+                                    message.text.isEmpty ? '…' : message.text,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              Padding(
+                padding: EdgeInsets.all(compact ? 0 : 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (compact && _attached != null)
+                      IconButton(
+                        tooltip:
+                            'Убрать прикреплённую заметку: ${_attached!.title}',
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() => _attached = null),
+                        icon: const Icon(Icons.attach_file),
+                      ),
+                    Expanded(
+                      child: TextField(
+                        controller: _input,
+                        minLines: 1,
+                        maxLines: compact ? 1 : 5,
+                        maxLength: 8192,
+                        decoration: const InputDecoration(
+                          hintText: 'Ваш вопрос',
+                          counterText: '',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      tooltip: _busy ? 'Остановить ответ' : 'Отправить',
+                      onPressed: _busy ? _stop : _send,
+                      icon: Icon(_busy ? Icons.stop : Icons.send),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                IconButton.filled(
-                  tooltip: _busy ? 'Остановить ответ' : 'Отправить',
-                  onPressed: _busy ? _stop : _send,
-                  icon: Icon(_busy ? Icons.stop : Icons.send),
-                ),
-              ],
-            ),
-          ),
-        ],
+              ),
+            ],
+          );
+        },
       ),
     ),
   );

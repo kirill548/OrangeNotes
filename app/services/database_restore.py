@@ -21,6 +21,33 @@ REQUIRED = {
 }
 
 
+def _canonical_sql(value):
+    """Ignore formatting whitespace, never whitespace inside SQL literals."""
+    result = []
+    quote = None
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if quote:
+            result.append(char)
+            if char == quote:
+                if index + 1 < len(value) and value[index + 1] == quote:
+                    result.append(value[index + 1])
+                    index += 1
+                else:
+                    quote = None
+        elif char in ('\'', '"', '`'):
+            quote = char
+            result.append(char)
+        elif char == '[':
+            quote = ']'
+            result.append(char)
+        elif not char.isspace():
+            result.append(char)
+        index += 1
+    return ''.join(result).rstrip(';')
+
+
 def validate_backup(path):
     path = Path(path).resolve(strict=True)
     if not path.is_file():
@@ -39,7 +66,7 @@ def validate_backup(path):
         objects=db.execute("SELECT name,sql FROM sqlite_master WHERE type IN ('trigger','view')").fetchall()
         expected="CREATE TRIGGER reminder_note_visibility AFTER UPDATE OF archived,deleted ON notes WHEN OLD.archived != NEW.archived OR OLD.deleted != NEW.deleted BEGIN UPDATE reminders SET checked_through=strftime('%Y-%m-%dT%H:%M:%S','now','localtime') WHERE note_id=NEW.id; UPDATE reminder_events SET status='cancelled',lease_owner=NULL,lease_until=NULL WHERE reminder_id IN (SELECT id FROM reminders WHERE note_id=NEW.id) AND status='pending'; END"
         expected_utc=expected.replace(" WHERE note_id=NEW.id;", ",checked_through_utc=strftime('%Y-%m-%dT%H:%M:%S','now') WHERE note_id=NEW.id;",1)
-        canonical=lambda value: ''.join(value.split()).rstrip(';')
+        canonical = _canonical_sql
         allowed = {'reminder_note_visibility': {canonical(expected), canonical(expected_utc)}}
         from app.services.knowledge_graph import link_trigger_sql
         for name, sql in link_trigger_sql().items():
@@ -48,6 +75,17 @@ def validate_backup(path):
             allowed[name].add(canonical(f'CREATE TRIGGER {name} AFTER {event} ON notes BEGIN INSERT OR IGNORE INTO note_links_dirty VALUES(1); END'))
         if any(canonical(sql) not in allowed.get(name, set()) for name,sql in objects):
             raise ValueError('Копия содержит неподдерживаемые SQL-объекты.')
+        # SQLite's TEXT affinity also accepts BLOBs and malformed UTF-8.
+        # Integrity/FK checks do not validate values consumed by text-only UI.
+        for table, columns in (('notes', 'title,body'), ('folders', 'name'), ('tags', 'name')):
+            for row in db.execute(f'SELECT {columns} FROM {table}'):
+                for value in row:
+                    if not isinstance(value, str) or '\x00' in value:
+                        raise ValueError('Копия содержит недопустимый текст заметок.')
+                    try:
+                        value.encode('utf-8', errors='strict')
+                    except UnicodeEncodeError as error:
+                        raise ValueError('Копия содержит недопустимые символы.') from error
         return {'notes': db.execute('SELECT COUNT(*) FROM notes').fetchone()[0], 'path': path}
 
 

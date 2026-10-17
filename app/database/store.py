@@ -227,6 +227,15 @@ class Store:
                 raise ValueError('Папка или метка больше не существует.')
 
     def save_note(self, note_id, title, body, folder, favorite, tags):
+        # SQLite accepts bytes as BLOBs, but editors and indexers require text.
+        # Validate before entering the transaction or rewriting inbound links.
+        for value in (title, body, tags):
+            if not isinstance(value, str) or '\x00' in value:
+                raise ValueError('Текст заметки содержит недопустимые данные.')
+            try:
+                value.encode('utf-8', errors='strict')
+            except UnicodeEncodeError as error:
+                raise ValueError('Текст заметки содержит недопустимые символы.') from error
         names = sorted(set(t.strip() for t in tags.split(',') if t.strip()))
         with self.db:
             previous=self.db.execute('SELECT title,body,workspace_id FROM notes WHERE id=?',(note_id,)).fetchone()

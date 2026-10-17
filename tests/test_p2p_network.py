@@ -399,7 +399,7 @@ def test_slow_synchronous_commit_never_emits_late_ack(certificates):
         client.timeout=2
         try:
             address=await server.start()
-            with pytest.raises((TimeoutError,asyncio.IncompleteReadError)):
+            with pytest.raises((TimeoutError,asyncio.IncompleteReadError,ConnectionResetError)):
                 await client.send_delta(*address,a.make_delta(str(uuid4()),{'title':'Slow commit'}))
             assert committed
             assert server.rejected==1

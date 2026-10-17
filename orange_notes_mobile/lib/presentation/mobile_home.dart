@@ -125,112 +125,114 @@ class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
         ),
       ],
     ),
-    body: Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: TextField(
-            controller: _search,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search),
-              hintText: 'Поиск заметок',
-              border: OutlineInputBorder(),
-            ),
-            onChanged: (_) => setState(_reload),
-          ),
-        ),
-        FutureBuilder<List<String>>(
-          future: _tags,
-          builder: (context, snapshot) => SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                ChoiceChip(
-                  label: const Text('Все'),
-                  selected: _tag == null,
-                  onSelected: (_) => setState(() {
-                    _tag = null;
-                    _reload();
-                  }),
-                ),
-                for (final tag in snapshot.data ?? <String>[])
-                  Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: ChoiceChip(
-                      label: Text(tag),
-                      selected: _tag == tag,
-                      onSelected: (_) => setState(() {
-                        _tag = tag;
-                        _reload();
-                      }),
-                    ),
-                  ),
-              ],
+    body: SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: TextField(
+              controller: _search,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: 'Поиск заметок',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (_) => setState(_reload),
             ),
           ),
-        ),
-        Expanded(
-          child: FutureBuilder<List<NoteRecord>>(
-            future: _notes,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return const Center(
-                  child: Text(
-                    'Не удалось прочитать заметки. Вернитесь и попробуйте ещё раз.',
+          FutureBuilder<List<String>>(
+            future: _tags,
+            builder: (context, snapshot) => SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  ChoiceChip(
+                    label: const Text('Все'),
+                    selected: _tag == null,
+                    onSelected: (_) => setState(() {
+                      _tag = null;
+                      _reload();
+                    }),
                   ),
-                );
-              }
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final notes = snapshot.data!;
-              if (notes.isEmpty) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      _search.text.isEmpty && _tag == null
-                          ? 'Здесь будут Ваши заметки. Нажмите «Новая заметка», чтобы начать.'
-                          : 'Подходящих заметок нет. Измените поиск или метку.',
-                    ),
-                  ),
-                );
-              }
-              return RefreshIndicator(
-                onRefresh: () async {
-                  setState(_reload);
-                  await _notes;
-                },
-                child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
-                  itemCount: notes.length,
-                  itemBuilder: (context, index) {
-                    final note = notes[index];
-                    return Card(
-                      child: ListTile(
-                        title: Text(
-                          note.title.isEmpty ? 'Без названия' : note.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          note.readOnlyHtml
-                              ? 'Форматированная заметка с компьютера'
-                              : note.body,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        onTap: () => _open(note),
+                  for (final tag in snapshot.data ?? <String>[])
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: ChoiceChip(
+                        label: Text(tag),
+                        selected: _tag == tag,
+                        onSelected: (_) => setState(() {
+                          _tag = tag;
+                          _reload();
+                        }),
                       ),
-                    );
-                  },
-                ),
-              );
-            },
+                    ),
+                ],
+              ),
+            ),
           ),
-        ),
-      ],
+          Expanded(
+            child: FutureBuilder<List<NoteRecord>>(
+              future: _notes,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return const Center(
+                    child: Text(
+                      'Не удалось прочитать заметки. Вернитесь и попробуйте ещё раз.',
+                    ),
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final notes = snapshot.data!;
+                if (notes.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        _search.text.isEmpty && _tag == null
+                            ? 'Здесь будут Ваши заметки. Нажмите «Новая заметка», чтобы начать.'
+                            : 'Подходящих заметок нет. Измените поиск или метку.',
+                      ),
+                    ),
+                  );
+                }
+                return RefreshIndicator(
+                  onRefresh: () async {
+                    setState(_reload);
+                    await _notes;
+                  },
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+                    itemCount: notes.length,
+                    itemBuilder: (context, index) {
+                      final note = notes[index];
+                      return Card(
+                        child: ListTile(
+                          title: Text(
+                            note.title.isEmpty ? 'Без названия' : note.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            note.readOnlyHtml
+                                ? 'Форматированная заметка с компьютера'
+                                : note.body,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () => _open(note),
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     ),
     floatingActionButton: FloatingActionButton.extended(
       onPressed: () => _open(),

@@ -598,6 +598,52 @@ class MobileStore {
   Future<List<Map<String, Object?>>> graph() => db.rawQuery(
     'SELECT DISTINCT source_id,target_id FROM note_links WHERE target_id IS NOT NULL',
   );
+
+  /// Graph projection deliberately excludes bodies and per-note tag queries.
+  Future<(List<NoteRecord>, List<Map<String, Object?>>, int)> graphPreview({
+    int limit = 300,
+    int edgeLimit = 3000,
+  }) async {
+    if (limit < 1 || limit > 300 || edgeLimit < 1 || edgeLimit > 3000) {
+      throw ArgumentError('Graph preview exceeds its rendering budget');
+    }
+    return db.transaction((tx) async {
+      const visible =
+          'FROM notes n JOIN sync_identities i ON i.local_id=n.id '
+          "AND i.entity='notes' AND i.tombstone=0 "
+          'WHERE n.workspace_id=1 AND n.deleted=0 AND n.archived=0';
+      final count =
+          (await tx.rawQuery('SELECT count(*) AS total $visible'))
+                  .single['total']
+              as int;
+      final rows = await tx.rawQuery(
+        'SELECT n.id,n.title,i.entity_uuid $visible '
+        'ORDER BY n.updated_at DESC,n.id DESC LIMIT ?',
+        [limit],
+      );
+      final notes = rows
+          .map(
+            (row) => NoteRecord(
+              id: row['id'] as int,
+              uuid: row['entity_uuid'] as String,
+              title: row['title'] as String,
+              body: '',
+            ),
+          )
+          .toList();
+      if (notes.isEmpty) return (notes, <Map<String, Object?>>[], count);
+      final ids = notes.map((n) => n.id).toList();
+      final placeholders = List.filled(ids.length, '?').join(',');
+      final edges = await tx.rawQuery(
+        'SELECT DISTINCT source_id,target_id FROM note_links '
+        'WHERE source_id IN ($placeholders) AND target_id IN ($placeholders) '
+        'ORDER BY source_id,target_id LIMIT ?',
+        [...ids, ...ids, edgeLimit],
+      );
+      return (notes, edges, count);
+    });
+  }
+
   Future<List<Map<String, Object>>> bodyConflicts(int id) async =>
       (await _replay(db)).bodyConflicts(await _entity(db, id));
   Future<void> close() => db.close();

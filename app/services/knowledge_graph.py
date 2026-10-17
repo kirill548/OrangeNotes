@@ -97,7 +97,9 @@ def rename_references(db, note_id, old_title, new_title, workspace_id):
     # Do not create ambiguous destinations when another note already owns new title.
     others=db.execute('SELECT title FROM notes WHERE workspace_id=? AND deleted=0 AND id!=?',(workspace_id,note_id)).fetchall()
     if any(key(row[0])==key(new_title) for row in others): return
-    for row in db.execute('SELECT id,body FROM notes WHERE workspace_id=? AND deleted=0',(workspace_id,)).fetchall():
+    # A wiki link always contains a literal opener. Avoid loading and parsing
+    # every unrelated body during a title autosave in a large workspace.
+    for row in db.execute("SELECT id,body FROM notes WHERE workspace_id=? AND deleted=0 AND instr(body,'[[')>0",(workspace_id,)).fetchall():
         updated=rewrite_wiki_titles(row[1],old_title,new_title)
         if updated!=row[1]: db.execute('UPDATE notes SET body=? WHERE id=?',(updated,row[0]))
     return True

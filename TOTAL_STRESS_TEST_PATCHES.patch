@@ -1,0 +1,1970 @@
+diff --git a/app/database/store.py b/app/database/store.py
+index 9edfd97..d3c1341 100644
+--- a/app/database/store.py
++++ b/app/database/store.py
+@@ -227,6 +227,15 @@ class Store:
+                 raise ValueError('Папка или метка больше не существует.')
+ 
+     def save_note(self, note_id, title, body, folder, favorite, tags):
++        # SQLite accepts bytes as BLOBs, but editors and indexers require text.
++        # Validate before entering the transaction or rewriting inbound links.
++        for value in (title, body, tags):
++            if not isinstance(value, str) or '\x00' in value:
++                raise ValueError('Текст заметки содержит недопустимые данные.')
++            try:
++                value.encode('utf-8', errors='strict')
++            except UnicodeEncodeError as error:
++                raise ValueError('Текст заметки содержит недопустимые символы.') from error
+         names = sorted(set(t.strip() for t in tags.split(',') if t.strip()))
+         with self.db:
+             previous=self.db.execute('SELECT title,body,workspace_id FROM notes WHERE id=?',(note_id,)).fetchone()
+diff --git a/app/services/database_restore.py b/app/services/database_restore.py
+index 1ae738a..1321101 100644
+--- a/app/services/database_restore.py
++++ b/app/services/database_restore.py
+@@ -21,6 +21,33 @@ REQUIRED = {
+ }
+ 
+ 
++def _canonical_sql(value):
++    """Ignore formatting whitespace, never whitespace inside SQL literals."""
++    result = []
++    quote = None
++    index = 0
++    while index < len(value):
++        char = value[index]
++        if quote:
++            result.append(char)
++            if char == quote:
++                if index + 1 < len(value) and value[index + 1] == quote:
++                    result.append(value[index + 1])
++                    index += 1
++                else:
++                    quote = None
++        elif char in ('\'', '"', '`'):
++            quote = char
++            result.append(char)
++        elif char == '[':
++            quote = ']'
++            result.append(char)
++        elif not char.isspace():
++            result.append(char)
++        index += 1
++    return ''.join(result).rstrip(';')
++
++
+ def validate_backup(path):
+     path = Path(path).resolve(strict=True)
+     if not path.is_file():
+@@ -39,7 +66,7 @@ def validate_backup(path):
+         objects=db.execute("SELECT name,sql FROM sqlite_master WHERE type IN ('trigger','view')").fetchall()
+         expected="CREATE TRIGGER reminder_note_visibility AFTER UPDATE OF archived,deleted ON notes WHEN OLD.archived != NEW.archived OR OLD.deleted != NEW.deleted BEGIN UPDATE reminders SET checked_through=strftime('%Y-%m-%dT%H:%M:%S','now','localtime') WHERE note_id=NEW.id; UPDATE reminder_events SET status='cancelled',lease_owner=NULL,lease_until=NULL WHERE reminder_id IN (SELECT id FROM reminders WHERE note_id=NEW.id) AND status='pending'; END"
+         expected_utc=expected.replace(" WHERE note_id=NEW.id;", ",checked_through_utc=strftime('%Y-%m-%dT%H:%M:%S','now') WHERE note_id=NEW.id;",1)
+-        canonical=lambda value: ''.join(value.split()).rstrip(';')
++        canonical = _canonical_sql
+         allowed = {'reminder_note_visibility': {canonical(expected), canonical(expected_utc)}}
+         from app.services.knowledge_graph import link_trigger_sql
+         for name, sql in link_trigger_sql().items():
+@@ -48,6 +75,17 @@ def validate_backup(path):
+             allowed[name].add(canonical(f'CREATE TRIGGER {name} AFTER {event} ON notes BEGIN INSERT OR IGNORE INTO note_links_dirty VALUES(1); END'))
+         if any(canonical(sql) not in allowed.get(name, set()) for name,sql in objects):
+             raise ValueError('Копия содержит неподдерживаемые SQL-объекты.')
++        # SQLite's TEXT affinity also accepts BLOBs and malformed UTF-8.
++        # Integrity/FK checks do not validate values consumed by text-only UI.
++        for table, columns in (('notes', 'title,body'), ('folders', 'name'), ('tags', 'name')):
++            for row in db.execute(f'SELECT {columns} FROM {table}'):
++                for value in row:
++                    if not isinstance(value, str) or '\x00' in value:
++                        raise ValueError('Копия содержит недопустимый текст заметок.')
++                    try:
++                        value.encode('utf-8', errors='strict')
++                    except UnicodeEncodeError as error:
++                        raise ValueError('Копия содержит недопустимые символы.') from error
+         return {'notes': db.execute('SELECT COUNT(*) FROM notes').fetchone()[0], 'path': path}
+ 
+ 
+diff --git a/app/services/knowledge_graph.py b/app/services/knowledge_graph.py
+index 90549b5..3596d5c 100644
+--- a/app/services/knowledge_graph.py
++++ b/app/services/knowledge_graph.py
+@@ -97,7 +97,9 @@ def rename_references(db, note_id, old_title, new_title, workspace_id):
+     # Do not create ambiguous destinations when another note already owns new title.
+     others=db.execute('SELECT title FROM notes WHERE workspace_id=? AND deleted=0 AND id!=?',(workspace_id,note_id)).fetchall()
+     if any(key(row[0])==key(new_title) for row in others): return
+-    for row in db.execute('SELECT id,body FROM notes WHERE workspace_id=? AND deleted=0',(workspace_id,)).fetchall():
++    # A wiki link always contains a literal opener. Avoid loading and parsing
++    # every unrelated body during a title autosave in a large workspace.
++    for row in db.execute("SELECT id,body FROM notes WHERE workspace_id=? AND deleted=0 AND instr(body,'[[')>0",(workspace_id,)).fetchall():
+         updated=rewrite_wiki_titles(row[1],old_title,new_title)
+         if updated!=row[1]: db.execute('UPDATE notes SET body=? WHERE id=?',(updated,row[0]))
+     return True
+diff --git a/app/ui/window.py b/app/ui/window.py
+index 747c4eb..304881f 100644
+--- a/app/ui/window.py
++++ b/app/ui/window.py
+@@ -6,7 +6,7 @@ from app.utils.shortcuts import shortcut as native_shortcut
+ from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap, QTextCharFormat, QTextCursor, QTextDocument, QShortcut, QKeySequence
+ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QListWidget, QListWidgetItem, QLineEdit, QTextEdit, QLabel, QPushButton, QComboBox, QCheckBox, QToolBar, QSystemTrayIcon, QMenu, QMessageBox, QInputDialog, QDialog, QFileDialog)
+ from app.services.scheduler import Scheduler, next_occurrence
+-from app.database.store import Store
++from app.database.store import Store, plain_body
+ from app.ui.reminders import ReminderDialog
+ from app.ui.design import build, card
+ from app.ui.icons import icon, note_symbol
+@@ -14,11 +14,21 @@ from app.services.day_focus import DayFocus
+ from app.utils.timezones import utc_stamp, event_due_local, event_scheduled_local, device_zone
+ 
+ 
++# Display safety threshold only: original data remains intact in SQLite/backups.
++MAX_RICH_DOCUMENT_CHARS = 8_000_000
++LARGE_DOCUMENT_PREVIEW_CHARS = 4096
++
++
++def large_document_preview(body):
++    return plain_body(body[:LARGE_DOCUMENT_PREVIEW_CHARS])[:240] + ' · Большая заметка'
++
++
+ class Window(QMainWindow):
+     def event(self, event):
+         # deleteLater() may bypass closeEvent (tests, parent teardown).
+         # Join child workers before Qt destroys their QThread wrappers.
+         if event.type() == QEvent.Type.DeferredDelete and hasattr(self, 'knowledge_indexer'):
++            self._stop_window_timers()
+             self.stop_knowledge_workers()
+         return super().event(event)
+ 
+@@ -289,15 +299,22 @@ class Window(QMainWindow):
+             if kind=='today' and (not upcoming or upcoming.date()>datetime.now().date()): continue
+             if self.filter.currentIndex()==1 and not upcoming: continue
+             if self.filter.currentIndex()==2 and row['folder_id'] is not None: continue
++            oversized = len(row['body']) > MAX_RICH_DOCUMENT_CHARS
+             cached=self._plain_cache.get(row['id'])
+-            if cached and cached[0]==row['body']:
++            if oversized:
++                # Do not construct a huge QTextDocument merely to draw a card.
++                plain = large_document_preview(row['body'])
++            elif cached and cached[0]==row['body']:
+                 plain=cached[1]
+             else:
+                 doc=QTextDocument()
+                 doc.setHtml(row['body'])
+                 plain=doc.toPlainText()
+                 self._plain_cache[row['id']]=(row['body'],plain)
+-            if query and query not in (row['title']+' '+plain).casefold(): continue
++            if query:
++                # Preserve full visible-text search semantics without Qt layout.
++                search_body = plain_body(row['body']) if oversized else plain
++                if query not in (row['title']+' '+search_body).casefold(): continue
+             reminder_text = self.event_text(events[row['id']]) if row['id'] in events else self.schedule_text(r) if upcoming else ''
+             entries.append((row,plain,reminder_text,upcoming))
+         self.notes.blockSignals(True)
+@@ -378,6 +395,19 @@ class Window(QMainWindow):
+             self.refresh_list()
+ 
+     def load_note(self,note_id):
++        size = self.store.rows('SELECT length(body) FROM notes WHERE id=?', (note_id,))
++        if size and size[0][0] > MAX_RICH_DOCUMENT_CHARS:
++            # Reject before changing current/dirty state or inserting any text;
++            # a shortened preview must never be autosaved over the original.
++            self.notes.blockSignals(True)
++            selected = next((self.notes.item(i) for i in range(self.notes.count())
++                             if self.notes.item(i).data(Qt.UserRole) == self.current), None)
++            self.notes.setCurrentItem(selected)
++            self.notes.blockSignals(False)
++            QMessageBox.warning(self, 'Большая заметка',
++                                'Эта заметка слишком большая для безопасного открытия в редакторе. '
++                                'Исходный текст сохранён полностью. Вы можете сохранить резервную копию базы.')
++            return False
+         if self.panel:
+             self.panel.hide()
+         rows = self.store.rows('SELECT * FROM notes WHERE id=?',(note_id,))
+@@ -1300,6 +1330,8 @@ class Window(QMainWindow):
+         self.refresh_list()
+ 
+     def tick(self):
++        if self.quitting or getattr(self, '_shutdown_started', False):
++            return
+         try:
+             if not self.background_managed:
+                 self.scheduler.tick()
+@@ -1370,6 +1402,16 @@ class Window(QMainWindow):
+         self.raise_()
+         self.activateWindow()
+ 
++    def _stop_window_timers(self):
++        self._shutdown_started = True
++        for name in ('clock', 'debounce', 'startup_tick'):
++            timer = getattr(self, name, None)
++            if timer is not None:
++                timer.stop()
++        monitor = getattr(self, 'ai_hardware_monitor', None)
++        if monitor is not None:
++            monitor.stop()
++
+     def quit(self):
+         if not self.close_reminder_panel(): return
+         if not self.save(): return
+@@ -1383,6 +1425,7 @@ class Window(QMainWindow):
+             self.preferences.setValue('geometry',self.saveGeometry())
+             self.preferences.setValue('splitter',self.splitter.saveState())
+         self.tray.hide()
++        self._stop_window_timers()
+         self.stop_knowledge_workers()
+         QApplication.instance().quit()
+ 
+@@ -1408,6 +1451,6 @@ class Window(QMainWindow):
+                 event.ignore()
+                 self.quit()
+                 return
+-            self.ai_hardware_monitor.stop()
++            self._stop_window_timers()
+             self.stop_knowledge_workers()
+             event.accept()
+diff --git a/orange_notes_mobile/lib/data/mobile_store.dart b/orange_notes_mobile/lib/data/mobile_store.dart
+index e0e8851..c4facf4 100644
+--- a/orange_notes_mobile/lib/data/mobile_store.dart
++++ b/orange_notes_mobile/lib/data/mobile_store.dart
+@@ -598,6 +598,52 @@ class MobileStore {
+   Future<List<Map<String, Object?>>> graph() => db.rawQuery(
+     'SELECT DISTINCT source_id,target_id FROM note_links WHERE target_id IS NOT NULL',
+   );
++
++  /// Graph projection deliberately excludes bodies and per-note tag queries.
++  Future<(List<NoteRecord>, List<Map<String, Object?>>, int)> graphPreview({
++    int limit = 300,
++    int edgeLimit = 3000,
++  }) async {
++    if (limit < 1 || limit > 300 || edgeLimit < 1 || edgeLimit > 3000) {
++      throw ArgumentError('Graph preview exceeds its rendering budget');
++    }
++    return db.transaction((tx) async {
++      const visible =
++          'FROM notes n JOIN sync_identities i ON i.local_id=n.id '
++          "AND i.entity='notes' AND i.tombstone=0 "
++          'WHERE n.workspace_id=1 AND n.deleted=0 AND n.archived=0';
++      final count =
++          (await tx.rawQuery('SELECT count(*) AS total $visible'))
++                  .single['total']
++              as int;
++      final rows = await tx.rawQuery(
++        'SELECT n.id,n.title,i.entity_uuid $visible '
++        'ORDER BY n.updated_at DESC,n.id DESC LIMIT ?',
++        [limit],
++      );
++      final notes = rows
++          .map(
++            (row) => NoteRecord(
++              id: row['id'] as int,
++              uuid: row['entity_uuid'] as String,
++              title: row['title'] as String,
++              body: '',
++            ),
++          )
++          .toList();
++      if (notes.isEmpty) return (notes, <Map<String, Object?>>[], count);
++      final ids = notes.map((n) => n.id).toList();
++      final placeholders = List.filled(ids.length, '?').join(',');
++      final edges = await tx.rawQuery(
++        'SELECT DISTINCT source_id,target_id FROM note_links '
++        'WHERE source_id IN ($placeholders) AND target_id IN ($placeholders) '
++        'ORDER BY source_id,target_id LIMIT ?',
++        [...ids, ...ids, edgeLimit],
++      );
++      return (notes, edges, count);
++    });
++  }
++
+   Future<List<Map<String, Object>>> bodyConflicts(int id) async =>
+       (await _replay(db)).bodyConflicts(await _entity(db, id));
+   Future<void> close() => db.close();
+diff --git a/orange_notes_mobile/lib/presentation/ai_chat_screen.dart b/orange_notes_mobile/lib/presentation/ai_chat_screen.dart
+index b8c422d..5b34482 100644
+--- a/orange_notes_mobile/lib/presentation/ai_chat_screen.dart
++++ b/orange_notes_mobile/lib/presentation/ai_chat_screen.dart
+@@ -28,6 +28,8 @@ class _AiChatScreenState extends State<AiChatScreen> {
+   StreamSubscription<AiEvent>? _subscription;
+   AiContext? _attached;
+   bool _busy = false;
++  bool _historyTrimmed = false;
++  static const _maxMessages = 100;
+   int _generation = 0;
+   String _status = 'Готов к запросу';
+ 
+@@ -67,6 +69,10 @@ class _AiChatScreenState extends State<AiChatScreen> {
+       _busy = true;
+       _status = 'Подключаюсь…';
+       _messages.addAll([_ChatMessage(true, prompt), answer]);
++      if (_messages.length > _maxMessages) {
++        _messages.removeRange(0, _messages.length - _maxMessages);
++        _historyTrimmed = true;
++      }
+       _input.clear();
+     });
+     _reveal();
+@@ -149,106 +155,157 @@ class _AiChatScreenState extends State<AiChatScreen> {
+     super.dispose();
+   }
+ 
++  Widget _compactInput() => Row(
++    children: [
++      if (_attached != null)
++        IconButton(
++          tooltip: 'Убрать прикреплённую заметку: ${_attached!.title}',
++          onPressed: _busy ? null : () => setState(() => _attached = null),
++          icon: const Icon(Icons.attach_file),
++        ),
++      Expanded(
++        child: TextField(
++          controller: _input,
++          maxLines: 1,
++          decoration: const InputDecoration(hintText: 'Ваш вопрос'),
++        ),
++      ),
++      IconButton(
++        tooltip: _busy ? 'Остановить ответ' : 'Отправить',
++        onPressed: _busy ? _stop : _send,
++        icon: Icon(_busy ? Icons.stop : Icons.send),
++      ),
++    ],
++  );
++
+   @override
+   Widget build(BuildContext context) => Scaffold(
+     appBar: AppBar(title: const Text('Помощник')),
+     body: SafeArea(
+-      child: Column(
+-        children: [
+-          Padding(
+-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+-            child: Semantics(liveRegion: true, child: Text(_status)),
+-          ),
+-          if (_attached != null)
+-            Padding(
+-              padding: const EdgeInsets.symmetric(horizontal: 16),
+-              child: InputChip(
+-                avatar: const Icon(Icons.description_outlined),
+-                label: Text(
+-                  _attached!.title.isEmpty ? 'Без названия' : _attached!.title,
+-                  maxLines: 1,
+-                  overflow: TextOverflow.ellipsis,
++      child: LayoutBuilder(
++        builder: (context, constraints) {
++          final compact = constraints.maxHeight < 300;
++          if (constraints.maxHeight < 100) {
++            return SingleChildScrollView(
++              child: SizedBox(height: 100, child: _compactInput()),
++            );
++          }
++          return Column(
++            children: [
++              if (!compact)
++                Padding(
++                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
++                  child: Semantics(liveRegion: true, child: Text(_status)),
+                 ),
+-                deleteButtonTooltipMessage: 'Убрать заметку из запроса',
+-                onDeleted: _busy
+-                    ? null
+-                    : () => setState(() => _attached = null),
+-              ),
+-            ),
+-          Expanded(
+-            child: _messages.isEmpty
+-                ? const Center(
+-                    child: Padding(
+-                      padding: EdgeInsets.all(24),
+-                      child: Text(
+-                        'Задайте вопрос. Прикреплённая заметка будет отправлена только доверенному компьютеру. Без подключения доступен локальный поиск. Помощник не изменяет заметки.',
+-                      ),
++              if (!compact && _historyTrimmed)
++                const Text(
++                  'Показаны последние 100 сообщений. Заметки не изменены.',
++                ),
++              if (!compact && _attached != null)
++                Padding(
++                  padding: const EdgeInsets.symmetric(horizontal: 16),
++                  child: InputChip(
++                    avatar: const Icon(Icons.description_outlined),
++                    label: Text(
++                      _attached!.title.isEmpty
++                          ? 'Без названия'
++                          : _attached!.title,
++                      maxLines: 1,
++                      overflow: TextOverflow.ellipsis,
+                     ),
+-                  )
+-                : ListView.builder(
+-                    controller: _scroll,
+-                    padding: const EdgeInsets.all(16),
+-                    itemCount: _messages.length,
+-                    itemBuilder: (context, index) {
+-                      final message = _messages[index];
+-                      return Card(
+-                        color: message.user
+-                            ? Theme.of(context).colorScheme.secondaryContainer
+-                            : null,
++                    deleteButtonTooltipMessage: 'Убрать заметку из запроса',
++                    onDeleted: _busy
++                        ? null
++                        : () => setState(() => _attached = null),
++                  ),
++                ),
++              Expanded(
++                child: _messages.isEmpty
++                    ? const Center(
+                         child: Padding(
+-                          padding: const EdgeInsets.all(12),
+-                          child: Column(
+-                            crossAxisAlignment: CrossAxisAlignment.start,
+-                            children: [
+-                              Text(
+-                                message.user
+-                                    ? 'Вы'
+-                                    : (message.localSearch
+-                                          ? 'Результаты поиска · на телефоне'
+-                                          : 'Помощник'),
+-                                style: const TextStyle(
+-                                  fontWeight: FontWeight.bold,
+-                                ),
+-                              ),
+-                              const SizedBox(height: 4),
+-                              SelectableText(
+-                                message.text.isEmpty ? '…' : message.text,
+-                              ),
+-                            ],
++                          padding: EdgeInsets.all(24),
++                          child: Text(
++                            'Задайте вопрос. Прикреплённая заметка будет отправлена только доверенному компьютеру. Без подключения доступен локальный поиск. Помощник не изменяет заметки.',
+                           ),
+                         ),
+-                      );
+-                    },
+-                  ),
+-          ),
+-          Padding(
+-            padding: const EdgeInsets.all(12),
+-            child: Row(
+-              crossAxisAlignment: CrossAxisAlignment.end,
+-              children: [
+-                Expanded(
+-                  child: TextField(
+-                    controller: _input,
+-                    minLines: 1,
+-                    maxLines: 5,
+-                    maxLength: 8192,
+-                    decoration: const InputDecoration(
+-                      hintText: 'Ваш вопрос',
+-                      counterText: '',
+-                      border: OutlineInputBorder(),
++                      )
++                    : ListView.builder(
++                        controller: _scroll,
++                        padding: const EdgeInsets.all(16),
++                        itemCount: _messages.length,
++                        itemBuilder: (context, index) {
++                          final message = _messages[index];
++                          return Card(
++                            color: message.user
++                                ? Theme.of(context)
++                                      .colorScheme
++                                      .secondaryContainer
++                                : null,
++                            child: Padding(
++                              padding: const EdgeInsets.all(12),
++                              child: Column(
++                                crossAxisAlignment: CrossAxisAlignment.start,
++                                children: [
++                                  Text(
++                                    message.user
++                                        ? 'Вы'
++                                        : (message.localSearch
++                                              ? 'Результаты поиска · на телефоне'
++                                              : 'Помощник'),
++                                    style: const TextStyle(
++                                      fontWeight: FontWeight.bold,
++                                    ),
++                                  ),
++                                  const SizedBox(height: 4),
++                                  SelectableText(
++                                    message.text.isEmpty ? '…' : message.text,
++                                  ),
++                                ],
++                              ),
++                            ),
++                          );
++                        },
++                      ),
++              ),
++              Padding(
++                padding: EdgeInsets.all(compact ? 0 : 12),
++                child: Row(
++                  crossAxisAlignment: CrossAxisAlignment.end,
++                  children: [
++                    if (compact && _attached != null)
++                      IconButton(
++                        tooltip:
++                            'Убрать прикреплённую заметку: ${_attached!.title}',
++                        onPressed: _busy
++                            ? null
++                            : () => setState(() => _attached = null),
++                        icon: const Icon(Icons.attach_file),
++                      ),
++                    Expanded(
++                      child: TextField(
++                        controller: _input,
++                        minLines: 1,
++                        maxLines: compact ? 1 : 5,
++                        maxLength: 8192,
++                        decoration: const InputDecoration(
++                          hintText: 'Ваш вопрос',
++                          counterText: '',
++                          border: OutlineInputBorder(),
++                        ),
++                      ),
+                     ),
+-                  ),
+-                ),
+-                const SizedBox(width: 8),
+-                IconButton.filled(
+-                  tooltip: _busy ? 'Остановить ответ' : 'Отправить',
+-                  onPressed: _busy ? _stop : _send,
+-                  icon: Icon(_busy ? Icons.stop : Icons.send),
++                    const SizedBox(width: 8),
++                    IconButton.filled(
++                      tooltip: _busy ? 'Остановить ответ' : 'Отправить',
++                      onPressed: _busy ? _stop : _send,
++                      icon: Icon(_busy ? Icons.stop : Icons.send),
++                    ),
++                  ],
+                 ),
+-              ],
+-            ),
+-          ),
+-        ],
++              ),
++            ],
++          );
++        },
+       ),
+     ),
+   );
+diff --git a/orange_notes_mobile/lib/presentation/graph_screen.dart b/orange_notes_mobile/lib/presentation/graph_screen.dart
+index 5f689c4..5cd9eed 100644
+--- a/orange_notes_mobile/lib/presentation/graph_screen.dart
++++ b/orange_notes_mobile/lib/presentation/graph_screen.dart
+@@ -1,219 +1,227 @@
+-import 'dart:math' as math;
+-
+-import 'package:flutter/material.dart';
+-
+-import '../data/mobile_store.dart';
+-import '../domain/note.dart';
+-import 'note_editor.dart';
+-
+-class GraphScreen extends StatefulWidget {
+-  const GraphScreen({super.key, required this.store});
+-  final MobileStore store;
+-  @override
+-  State<GraphScreen> createState() => _GraphScreenState();
+-}
+-
+-class _GraphScreenState extends State<GraphScreen> {
+-  late Future<(List<NoteRecord>, List<Map<String, Object?>>)> _graph;
+-  final _transform = TransformationController();
+-  @override
+-  void initState() {
+-    super.initState();
+-    _reload();
+-  }
+-
+-  void _reload() {
+-    _graph = _load();
+-  }
+-
+-  Future<(List<NoteRecord>, List<Map<String, Object?>>)> _load() async =>
+-      (await widget.store.listNotes(), await widget.store.graph());
+-  @override
+-  void dispose() {
+-    _transform.dispose();
+-    super.dispose();
+-  }
+-
+-  @override
+-  Widget build(BuildContext context) => Scaffold(
+-    appBar: AppBar(
+-      title: const Text('Граф заметок'),
+-      actions: [
+-        IconButton(
+-          tooltip: 'Сбросить масштаб',
+-          onPressed: () => _transform.value = Matrix4.identity(),
+-          icon: const Icon(Icons.center_focus_strong),
+-        ),
+-      ],
+-    ),
+-    body: FutureBuilder<(List<NoteRecord>, List<Map<String, Object?>>)>(
+-      future: _graph,
+-      builder: (context, snapshot) {
+-        if (snapshot.hasError) {
+-          return const Center(child: Text('Не удалось построить граф.'));
+-        }
+-        if (!snapshot.hasData) {
+-          return const Center(child: CircularProgressIndicator());
+-        }
+-        final (notes, edges) = snapshot.data!;
+-        if (notes.isEmpty) {
+-          return const Center(
+-            child: Padding(
+-              padding: EdgeInsets.all(24),
+-              child: Text(
+-                'Создайте заметки и свяжите их через [[Название заметки]]. Здесь появится граф связей.',
+-              ),
+-            ),
+-          );
+-        }
+-        // Bound the first view to keep hit targets and painting responsive on phones.
+-        final shown = notes.take(300).toList();
+-        final side = math.max(800.0, math.sqrt(shown.length) * 100);
+-        final positions = _layout(shown, edges, side);
+-        return Column(
+-          children: [
+-            Padding(
+-              padding: const EdgeInsets.all(12),
+-              child: Text(
+-                shown.length < notes.length
+-                    ? 'Показаны первые ${shown.length} из ${notes.length} заметок. Увеличивайте двумя пальцами; нажмите узел, чтобы открыть.'
+-                    : 'Увеличивайте двумя пальцами и перемещайте граф. Нажмите узел, чтобы открыть заметку.',
+-              ),
+-            ),
+-            Expanded(
+-              child: InteractiveViewer(
+-                transformationController: _transform,
+-                constrained: false,
+-                minScale: .2,
+-                maxScale: 4,
+-                boundaryMargin: const EdgeInsets.all(200),
+-                child: SizedBox(
+-                  width: side,
+-                  height: side,
+-                  child: Stack(
+-                    children: [
+-                      Positioned.fill(
+-                        child: CustomPaint(
+-                          painter: _EdgePainter(
+-                            positions,
+-                            edges,
+-                            Theme.of(context).colorScheme.outlineVariant,
+-                          ),
+-                        ),
+-                      ),
+-                      for (final note in shown)
+-                        Positioned(
+-                          left: positions[note.id]!.dx - 56,
+-                          top: positions[note.id]!.dy - 28,
+-                          width: 112,
+-                          height: 56,
+-                          child: Semantics(
+-                            button: true,
+-                            label: 'Открыть ${note.title}',
+-                            child: Material(
+-                              color: Theme.of(context)
+-                                  .colorScheme
+-                                  .primaryContainer,
+-                              borderRadius: BorderRadius.circular(28),
+-                              child: InkWell(
+-                                borderRadius: BorderRadius.circular(28),
+-                                onTap: () async {
+-                                  await Navigator.push(
+-                                    context,
+-                                    MaterialPageRoute<void>(
+-                                      builder: (_) => NoteEditor(
+-                                        store: widget.store,
+-                                        note: note,
+-                                      ),
+-                                    ),
+-                                  );
+-                                  if (mounted) setState(_reload);
+-                                },
+-                                child: Padding(
+-                                  padding: const EdgeInsets.all(8),
+-                                  child: Center(
+-                                    child: Text(
+-                                      note.title.isEmpty
+-                                          ? 'Без названия'
+-                                          : note.title,
+-                                      maxLines: 2,
+-                                      overflow: TextOverflow.ellipsis,
+-                                      textAlign: TextAlign.center,
+-                                    ),
+-                                  ),
+-                                ),
+-                              ),
+-                            ),
+-                          ),
+-                        ),
+-                    ],
+-                  ),
+-                ),
+-              ),
+-            ),
+-          ],
+-        );
+-      },
+-    ),
+-  );
+-}
+-
+-Map<int, Offset> _layout(
+-  List<NoteRecord> notes,
+-  List<Map<String, Object?>> edges,
+-  double side,
+-) {
+-  final result = <int, Offset>{};
+-  for (var i = 0; i < notes.length; i++) {
+-    final angle = i * math.pi * (3 - math.sqrt(5));
+-    final radius = math.sqrt(i / math.max(1, notes.length)) * (side / 2 - 80);
+-    result[notes[i].id] = Offset(
+-      side / 2 + math.cos(angle) * radius,
+-      side / 2 + math.sin(angle) * radius,
+-    );
+-  }
+-  // A bounded spring relaxation avoids blocking the UI on dense graphs.
+-  for (var step = 0; step < 18; step++) {
+-    for (final edge in edges.take(3000)) {
+-      final source = edge['source_id'], target = edge['target_id'];
+-      final a = result[source], b = result[target];
+-      if (a == null || b == null || source == target) continue;
+-      final delta = b - a;
+-      final distance = delta.distance;
+-      if (distance < 1) continue;
+-      final force = delta / distance * ((distance - 150) * .025);
+-      result[source as int] = Offset(
+-        (a.dx + force.dx).clamp(64, side - 64),
+-        (a.dy + force.dy).clamp(40, side - 40),
+-      );
+-      result[target as int] = Offset(
+-        (b.dx - force.dx).clamp(64, side - 64),
+-        (b.dy - force.dy).clamp(40, side - 40),
+-      );
+-    }
+-  }
+-  return result;
+-}
+-
+-class _EdgePainter extends CustomPainter {
+-  _EdgePainter(this.positions, this.edges, this.color);
+-  final Map<int, Offset> positions;
+-  final List<Map<String, Object?>> edges;
+-  final Color color;
+-  @override
+-  void paint(Canvas canvas, Size size) {
+-    final paint = Paint()
+-      ..color = color
+-      ..strokeWidth = 1.5;
+-    for (final edge in edges.take(3000)) {
+-      final a = positions[edge['source_id']], b = positions[edge['target_id']];
+-      if (a != null && b != null) canvas.drawLine(a, b, paint);
+-    }
+-  }
+-
+-  @override
+-  bool shouldRepaint(covariant _EdgePainter oldDelegate) =>
+-      oldDelegate.positions != positions ||
+-      oldDelegate.edges != edges ||
+-      oldDelegate.color != color;
+-}
++import 'dart:math' as math;
++
++import 'package:flutter/material.dart';
++
++import '../data/mobile_store.dart';
++import '../domain/note.dart';
++import 'note_editor.dart';
++
++class GraphScreen extends StatefulWidget {
++  const GraphScreen({super.key, required this.store});
++  final MobileStore store;
++  @override
++  State<GraphScreen> createState() => _GraphScreenState();
++}
++
++class _GraphScreenState extends State<GraphScreen> {
++  late Future<(List<NoteRecord>, List<Map<String, Object?>>, int)> _graph;
++  final _transform = TransformationController();
++  @override
++  void initState() {
++    super.initState();
++    _reload();
++  }
++
++  void _reload() {
++    _graph = _load();
++  }
++
++  Future<(List<NoteRecord>, List<Map<String, Object?>>, int)> _load() =>
++      widget.store.graphPreview();
++  @override
++  void dispose() {
++    _transform.dispose();
++    super.dispose();
++  }
++
++  @override
++  Widget build(BuildContext context) => Scaffold(
++    appBar: AppBar(
++      title: const Text('Граф заметок'),
++      actions: [
++        IconButton(
++          tooltip: 'Сбросить масштаб',
++          onPressed: () => _transform.value = Matrix4.identity(),
++          icon: const Icon(Icons.center_focus_strong),
++        ),
++      ],
++    ),
++    body: SafeArea(
++      child: FutureBuilder<(List<NoteRecord>, List<Map<String, Object?>>, int)>(
++        future: _graph,
++        builder: (context, snapshot) {
++          if (snapshot.hasError) {
++            return const Center(child: Text('Не удалось построить граф.'));
++          }
++          if (!snapshot.hasData) {
++            return const Center(child: CircularProgressIndicator());
++          }
++          final (notes, edges, total) = snapshot.data!;
++          if (notes.isEmpty) {
++            return const Center(
++              child: Padding(
++                padding: EdgeInsets.all(24),
++                child: Text(
++                  'Создайте заметки и свяжите их через [[Название заметки]]. Здесь появится граф связей.',
++                ),
++              ),
++            );
++          }
++          // Bound the first view to keep hit targets and painting responsive on phones.
++          final shown = notes.take(300).toList();
++          final side = math.max(800.0, math.sqrt(shown.length) * 100);
++          final positions = _layout(shown, edges, side);
++          return Column(
++            children: [
++              Padding(
++                padding: const EdgeInsets.all(12),
++                child: Text(
++                  shown.length < total
++                      ? 'Показаны первые ${shown.length} из $total заметок. Увеличивайте двумя пальцами; нажмите узел, чтобы открыть.'
++                      : 'Увеличивайте двумя пальцами и перемещайте граф. Нажмите узел, чтобы открыть заметку.',
++                ),
++              ),
++              Expanded(
++                child: InteractiveViewer(
++                  transformationController: _transform,
++                  constrained: false,
++                  minScale: .2,
++                  maxScale: 4,
++                  boundaryMargin: const EdgeInsets.all(200),
++                  child: SizedBox(
++                    width: side,
++                    height: side,
++                    child: Stack(
++                      children: [
++                        Positioned.fill(
++                          child: CustomPaint(
++                            painter: _EdgePainter(
++                              positions,
++                              edges,
++                              Theme.of(context).colorScheme.outlineVariant,
++                            ),
++                          ),
++                        ),
++                        for (final note in shown)
++                          Positioned(
++                            left: positions[note.id]!.dx - 56,
++                            top: positions[note.id]!.dy - 28,
++                            width: 112,
++                            height: 56,
++                            child: Semantics(
++                              button: true,
++                              label: 'Открыть ${note.title}',
++                              child: Material(
++                                color: Theme.of(context)
++                                    .colorScheme
++                                    .primaryContainer,
++                                borderRadius: BorderRadius.circular(28),
++                                child: InkWell(
++                                  borderRadius: BorderRadius.circular(28),
++                                  onTap: () async {
++                                    final fullNote = await widget.store.getNote(
++                                      note.id,
++                                    );
++                                    if (!context.mounted || fullNote == null) {
++                                      return;
++                                    }
++                                    await Navigator.push(
++                                      context,
++                                      MaterialPageRoute<void>(
++                                        builder: (_) => NoteEditor(
++                                          store: widget.store,
++                                          note: fullNote,
++                                        ),
++                                      ),
++                                    );
++                                    if (mounted) setState(_reload);
++                                  },
++                                  child: Padding(
++                                    padding: const EdgeInsets.all(8),
++                                    child: Center(
++                                      child: Text(
++                                        note.title.isEmpty
++                                            ? 'Без названия'
++                                            : note.title,
++                                        maxLines: 2,
++                                        overflow: TextOverflow.ellipsis,
++                                        textAlign: TextAlign.center,
++                                      ),
++                                    ),
++                                  ),
++                                ),
++                              ),
++                            ),
++                          ),
++                      ],
++                    ),
++                  ),
++                ),
++              ),
++            ],
++          );
++        },
++      ),
++    ),
++  );
++}
++
++Map<int, Offset> _layout(
++  List<NoteRecord> notes,
++  List<Map<String, Object?>> edges,
++  double side,
++) {
++  final result = <int, Offset>{};
++  for (var i = 0; i < notes.length; i++) {
++    final angle = i * math.pi * (3 - math.sqrt(5));
++    final radius = math.sqrt(i / math.max(1, notes.length)) * (side / 2 - 80);
++    result[notes[i].id] = Offset(
++      side / 2 + math.cos(angle) * radius,
++      side / 2 + math.sin(angle) * radius,
++    );
++  }
++  // A bounded spring relaxation avoids blocking the UI on dense graphs.
++  for (var step = 0; step < 18; step++) {
++    for (final edge in edges.take(3000)) {
++      final source = edge['source_id'], target = edge['target_id'];
++      final a = result[source], b = result[target];
++      if (a == null || b == null || source == target) continue;
++      final delta = b - a;
++      final distance = delta.distance;
++      if (distance < 1) continue;
++      final force = delta / distance * ((distance - 150) * .025);
++      result[source as int] = Offset(
++        (a.dx + force.dx).clamp(64, side - 64),
++        (a.dy + force.dy).clamp(40, side - 40),
++      );
++      result[target as int] = Offset(
++        (b.dx - force.dx).clamp(64, side - 64),
++        (b.dy - force.dy).clamp(40, side - 40),
++      );
++    }
++  }
++  return result;
++}
++
++class _EdgePainter extends CustomPainter {
++  _EdgePainter(this.positions, this.edges, this.color);
++  final Map<int, Offset> positions;
++  final List<Map<String, Object?>> edges;
++  final Color color;
++  @override
++  void paint(Canvas canvas, Size size) {
++    final paint = Paint()
++      ..color = color
++      ..strokeWidth = 1.5;
++    for (final edge in edges.take(3000)) {
++      final a = positions[edge['source_id']], b = positions[edge['target_id']];
++      if (a != null && b != null) canvas.drawLine(a, b, paint);
++    }
++  }
++
++  @override
++  bool shouldRepaint(covariant _EdgePainter oldDelegate) =>
++      oldDelegate.positions != positions ||
++      oldDelegate.edges != edges ||
++      oldDelegate.color != color;
++}
+diff --git a/orange_notes_mobile/lib/presentation/mobile_home.dart b/orange_notes_mobile/lib/presentation/mobile_home.dart
+index 1a87db8..4e46b9e 100644
+--- a/orange_notes_mobile/lib/presentation/mobile_home.dart
++++ b/orange_notes_mobile/lib/presentation/mobile_home.dart
+@@ -1,241 +1,243 @@
+-import 'package:flutter/material.dart';
+-
+-import '../data/mobile_store.dart';
+-import '../domain/note.dart';
+-import 'note_editor.dart';
+-import 'ai_chat_screen.dart';
+-import '../services/ai_gateway.dart';
+-import 'graph_screen.dart';
+-import 'pairing_screen.dart';
+-
+-class MobileHome extends StatefulWidget {
+-  const MobileHome({
+-    super.key,
+-    required this.store,
+-    required this.pairing,
+-    this.aiGateway,
+-  });
+-  final AiGateway? aiGateway;
+-  final MobileStore store;
+-  final PairingController pairing;
+-  @override
+-  State<MobileHome> createState() => _MobileHomeState();
+-}
+-
+-class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
+-  final _search = TextEditingController();
+-  String? _tag;
+-  late Future<List<NoteRecord>> _notes;
+-  late Future<List<String>> _tags;
+-  @override
+-  void initState() {
+-    super.initState();
+-    WidgetsBinding.instance.addObserver(this);
+-    widget.pairing.addListener(_refresh);
+-    _reload();
+-  }
+-
+-  void _refresh() {
+-    if (mounted) setState(_reload);
+-  }
+-
+-  @override
+-  void didUpdateWidget(covariant MobileHome oldWidget) {
+-    super.didUpdateWidget(oldWidget);
+-    if (oldWidget.pairing != widget.pairing) {
+-      oldWidget.pairing.removeListener(_refresh);
+-      widget.pairing.addListener(_refresh);
+-    }
+-    if (oldWidget.store != widget.store) _reload();
+-  }
+-
+-  @override
+-  void didChangeAppLifecycleState(AppLifecycleState state) {
+-    if (state == AppLifecycleState.resumed) _refresh();
+-  }
+-
+-  void _reload() {
+-    _notes = widget.store.listNotes(query: _search.text, tag: _tag);
+-    _tags = widget.store.allTags();
+-  }
+-
+-  @override
+-  void dispose() {
+-    widget.pairing.removeListener(_refresh);
+-    WidgetsBinding.instance.removeObserver(this);
+-    _search.dispose();
+-    super.dispose();
+-  }
+-
+-  Future<void> _open([NoteRecord? note]) async {
+-    await Navigator.push(
+-      context,
+-      MaterialPageRoute<void>(
+-        builder: (_) => NoteEditor(
+-          store: widget.store,
+-          note: note,
+-          aiGateway: widget.aiGateway,
+-        ),
+-      ),
+-    );
+-    if (mounted) setState(_reload);
+-  }
+-
+-  @override
+-  Widget build(BuildContext context) => Scaffold(
+-    appBar: AppBar(
+-      title: const Text('Orange Notes'),
+-      actions: [
+-        if (widget.aiGateway != null)
+-          IconButton(
+-            tooltip: 'Помощник',
+-            icon: const Icon(Icons.chat_bubble_outline),
+-            onPressed: () => Navigator.push(
+-              context,
+-              MaterialPageRoute<void>(
+-                builder: (_) => AiChatScreen(gateway: widget.aiGateway!),
+-              ),
+-            ),
+-          ),
+-        IconButton(
+-          tooltip: 'Граф заметок',
+-          icon: const Icon(Icons.hub_outlined),
+-          onPressed: () async {
+-            await Navigator.push(
+-              context,
+-              MaterialPageRoute<void>(
+-                builder: (_) => GraphScreen(store: widget.store),
+-              ),
+-            );
+-            if (mounted) setState(_reload);
+-          },
+-        ),
+-        IconButton(
+-          tooltip: 'Синхронизация',
+-          icon: const Icon(Icons.devices),
+-          onPressed: () async {
+-            await Navigator.push(
+-              context,
+-              MaterialPageRoute<void>(
+-                builder: (_) => PairingScreen(controller: widget.pairing),
+-              ),
+-            );
+-            if (mounted) setState(_reload);
+-          },
+-        ),
+-      ],
+-    ),
+-    body: Column(
+-      children: [
+-        Padding(
+-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+-          child: TextField(
+-            controller: _search,
+-            decoration: const InputDecoration(
+-              prefixIcon: Icon(Icons.search),
+-              hintText: 'Поиск заметок',
+-              border: OutlineInputBorder(),
+-            ),
+-            onChanged: (_) => setState(_reload),
+-          ),
+-        ),
+-        FutureBuilder<List<String>>(
+-          future: _tags,
+-          builder: (context, snapshot) => SingleChildScrollView(
+-            scrollDirection: Axis.horizontal,
+-            padding: const EdgeInsets.symmetric(horizontal: 16),
+-            child: Row(
+-              children: [
+-                ChoiceChip(
+-                  label: const Text('Все'),
+-                  selected: _tag == null,
+-                  onSelected: (_) => setState(() {
+-                    _tag = null;
+-                    _reload();
+-                  }),
+-                ),
+-                for (final tag in snapshot.data ?? <String>[])
+-                  Padding(
+-                    padding: const EdgeInsets.only(left: 8),
+-                    child: ChoiceChip(
+-                      label: Text(tag),
+-                      selected: _tag == tag,
+-                      onSelected: (_) => setState(() {
+-                        _tag = tag;
+-                        _reload();
+-                      }),
+-                    ),
+-                  ),
+-              ],
+-            ),
+-          ),
+-        ),
+-        Expanded(
+-          child: FutureBuilder<List<NoteRecord>>(
+-            future: _notes,
+-            builder: (context, snapshot) {
+-              if (snapshot.hasError) {
+-                return const Center(
+-                  child: Text(
+-                    'Не удалось прочитать заметки. Вернитесь и попробуйте ещё раз.',
+-                  ),
+-                );
+-              }
+-              if (!snapshot.hasData) {
+-                return const Center(child: CircularProgressIndicator());
+-              }
+-              final notes = snapshot.data!;
+-              if (notes.isEmpty) {
+-                return Center(
+-                  child: Padding(
+-                    padding: const EdgeInsets.all(24),
+-                    child: Text(
+-                      _search.text.isEmpty && _tag == null
+-                          ? 'Здесь будут Ваши заметки. Нажмите «Новая заметка», чтобы начать.'
+-                          : 'Подходящих заметок нет. Измените поиск или метку.',
+-                    ),
+-                  ),
+-                );
+-              }
+-              return RefreshIndicator(
+-                onRefresh: () async {
+-                  setState(_reload);
+-                  await _notes;
+-                },
+-                child: ListView.builder(
+-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+-                  itemCount: notes.length,
+-                  itemBuilder: (context, index) {
+-                    final note = notes[index];
+-                    return Card(
+-                      child: ListTile(
+-                        title: Text(
+-                          note.title.isEmpty ? 'Без названия' : note.title,
+-                          maxLines: 2,
+-                          overflow: TextOverflow.ellipsis,
+-                        ),
+-                        subtitle: Text(
+-                          note.readOnlyHtml
+-                              ? 'Форматированная заметка с компьютера'
+-                              : note.body,
+-                          maxLines: 2,
+-                          overflow: TextOverflow.ellipsis,
+-                        ),
+-                        onTap: () => _open(note),
+-                      ),
+-                    );
+-                  },
+-                ),
+-              );
+-            },
+-          ),
+-        ),
+-      ],
+-    ),
+-    floatingActionButton: FloatingActionButton.extended(
+-      onPressed: () => _open(),
+-      icon: const Icon(Icons.add),
+-      label: const Text('Новая заметка'),
+-    ),
+-  );
+-}
++import 'package:flutter/material.dart';
++
++import '../data/mobile_store.dart';
++import '../domain/note.dart';
++import 'note_editor.dart';
++import 'ai_chat_screen.dart';
++import '../services/ai_gateway.dart';
++import 'graph_screen.dart';
++import 'pairing_screen.dart';
++
++class MobileHome extends StatefulWidget {
++  const MobileHome({
++    super.key,
++    required this.store,
++    required this.pairing,
++    this.aiGateway,
++  });
++  final AiGateway? aiGateway;
++  final MobileStore store;
++  final PairingController pairing;
++  @override
++  State<MobileHome> createState() => _MobileHomeState();
++}
++
++class _MobileHomeState extends State<MobileHome> with WidgetsBindingObserver {
++  final _search = TextEditingController();
++  String? _tag;
++  late Future<List<NoteRecord>> _notes;
++  late Future<List<String>> _tags;
++  @override
++  void initState() {
++    super.initState();
++    WidgetsBinding.instance.addObserver(this);
++    widget.pairing.addListener(_refresh);
++    _reload();
++  }
++
++  void _refresh() {
++    if (mounted) setState(_reload);
++  }
++
++  @override
++  void didUpdateWidget(covariant MobileHome oldWidget) {
++    super.didUpdateWidget(oldWidget);
++    if (oldWidget.pairing != widget.pairing) {
++      oldWidget.pairing.removeListener(_refresh);
++      widget.pairing.addListener(_refresh);
++    }
++    if (oldWidget.store != widget.store) _reload();
++  }
++
++  @override
++  void didChangeAppLifecycleState(AppLifecycleState state) {
++    if (state == AppLifecycleState.resumed) _refresh();
++  }
++
++  void _reload() {
++    _notes = widget.store.listNotes(query: _search.text, tag: _tag);
++    _tags = widget.store.allTags();
++  }
++
++  @override
++  void dispose() {
++    widget.pairing.removeListener(_refresh);
++    WidgetsBinding.instance.removeObserver(this);
++    _search.dispose();
++    super.dispose();
++  }
++
++  Future<void> _open([NoteRecord? note]) async {
++    await Navigator.push(
++      context,
++      MaterialPageRoute<void>(
++        builder: (_) => NoteEditor(
++          store: widget.store,
++          note: note,
++          aiGateway: widget.aiGateway,
++        ),
++      ),
++    );
++    if (mounted) setState(_reload);
++  }
++
++  @override
++  Widget build(BuildContext context) => Scaffold(
++    appBar: AppBar(
++      title: const Text('Orange Notes'),
++      actions: [
++        if (widget.aiGateway != null)
++          IconButton(
++            tooltip: 'Помощник',
++            icon: const Icon(Icons.chat_bubble_outline),
++            onPressed: () => Navigator.push(
++              context,
++              MaterialPageRoute<void>(
++                builder: (_) => AiChatScreen(gateway: widget.aiGateway!),
++              ),
++            ),
++          ),
++        IconButton(
++          tooltip: 'Граф заметок',
++          icon: const Icon(Icons.hub_outlined),
++          onPressed: () async {
++            await Navigator.push(
++              context,
++              MaterialPageRoute<void>(
++                builder: (_) => GraphScreen(store: widget.store),
++              ),
++            );
++            if (mounted) setState(_reload);
++          },
++        ),
++        IconButton(
++          tooltip: 'Синхронизация',
++          icon: const Icon(Icons.devices),
++          onPressed: () async {
++            await Navigator.push(
++              context,
++              MaterialPageRoute<void>(
++                builder: (_) => PairingScreen(controller: widget.pairing),
++              ),
++            );
++            if (mounted) setState(_reload);
++          },
++        ),
++      ],
++    ),
++    body: SafeArea(
++      child: Column(
++        children: [
++          Padding(
++            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
++            child: TextField(
++              controller: _search,
++              decoration: const InputDecoration(
++                prefixIcon: Icon(Icons.search),
++                hintText: 'Поиск заметок',
++                border: OutlineInputBorder(),
++              ),
++              onChanged: (_) => setState(_reload),
++            ),
++          ),
++          FutureBuilder<List<String>>(
++            future: _tags,
++            builder: (context, snapshot) => SingleChildScrollView(
++              scrollDirection: Axis.horizontal,
++              padding: const EdgeInsets.symmetric(horizontal: 16),
++              child: Row(
++                children: [
++                  ChoiceChip(
++                    label: const Text('Все'),
++                    selected: _tag == null,
++                    onSelected: (_) => setState(() {
++                      _tag = null;
++                      _reload();
++                    }),
++                  ),
++                  for (final tag in snapshot.data ?? <String>[])
++                    Padding(
++                      padding: const EdgeInsets.only(left: 8),
++                      child: ChoiceChip(
++                        label: Text(tag),
++                        selected: _tag == tag,
++                        onSelected: (_) => setState(() {
++                          _tag = tag;
++                          _reload();
++                        }),
++                      ),
++                    ),
++                ],
++              ),
++            ),
++          ),
++          Expanded(
++            child: FutureBuilder<List<NoteRecord>>(
++              future: _notes,
++              builder: (context, snapshot) {
++                if (snapshot.hasError) {
++                  return const Center(
++                    child: Text(
++                      'Не удалось прочитать заметки. Вернитесь и попробуйте ещё раз.',
++                    ),
++                  );
++                }
++                if (!snapshot.hasData) {
++                  return const Center(child: CircularProgressIndicator());
++                }
++                final notes = snapshot.data!;
++                if (notes.isEmpty) {
++                  return Center(
++                    child: Padding(
++                      padding: const EdgeInsets.all(24),
++                      child: Text(
++                        _search.text.isEmpty && _tag == null
++                            ? 'Здесь будут Ваши заметки. Нажмите «Новая заметка», чтобы начать.'
++                            : 'Подходящих заметок нет. Измените поиск или метку.',
++                      ),
++                    ),
++                  );
++                }
++                return RefreshIndicator(
++                  onRefresh: () async {
++                    setState(_reload);
++                    await _notes;
++                  },
++                  child: ListView.builder(
++                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
++                    itemCount: notes.length,
++                    itemBuilder: (context, index) {
++                      final note = notes[index];
++                      return Card(
++                        child: ListTile(
++                          title: Text(
++                            note.title.isEmpty ? 'Без названия' : note.title,
++                            maxLines: 2,
++                            overflow: TextOverflow.ellipsis,
++                          ),
++                          subtitle: Text(
++                            note.readOnlyHtml
++                                ? 'Форматированная заметка с компьютера'
++                                : note.body,
++                            maxLines: 2,
++                            overflow: TextOverflow.ellipsis,
++                          ),
++                          onTap: () => _open(note),
++                        ),
++                      );
++                    },
++                  ),
++                );
++              },
++            ),
++          ),
++        ],
++      ),
++    ),
++    floatingActionButton: FloatingActionButton.extended(
++      onPressed: () => _open(),
++      icon: const Icon(Icons.add),
++      label: const Text('Новая заметка'),
++    ),
++  );
++}
+diff --git a/orange_notes_mobile/lib/presentation/pairing_screen.dart b/orange_notes_mobile/lib/presentation/pairing_screen.dart
+index c79c058..234c8f3 100644
+--- a/orange_notes_mobile/lib/presentation/pairing_screen.dart
++++ b/orange_notes_mobile/lib/presentation/pairing_screen.dart
+@@ -1,230 +1,232 @@
+-import 'dart:convert';
+-
+-import 'package:flutter/material.dart';
+-import 'package:mobile_scanner/mobile_scanner.dart';
+-
+-class TrustedDevice {
+-  const TrustedDevice(this.actorId, this.name, this.fingerprint);
+-  final String actorId;
+-  final String name;
+-  final String fingerprint;
+-}
+-
+-abstract class PairingController extends ChangeNotifier {
+-  String get status;
+-  List<TrustedDevice> get devices;
+-  Future<void> pairQr(String raw, {required bool confirmed});
+-  Future<void> revoke(String actorId);
+-  Future<void> syncNow(String actorId);
+-  Future<void> importIdentity() async {}
+-}
+-
+-class PairingScreen extends StatelessWidget {
+-  const PairingScreen({super.key, required this.controller});
+-  final PairingController controller;
+-
+-  Future<void> _scan(BuildContext context) async {
+-    final raw = await Navigator.of(context)
+-        .push<String>(MaterialPageRoute(builder: (_) => const _QrScanner()));
+-    if (raw == null || !context.mounted) return;
+-    try {
+-      final parsed = jsonDecode(raw);
+-      if (parsed is! Map<String, dynamic>) throw const FormatException();
+-      final fingerprint = parsed['fingerprint_sha256'] ?? parsed['fingerprint'];
+-      if (fingerprint is! String ||
+-          !RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(fingerprint)) {
+-        throw const FormatException('В QR-коде нет полного SHA256-отпечатка.');
+-      }
+-      final confirmed = await showDialog<bool>(
+-        context: context,
+-        builder: (context) => AlertDialog(
+-          title: const Text('Проверка устройства'),
+-          content: SingleChildScrollView(
+-            child: Column(
+-              mainAxisSize: MainAxisSize.min,
+-              crossAxisAlignment: CrossAxisAlignment.start,
+-              children: [
+-                const Text(
+-                  'Сравните полный отпечаток с экраном другого устройства. Подтверждайте только знакомое устройство.',
+-                ),
+-                const SizedBox(height: 16),
+-                SelectableText(fingerprint),
+-              ],
+-            ),
+-          ),
+-          actions: [
+-            TextButton(
+-              onPressed: () => Navigator.pop(context, false),
+-              child: const Text('Отмена'),
+-            ),
+-            FilledButton(
+-              onPressed: () => Navigator.pop(context, true),
+-              child: const Text('Отпечатки совпадают'),
+-            ),
+-          ],
+-        ),
+-      );
+-      if (confirmed != true) return;
+-      await controller.pairQr(raw, confirmed: true);
+-    } catch (error) {
+-      if (context.mounted) {
+-        ScaffoldMessenger.of(context).showSnackBar(
+-          SnackBar(content: Text('Не удалось подключить устройство: $error')),
+-        );
+-      }
+-    }
+-  }
+-
+-  @override
+-  Widget build(BuildContext context) => Scaffold(
+-    appBar: AppBar(title: const Text('Синхронизация')),
+-    body: AnimatedBuilder(
+-      animation: controller,
+-      builder: (context, _) => ListView(
+-        padding: const EdgeInsets.all(20),
+-        children: [
+-          Text(
+-            controller.status,
+-            semanticsLabel: 'Статус синхронизации: ${controller.status}',
+-          ),
+-          const SizedBox(height: 16),
+-          const Text(
+-            'Заметки доступны без сети. Для обмена подключите доверенное устройство в той же локальной сети.',
+-          ),
+-          const SizedBox(height: 16),
+-          OutlinedButton.icon(
+-            onPressed: () async {
+-              try {
+-                await controller.importIdentity();
+-              } catch (e) {
+-                if (context.mounted) {
+-                  ScaffoldMessenger.of(context).showSnackBar(
+-                    SnackBar(
+-                      content: Text('Не удалось подключить сертификат: $e'),
+-                    ),
+-                  );
+-                }
+-              }
+-            },
+-            icon: const Icon(Icons.verified_user_outlined),
+-            label: const Text('Подключить сертификат устройства'),
+-          ),
+-          const SizedBox(height: 8),
+-          FilledButton.icon(
+-            onPressed: () => _scan(context),
+-            icon: const Icon(Icons.qr_code_scanner),
+-            label: const Text('Сканировать QR-код'),
+-          ),
+-          const SizedBox(height: 24),
+-          const Text(
+-            'Доверенные устройства',
+-            style: TextStyle(fontWeight: FontWeight.bold),
+-          ),
+-          if (controller.devices.isEmpty)
+-            const Padding(
+-              padding: EdgeInsets.symmetric(vertical: 16),
+-              child: Text('Устройства ещё не подключены.'),
+-            ),
+-          for (final device in controller.devices)
+-            ListTile(
+-              title: Text(device.name),
+-              subtitle: Text(
+-                device.fingerprint,
+-                maxLines: 2,
+-                overflow: TextOverflow.ellipsis,
+-              ),
+-              onTap: () async {
+-                try {
+-                  await controller.syncNow(device.actorId);
+-                } catch (e) {
+-                  if (context.mounted) {
+-                    ScaffoldMessenger.of(context).showSnackBar(
+-                      SnackBar(content: Text('Обмен не завершён: $e')),
+-                    );
+-                  }
+-                }
+-              },
+-              trailing: IconButton(
+-                tooltip: 'Отключить устройство',
+-                icon: const Icon(Icons.link_off),
+-                onPressed: () async {
+-                  final yes = await showDialog<bool>(
+-                    context: context,
+-                    builder: (context) => AlertDialog(
+-                      title: const Text('Отключить устройство?'),
+-                      content: const Text(
+-                        'Новые изменения больше не будут передаваться этому устройству. Уже полученные копии заметок останутся на нём.',
+-                      ),
+-                      actions: [
+-                        TextButton(
+-                          onPressed: () => Navigator.pop(context, false),
+-                          child: const Text('Отмена'),
+-                        ),
+-                        FilledButton(
+-                          onPressed: () => Navigator.pop(context, true),
+-                          child: const Text('Отключить'),
+-                        ),
+-                      ],
+-                    ),
+-                  );
+-                  if (yes == true) {
+-                    try {
+-                      await controller.revoke(device.actorId);
+-                    } catch (e) {
+-                      if (context.mounted) {
+-                        ScaffoldMessenger.of(context).showSnackBar(
+-                          SnackBar(content: Text('Не удалось отключить: $e')),
+-                        );
+-                      }
+-                    }
+-                  }
+-                },
+-              ),
+-            ),
+-        ],
+-      ),
+-    ),
+-  );
+-}
+-
+-class _QrScanner extends StatefulWidget {
+-  const _QrScanner();
+-  @override
+-  State<_QrScanner> createState() => _QrScannerState();
+-}
+-
+-class _QrScannerState extends State<_QrScanner> {
+-  final _camera = MobileScannerController();
+-  bool _received = false;
+-  @override
+-  void dispose() {
+-    _camera.dispose();
+-    super.dispose();
+-  }
+-
+-  @override
+-  Widget build(BuildContext context) => Scaffold(
+-    appBar: AppBar(title: const Text('QR-код другого устройства')),
+-    body: MobileScanner(
+-      controller: _camera,
+-      errorBuilder: (context, error) => const Center(
+-        child: Padding(
+-          padding: EdgeInsets.all(24),
+-          child: Text(
+-            'Камера недоступна. Разрешите доступ к камере в настройках телефона.',
+-          ),
+-        ),
+-      ),
+-      onDetect: (capture) {
+-        for (final barcode in capture.barcodes) {
+-          final raw = barcode.rawValue;
+-          if (!_received && raw != null) {
+-            _received = true;
+-            Navigator.pop(context, raw);
+-            break;
+-          }
+-        }
+-      },
+-    ),
+-  );
+-}
++import 'dart:convert';
++
++import 'package:flutter/material.dart';
++import 'package:mobile_scanner/mobile_scanner.dart';
++
++class TrustedDevice {
++  const TrustedDevice(this.actorId, this.name, this.fingerprint);
++  final String actorId;
++  final String name;
++  final String fingerprint;
++}
++
++abstract class PairingController extends ChangeNotifier {
++  String get status;
++  List<TrustedDevice> get devices;
++  Future<void> pairQr(String raw, {required bool confirmed});
++  Future<void> revoke(String actorId);
++  Future<void> syncNow(String actorId);
++  Future<void> importIdentity() async {}
++}
++
++class PairingScreen extends StatelessWidget {
++  const PairingScreen({super.key, required this.controller});
++  final PairingController controller;
++
++  Future<void> _scan(BuildContext context) async {
++    final raw = await Navigator.of(context)
++        .push<String>(MaterialPageRoute(builder: (_) => const _QrScanner()));
++    if (raw == null || !context.mounted) return;
++    try {
++      final parsed = jsonDecode(raw);
++      if (parsed is! Map<String, dynamic>) throw const FormatException();
++      final fingerprint = parsed['fingerprint_sha256'] ?? parsed['fingerprint'];
++      if (fingerprint is! String ||
++          !RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(fingerprint)) {
++        throw const FormatException('В QR-коде нет полного SHA256-отпечатка.');
++      }
++      final confirmed = await showDialog<bool>(
++        context: context,
++        builder: (context) => AlertDialog(
++          title: const Text('Проверка устройства'),
++          content: SingleChildScrollView(
++            child: Column(
++              mainAxisSize: MainAxisSize.min,
++              crossAxisAlignment: CrossAxisAlignment.start,
++              children: [
++                const Text(
++                  'Сравните полный отпечаток с экраном другого устройства. Подтверждайте только знакомое устройство.',
++                ),
++                const SizedBox(height: 16),
++                SelectableText(fingerprint),
++              ],
++            ),
++          ),
++          actions: [
++            TextButton(
++              onPressed: () => Navigator.pop(context, false),
++              child: const Text('Отмена'),
++            ),
++            FilledButton(
++              onPressed: () => Navigator.pop(context, true),
++              child: const Text('Отпечатки совпадают'),
++            ),
++          ],
++        ),
++      );
++      if (confirmed != true) return;
++      await controller.pairQr(raw, confirmed: true);
++    } catch (error) {
++      if (context.mounted) {
++        ScaffoldMessenger.of(context).showSnackBar(
++          SnackBar(content: Text('Не удалось подключить устройство: $error')),
++        );
++      }
++    }
++  }
++
++  @override
++  Widget build(BuildContext context) => Scaffold(
++    appBar: AppBar(title: const Text('Синхронизация')),
++    body: SafeArea(
++      child: AnimatedBuilder(
++        animation: controller,
++        builder: (context, _) => ListView(
++          padding: const EdgeInsets.all(20),
++          children: [
++            Text(
++              controller.status,
++              semanticsLabel: 'Статус синхронизации: ${controller.status}',
++            ),
++            const SizedBox(height: 16),
++            const Text(
++              'Заметки доступны без сети. Для обмена подключите доверенное устройство в той же локальной сети.',
++            ),
++            const SizedBox(height: 16),
++            OutlinedButton.icon(
++              onPressed: () async {
++                try {
++                  await controller.importIdentity();
++                } catch (e) {
++                  if (context.mounted) {
++                    ScaffoldMessenger.of(context).showSnackBar(
++                      SnackBar(
++                        content: Text('Не удалось подключить сертификат: $e'),
++                      ),
++                    );
++                  }
++                }
++              },
++              icon: const Icon(Icons.verified_user_outlined),
++              label: const Text('Подключить сертификат устройства'),
++            ),
++            const SizedBox(height: 8),
++            FilledButton.icon(
++              onPressed: () => _scan(context),
++              icon: const Icon(Icons.qr_code_scanner),
++              label: const Text('Сканировать QR-код'),
++            ),
++            const SizedBox(height: 24),
++            const Text(
++              'Доверенные устройства',
++              style: TextStyle(fontWeight: FontWeight.bold),
++            ),
++            if (controller.devices.isEmpty)
++              const Padding(
++                padding: EdgeInsets.symmetric(vertical: 16),
++                child: Text('Устройства ещё не подключены.'),
++              ),
++            for (final device in controller.devices)
++              ListTile(
++                title: Text(device.name),
++                subtitle: Text(
++                  device.fingerprint,
++                  maxLines: 2,
++                  overflow: TextOverflow.ellipsis,
++                ),
++                onTap: () async {
++                  try {
++                    await controller.syncNow(device.actorId);
++                  } catch (e) {
++                    if (context.mounted) {
++                      ScaffoldMessenger.of(context).showSnackBar(
++                        SnackBar(content: Text('Обмен не завершён: $e')),
++                      );
++                    }
++                  }
++                },
++                trailing: IconButton(
++                  tooltip: 'Отключить устройство',
++                  icon: const Icon(Icons.link_off),
++                  onPressed: () async {
++                    final yes = await showDialog<bool>(
++                      context: context,
++                      builder: (context) => AlertDialog(
++                        title: const Text('Отключить устройство?'),
++                        content: const Text(
++                          'Новые изменения больше не будут передаваться этому устройству. Уже полученные копии заметок останутся на нём.',
++                        ),
++                        actions: [
++                          TextButton(
++                            onPressed: () => Navigator.pop(context, false),
++                            child: const Text('Отмена'),
++                          ),
++                          FilledButton(
++                            onPressed: () => Navigator.pop(context, true),
++                            child: const Text('Отключить'),
++                          ),
++                        ],
++                      ),
++                    );
++                    if (yes == true) {
++                      try {
++                        await controller.revoke(device.actorId);
++                      } catch (e) {
++                        if (context.mounted) {
++                          ScaffoldMessenger.of(context).showSnackBar(
++                            SnackBar(content: Text('Не удалось отключить: $e')),
++                          );
++                        }
++                      }
++                    }
++                  },
++                ),
++              ),
++          ],
++        ),
++      ),
++    ),
++  );
++}
++
++class _QrScanner extends StatefulWidget {
++  const _QrScanner();
++  @override
++  State<_QrScanner> createState() => _QrScannerState();
++}
++
++class _QrScannerState extends State<_QrScanner> {
++  final _camera = MobileScannerController();
++  bool _received = false;
++  @override
++  void dispose() {
++    _camera.dispose();
++    super.dispose();
++  }
++
++  @override
++  Widget build(BuildContext context) => Scaffold(
++    appBar: AppBar(title: const Text('QR-код другого устройства')),
++    body: MobileScanner(
++      controller: _camera,
++      errorBuilder: (context, error) => const Center(
++        child: Padding(
++          padding: EdgeInsets.all(24),
++          child: Text(
++            'Камера недоступна. Разрешите доступ к камере в настройках телефона.',
++          ),
++        ),
++      ),
++      onDetect: (capture) {
++        for (final barcode in capture.barcodes) {
++          final raw = barcode.rawValue;
++          if (!_received && raw != null) {
++            _received = true;
++            Navigator.pop(context, raw);
++            break;
++          }
++        }
++      },
++    ),
++  );
++}
+diff --git a/tests/test_p2p_network.py b/tests/test_p2p_network.py
+index 19d787d..88e40f3 100644
+--- a/tests/test_p2p_network.py
++++ b/tests/test_p2p_network.py
+@@ -399,7 +399,7 @@ def test_slow_synchronous_commit_never_emits_late_ack(certificates):
+         client.timeout=2
+         try:
+             address=await server.start()
+-            with pytest.raises((TimeoutError,asyncio.IncompleteReadError)):
++            with pytest.raises((TimeoutError,asyncio.IncompleteReadError,ConnectionResetError)):
+                 await client.send_delta(*address,a.make_delta(str(uuid4()),{'title':'Slow commit'}))
+             assert committed
+             assert server.rejected==1
