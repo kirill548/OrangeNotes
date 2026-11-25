@@ -34,6 +34,12 @@ public static class OrangeShortcut {
  }
  [DllImport("shell32.dll",CharSet=CharSet.Unicode,PreserveSig=false)]
  static extern void SHGetPropertyStoreFromParsingName(string path,IntPtr context,uint flags,ref Guid iid,out Store store);
+ [DllImport("shell32.dll",CharSet=CharSet.Unicode)]
+ static extern void SHChangeNotify(int eventId,uint flags,string item1,IntPtr item2);
+ public static void Refresh(string path) {
+  // SHCNE_UPDATEITEM, SHCNF_PATHW. Refresh only the Orange Notes shortcut.
+  SHChangeNotify(0x2000,5,path,IntPtr.Zero);
+ }
  public static void SetIdentity(string path,string appid) {
   Guid iid=typeof(Store).GUID;Store store;
   SHGetPropertyStoreFromParsingName(path,IntPtr.Zero,2,ref iid,out store);
@@ -52,6 +58,7 @@ public static class OrangeShortcut {
 }
 '@
     [OrangeShortcut]::SetIdentity($shortcutPath,$appId)
+    [OrangeShortcut]::Refresh($shortcutPath)
     $identity='HKCU:\Software\Classes\AppUserModelId\'+$appId
     New-Item -Path $identity -Force | Out-Null
     New-ItemProperty -Path $identity -Name 'DisplayName' -Value 'Orange Notes' -PropertyType String -Force | Out-Null

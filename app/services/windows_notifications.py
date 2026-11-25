@@ -52,7 +52,9 @@ class WindowsNotifications:
             if pythonw.exists():executable=pythonw
         main=None if frozen else str(self.app_root/'app/main.py')
         arguments=([main] if main else [])+['--database',str(database)]
-        icon=executable if frozen else resource_path('app/assets/app.ico')
+        icon = resource_path('app/assets/app.ico')
+        if not icon.is_file():
+            icon = executable
         return self._run('register',python=str(executable),main=main,root=str(self.app_root),
                          launch_args=subprocess.list2cmdline(arguments),
                          protocol_command=subprocess.list2cmdline([str(executable),*arguments,'--notification'])+' "%1"',
