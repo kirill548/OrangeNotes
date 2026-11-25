@@ -31,7 +31,7 @@ class ReminderDialog(QDialog):
         close = QPushButton()
         close.setIcon(icon('close','#838b95',18))
         close.setFixedSize(30,30)
-        close.setToolTip('Закрыть расписание · Escape')
+        close.setToolTip('Закрыть расписание (Esc)')
         close.setAccessibleName('Закрыть расписание')
         close.clicked.connect(self.reject)
         header.addWidget(close)
@@ -39,7 +39,7 @@ class ReminderDialog(QDialog):
         from app.utils.timezones import device_zone
         self.timezone_hint=QLabel('Часовой пояс расписания: '+str((reminder or {}).get('timezone_id') or device_zone())+'\nПосле смены пояса расписание сохранит это местное время.')
         self.timezone_hint.setWordWrap(True)
-        self.timezone_hint.setToolTip('При повторяющемся часе — одно событие в первый момент (fold=0). Несуществующее время переносится на первую допустимую минуту.')
+        self.timezone_hint.setToolTip('Если часы переводят назад, напоминание сработает при первом наступлении выбранного времени. Если выбранное время пропущено, напоминание сработает в первую доступную минуту.')
         self.timezone_hint.setStyleSheet('color:#737e8c;font-size:11px;')
         layout.addWidget(self.timezone_hint)
         outer = layout

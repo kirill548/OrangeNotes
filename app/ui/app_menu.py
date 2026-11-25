@@ -61,7 +61,7 @@ class ApplicationMenu(QMenu):
         self.setSeparatorsCollapsible(False)
         self.add_heading('Справка')
         from app.utils.shortcuts import shortcut_label
-        self.addAction(icon('search','#6d7786',18),'Быстрые действия · '+shortcut_label('Ctrl+K'),window.show_command_palette)
+        self.addAction(icon('search','#6d7786',18),'Быстрые действия ('+shortcut_label('Ctrl+K')+')',window.show_command_palette)
         self.help_action=self.addAction(icon('book','#6d7786',18),'Помощь и горячие клавиши',window.show_help)
         from app.utils.app_icon import application_icon
         self.about_action=self.addAction(application_icon(),'О программе',lambda: window.show_about())

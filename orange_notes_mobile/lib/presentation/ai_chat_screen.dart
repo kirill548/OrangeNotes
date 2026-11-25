@@ -31,7 +31,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
   bool _historyTrimmed = false;
   static const _maxMessages = 100;
   int _generation = 0;
-  String _status = 'Готов к запросу';
+  String _status = 'Готов';
 
   @override
   void initState() {
@@ -80,9 +80,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
       if (!mounted || generation != _generation) return;
       setState(() {
         _busy = false;
-        _status = answer.text.isEmpty
-            ? 'Недоступен'
-            : 'Недоступен · Ответ не завершён';
+        _status = answer.text.isEmpty ? 'Недоступен' : 'Ответ прерван';
         if (answer.text.isEmpty) {
           answer.text = 'Не удалось получить ответ. Попробуйте ещё раз.';
         }
@@ -101,9 +99,8 @@ class _AiChatScreenState extends State<AiChatScreen> {
                     if (event.text == 'local_search') answer.localSearch = true;
                     _status = switch (event.text) {
                       'connecting' => 'Подключаюсь…',
-                      'generating' => 'Подключён · Готовлю ответ…',
-                      'local_search' =>
-                        'Недоступен · Локальный поиск на телефоне',
+                      'generating' => 'Готовлю ответ…',
+                      'local_search' => 'Поиск на телефоне',
                       'syncing' => 'Идёт синхронизация',
                       _ => 'Готовлю ответ…',
                     };
@@ -111,7 +108,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                     answer.text += event.text;
                   case AiEventKind.done:
                     _busy = false;
-                    if (_status.startsWith('Подключён')) _status = 'Подключён';
+                    if (_status == 'Готовлю ответ…') _status = 'Подключён';
                     if (answer.text.isEmpty) {
                       answer.text = 'Ответ пуст. Попробуйте уточнить вопрос.';
                     }
@@ -119,7 +116,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                     _busy = false;
                     _status = answer.text.isEmpty
                         ? 'Недоступен'
-                        : 'Недоступен · Ответ не завершён';
+                        : 'Ответ прерван';
                     // Never expose raw networking exceptions or protocol payloads.
                     if (answer.text.isEmpty) {
                       answer.text =
@@ -225,7 +222,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                         child: Padding(
                           padding: EdgeInsets.all(24),
                           child: Text(
-                            'Задайте вопрос. Прикреплённая заметка будет отправлена только доверенному компьютеру. Без подключения доступен локальный поиск. Помощник не изменяет заметки.',
+                            'Задайте вопрос по заметке. Прикреплённая запись отправится на доверенный компьютер после отправки запроса. Без связи работает поиск на телефоне.',
                           ),
                         ),
                       )
@@ -250,7 +247,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                                     message.user
                                         ? 'Вы'
                                         : (message.localSearch
-                                              ? 'Результаты поиска · на телефоне'
+                                              ? 'Результаты поиска на телефоне'
                                               : 'Помощник'),
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,

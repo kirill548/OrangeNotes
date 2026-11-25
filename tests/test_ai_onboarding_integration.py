@@ -114,7 +114,7 @@ class OnboardingIntegrationTests(unittest.TestCase):
         self.assertEqual('ИИ готов', dialog.connection_banner.text())
         self.assertIn('qwen3:4b', dialog.connection_banner.toolTip())
         self.assertNotIn('NDJSON', dialog.connection_banner.toolTip())
-        self.assertIn('поиск по смыслу ещё не настроен', dialog.connection_banner.toolTip())
+        self.assertIn('поиск по смыслу ещё не настроен', dialog.connection_banner.toolTip().casefold())
         dialog.show_settings()
         self.assertIn('qwen3:4b', dialog._settings_dialog.result_label.text())
 

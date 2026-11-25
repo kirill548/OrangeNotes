@@ -162,7 +162,7 @@ class EditorFirstUserQA(unittest.TestCase):
         self.assertIn('Незавершённых событий: 2',self.window.reminder_label.text())
         self.assertIn('ближайшему',self.window.reminder_label.text())
         self.window.update_attention()
-        self.assertIn('заметок: 1',self.window.attention_button.text())
+        self.assertEqual(self.window.attention_button.text(),'Требуют внимания: 1')
 
 
 

@@ -87,7 +87,7 @@ class NoteCardClickTests(unittest.TestCase):
         self.assertRegex(rules['QListWidget:focus'],r'border\s*:\s*0\s*;')
         self.assertRegex(rules['QListWidget:focus'],r'outline\s*:\s*0\s*;')
         self.assertRegex(rules['QListWidget#cards::item:focus'],r'outline\s*:\s*0\s*;')
-        self.assertIn('background:#fffaf3',rules['QListWidget#cards::item:selected'])
+        self.assertIn('background:#fff5e8',rules['QListWidget#cards::item:selected'])
         self.assertNotIn('QListWidget',next(selector for selector in rules if selector.startswith('QPushButton:focus')))
 
     def test_keyboard_focus_keeps_arrow_selection_and_container_border_clean(self):

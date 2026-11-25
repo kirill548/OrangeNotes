@@ -23,8 +23,9 @@ class CompanionWindowFlowTests(unittest.TestCase):
                 self.assertEqual(window.splitter.count(),3)
                 pet=window._mini_companion
                 self.assertIs(pet.parentWidget(),window.companion_dock)
-                self.assertFalse(pet.geometry().intersects(window.notes.geometry()))
-                QTest.keyClick(pet,Qt.Key_Return)
+                self.assertFalse(window.companion_dock.isVisible())
+                QTest.mouseClick(window.companion_button,Qt.LeftButton)
+                self.assertTrue(window.companion_dock.isVisible())
                 dialog=window._companion_dialog
                 dialog.config['provider']='search'
                 def ask(text):

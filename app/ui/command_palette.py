@@ -25,9 +25,9 @@ class CommandPalette(StyledDialog):
     def __init__(self, parent=None):
         super().__init__('Быстрые действия', 'Найдите действие по названию и нажмите Enter.', parent, 'search')
         self.close_button.setAccessibleName('Закрыть быстрые действия')
-        self.close_button.setToolTip('Закрыть · Escape')
+        self.close_button.setToolTip('Закрыть (Esc)')
         self.done_button.hide()
-        self.footer_layout.itemAt(0).widget().setText('↑ ↓ — выбрать · Enter — выполнить · Escape — закрыть')
+        self.footer_layout.itemAt(0).widget().setText('Выбор ↑ ↓    Выполнить Enter    Закрыть Esc')
         self.query = QLineEdit()
         self.query.setPlaceholderText('Например: новая заметка, корзина, помощь…')
         self.query.setAccessibleName('Поиск действий')

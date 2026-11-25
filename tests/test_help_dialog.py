@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt,QPoint
 from PySide6.QtGui import QFont
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QLabel,QMainWindow,QPushButton,QWidget
-from app.ui.help_dialog import HelpDialog,StyledDialog
+from app.ui.help_dialog import AboutDialog,HelpDialog,StyledDialog
 from app.utils.shortcuts import shortcut_label
 
 
@@ -53,6 +53,21 @@ class HelpDialogTests(unittest.TestCase):
         dialog.show();self.app.processEvents();QTest.keyClick(dialog,Qt.Key_Escape);self.assertFalse(dialog.isVisible())
         dialog.show();self.app.processEvents();QTest.mouseClick(dialog.done_button,Qt.LeftButton);self.assertFalse(dialog.isVisible())
 
+    def test_about_opens_compact_with_readable_text_and_close_button(self):
+        self.app.setFont(QFont(self.original_font.family(), 18))
+        dialog = AboutDialog(self.parent)
+        self.dialogs.append(dialog)
+        dialog.show()
+        self.app.processEvents()
+
+        self.assertLess(dialog.height(), 340)
+        self.assert_readable(dialog)
+        labels = [label.text() for label in dialog.findChildren(QLabel)]
+        self.assertEqual(labels.count('Orange Notes'), 1)
+        self.assertEqual(dialog.done_button.text(), 'Закрыть')
+        QTest.mouseClick(dialog.done_button, Qt.LeftButton)
+        self.assertFalse(dialog.isVisible())
+
     def test_content_truthful_and_keyboard_shortcuts_present(self):
         dialog=self.dialog();text=' '.join(label.text() for label in dialog.findChildren(QLabel))
         for expected in ['С чего начать','Напоминания','Порядок в заметках','Быстрые клавиши','Ctrl+K','Ctrl+N','Ctrl+F','Ctrl+S','Ctrl+Shift+D','Мой день','в полночь','фоновая служба настроена','войти в Windows','явном выборе','без ИИ-комплекта']:
@@ -64,7 +79,7 @@ class HelpDialogTests(unittest.TestCase):
         dialog=self.dialog();text=' '.join(label.text() for label in dialog.findChildren(QLabel))
         for expected in [shortcut_label('Ctrl+K'),'↑ и ↓','Enter выполняет','Escape закрывает',
                          'поиск команд приложения','Резервная карточка в Windows',
-                         '«Посмотреть» открывает «Требуют внимания»','«Почему?» — диагностику',
+                         '«Посмотреть» открывает «Требуют внимания»','По кнопке «Почему?» можно проверить уведомления',
                          'число ожидающих событий','не включает уведомления ОС',
                          'когда окно приложения закрыто']:
             self.assertIn(expected,text)

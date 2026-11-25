@@ -103,7 +103,7 @@ class CompanionUITests(unittest.TestCase):
 
     def test_first_user_guidance_modes_and_fresh_conversation(self):
         dialog=self.dialog()
-        self.assertIn('Создай заметку',dialog.chat.toPlainText())
+        self.assertIn('Напомни завтра',dialog.chat.toPlainText())
         self.assertEqual(dialog.mode.currentData(),'discuss')
         self.assertIn('Личные и рабочие',dialog.scope_hint.text())
         dialog.mode.setCurrentIndex(dialog.mode.findData('audit'))
@@ -114,7 +114,7 @@ class CompanionUITests(unittest.TestCase):
         QTest.mouseClick(dialog.new_chat_button,Qt.LeftButton)
         self.assertEqual(dialog._history,[])
         self.assertEqual(dialog.source_buttons,[])
-        self.assertIn('Привет!',dialog.chat.toPlainText())
+        self.assertIn('Напишите, что хотите найти или записать.',dialog.chat.toPlainText())
         self.assertEqual(len(self.calls),1)
 
     def test_draft_requires_explicit_create_and_scope_switch_discards(self):
@@ -157,7 +157,7 @@ class CompanionUITests(unittest.TestCase):
         launcher=CompanionLauncher(self.parent);launcher.show();clicked=[]
         launcher.clicked.connect(lambda:clicked.append(True))
         self.assertFalse(launcher.icon().isNull())
-        self.assertIn('Чат по заметкам',launcher.text())
+        self.assertEqual(launcher.text(),'Помощник')
         self.assertIn('ИИ-помощника',launcher.accessibleName())
         self.assertLessEqual(launcher.sizeHint().width(),196)
         QTest.mouseClick(launcher,Qt.LeftButton)
@@ -194,7 +194,7 @@ class CompanionUITests(unittest.TestCase):
         response={'status':'search_only','text':'RAW-FALLBACK-TEXT','sources':[source]}
         dialog._completed(dialog._request_id,response,None,'ask')
         self.wait(lambda:not getattr(dialog,'_pending_render',False))
-        self.assertIn('Результаты поиска · без генерации',dialog.chat.toPlainText())
+        self.assertIn('Результаты поиска (без ответа ИИ)',dialog.chat.toPlainText())
         self.assertNotIn('RAW-FALLBACK-TEXT',dialog.chat.toPlainText())
         self.assertNotIn('SECRET-EXCERPT',dialog.chat.toPlainText())
         self.assertEqual(dialog._history,[])

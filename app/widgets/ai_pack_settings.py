@@ -49,7 +49,7 @@ class AIPackSettingsTab(QWidget):
         self._installed = []
         self._rescan = False
         layout = QVBoxLayout(self)
-        hint = QLabel('Модели приложения хранятся отдельно. Чужие модели Ollama не удаляются. Размеры ОЗУ ниже — оценки, а не измерение потребления.')
+        hint = QLabel('Модели приложения хранятся отдельно. Чужие модели Ollama не удаляются. Расход памяти указан приблизительно.')
         hint.setWordWrap(True); layout.addWidget(hint)
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(['Модель', 'На диске', 'Состояние', 'ОЗУ (оценка)'])

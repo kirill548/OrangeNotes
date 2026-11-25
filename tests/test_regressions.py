@@ -134,7 +134,9 @@ class UserRegressions(unittest.TestCase):
         self.assertIn('Напоминания не копируются', action.toolTip())
         button = next(toolbar.widgetForAction(action) for toolbar in w.findChildren(QToolBar)
                       if toolbar.widgetForAction(action) is not None)
-        self.assertEqual(button.toolButtonStyle(), Qt.ToolButtonTextBesideIcon)
+        self.assertEqual(button.toolButtonStyle(), Qt.ToolButtonIconOnly)
+        self.assertEqual(button.accessibleName(), 'Создать копию')
+        self.assertFalse(action.icon().isNull())
         w.new_note()
         source_id = w.current
         self.store.execute('UPDATE notes SET workspace_id=2 WHERE id=?', (source_id,))
@@ -149,7 +151,7 @@ class UserRegressions(unittest.TestCase):
         self.assertNotEqual(copy_id, source_id)
         copied = self.store.rows('SELECT * FROM notes WHERE id=?', (copy_id,))[0]
         self.assertEqual(copied['workspace_id'], 2)
-        self.assertEqual(copied['title'], 'Рабочий созвон — копия')
+        self.assertEqual(copied['title'], 'Рабочий созвон (копия)')
         original = self.store.rows('SELECT body FROM notes WHERE id=?', (source_id,))[0]
         self.assertEqual(copied['body'], original['body'])
         document = QTextDocument()

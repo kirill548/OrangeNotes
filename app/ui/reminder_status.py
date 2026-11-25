@@ -16,7 +16,7 @@ class ReminderStatusDialog(StyledDialog):
         self.store = store
         self.resize(640, 650)
         self.close_button.setAccessibleName('Закрыть состояние напоминаний')
-        self.close_button.setToolTip('Закрыть окно · Escape')
+        self.close_button.setToolTip('Закрыть окно (Esc)')
         hint=self.footer_layout.takeAt(0)
         if hint and hint.widget():
             hint.widget().hide()
@@ -26,7 +26,7 @@ class ReminderStatusDialog(StyledDialog):
         self.counts = self._section('История событий')
         self._section('Как это работает', '«Выполнено» закрывает одно событие. Повторяющееся расписание сохраняется. '
                       '«Отложить» переносит событие на 10 минут. Пропущенные напоминания проверяются при следующем входе в систему. '
-                      'Компьютер должен быть включён, а уведомления — разрешены системой.')
+                      'Оставьте компьютер включённым и разрешите уведомления в настройках системы.')
         refresh = QPushButton('Обновить')
         refresh.setIcon(icon('repeat', '#66717f', 18))
         refresh.clicked.connect(self.refresh)
@@ -81,7 +81,7 @@ class ReminderStatusDialog(StyledDialog):
                                  ('сохранена' if service_path().is_file() else 'не установлена'))
         rows = self.store.rows('SELECT status, COUNT(*) AS total FROM reminder_events GROUP BY status')
         totals = {row['status']: row['total'] for row in rows}
-        self.counts.setText('   ·   '.join(f'{label}: {totals.get(key, 0)}' for key, label in
+        self.counts.setText(', '.join(f'{label}: {totals.get(key, 0)}' for key, label in
                            [('pending', 'Ожидают'), ('notified', 'Доставлены'), ('done', 'Выполнены'), ('cancelled', 'Отменены')]))
         errors = self.store.rows("SELECT last_error FROM reminder_events WHERE status='pending' AND last_error IS NOT NULL ORDER BY id DESC LIMIT 1")
         if errors:
@@ -104,7 +104,7 @@ class ReminderStatusDialog(StyledDialog):
         else:
             center = ('Центре уведомлений Windows (Win+N)' if sys.platform == 'win32'
                       else 'Центре уведомлений macOS' if sys.platform == 'darwin' else 'системе уведомлений рабочего стола Linux')
-            text = 'Уведомления передаются в ' + center + '. Доставка и выполнение задачи — разные события. '
+            text = 'Уведомления передаются в ' + center + '. Отметьте задачу выполненной после того, как сделаете её. '
             if sys.platform != 'win32':
                 text += 'Подтверждение приёма системой не гарантирует показ баннера или сохранение в истории.'
         self.delivery.setText(text)

@@ -73,7 +73,7 @@ class DaySuggestionsDialog(QDialog):
                 widget.setParent(None)
                 widget.deleteLater()
         self.add_buttons={}
-        self.heading.setText('Предложения · '+str(len(rows)))
+        self.heading.setText(f'Предложения ({len(rows)})')
         for note in rows:
             self._row(note)
         if not rows:

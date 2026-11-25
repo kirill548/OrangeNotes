@@ -24,14 +24,14 @@ class ReminderHistoryDialog(QDialog):
 
     def refresh(self):
         self.events.clear()
-        labels={'pending':'Ожидает доставки','notified':'Доставлено · ещё не выполнено','done':'Выполнено','cancelled':'Отменено'}
+        labels={'pending':'Ожидает доставки','notified':'Доставлено','done':'Выполнено','cancelled':'Отменено'}
         rows=self.store.rows('SELECT e.* FROM reminder_events e JOIN reminders r ON r.id=e.reminder_id WHERE r.note_id=? ORDER BY COALESCE(e.scheduled_utc,e.scheduled_at) DESC,e.id DESC LIMIT 200',(self.note_id,))
         for row in rows:
             scheduled=event_scheduled_local(row).strftime('%d.%m.%Y, %H:%M')
             status=labels.get(row['status'],row['status'])
             if row['status']=='pending' and row['due_at']!=row['scheduled_at']:
                 status='Отложено до '+event_due_local(row).strftime('%d.%m.%Y, %H:%M')
-            text=f'{scheduled} — {status}\n{row["title"] or "Без названия"}\n{(row["body"] or "")[:200]}'
+            text=f'{scheduled} ({status})\n{row["title"] or "Без названия"}\n{(row["body"] or "")[:200]}'
             if row['status']=='pending' and row['last_error']:
                 text+='\nДоставка будет повторена: '+row['last_error']
             item=QListWidgetItem(text)

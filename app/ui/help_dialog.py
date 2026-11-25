@@ -7,7 +7,7 @@ from app.ui.icons import icon
 
 
 class StyledDialog(QDialog):
-    def __init__(self,title,subtitle,parent=None,symbol='note'):
+    def __init__(self,title,subtitle,parent=None,symbol='note',*,compact=False):
         super().__init__(parent,Qt.Dialog|Qt.FramelessWindowHint|Qt.NoDropShadowWindowHint)
         self.setWindowTitle(title)
         from app.utils.app_icon import application_icon
@@ -15,7 +15,10 @@ class StyledDialog(QDialog):
         self.setModal(False)
         self.setWindowModality(Qt.NonModal)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setMinimumSize(420,340)
+        if compact:
+            self.setMinimumWidth(320)
+        else:
+            self.setMinimumSize(420,340)
         self._drag_position=None
         self.setStyleSheet('''
             QWidget {font-family:"Segoe UI";font-size:14px;}
@@ -29,7 +32,7 @@ class StyledDialog(QDialog):
             QLabel#helpKey {background:#fff1df;color:#9d570f;border:1px solid #ffe0b8;border-radius:7px;padding:5px 9px;}
             QPushButton#helpClose {background:transparent;border:none;border-radius:9px;}
             QPushButton#helpClose:hover {background:#fff0df;}
-            QPushButton#helpDone {background:#ff890b;color:white;border:none;border-radius:10px;padding:10px 24px;font-weight:600;}
+            QPushButton#helpDone {background:#ff890b;color:#291800;border:none;border-radius:10px;padding:10px 24px;font-weight:600;}
             QPushButton#helpDone:hover {background:#ef7b06;}
             QScrollArea {background:transparent;border:none;}
             QScrollBar:vertical {background:transparent;width:8px;margin:0;}
@@ -50,17 +53,25 @@ class StyledDialog(QDialog):
         titles.addWidget(title);subtitle=self._label(subtitle);subtitle.setObjectName('helpSecondary');titles.addWidget(subtitle)
         header.addLayout(titles,1)
         self.close_button=QPushButton();self.close_button.setObjectName('helpClose');self.close_button.setIcon(icon('close','#737e8e',18));self.close_button.setFixedSize(34,34)
-        self.close_button.setToolTip('Закрыть справку · Escape');self.close_button.setAccessibleName('Закрыть справку');self.close_button.clicked.connect(self.close)
+        self.close_button.setToolTip('Закрыть справку (Esc)');self.close_button.setAccessibleName('Закрыть справку');self.close_button.clicked.connect(self.close)
         header.addWidget(self.close_button,0,Qt.AlignTop);layout.addWidget(self.header)
-        self.scroll=QScrollArea();self.scroll.setWidgetResizable(True);self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.content=QWidget();self.content.setObjectName('helpContent');self.content.setStyleSheet('QWidget#helpContent {background:#fffdfa;}')
         self.cards=QVBoxLayout(self.content);self.cards.setContentsMargins(0,0,3,0);self.cards.setSpacing(10);self.body_layout=self.cards
-        self.scroll.setWidget(self.content);layout.addWidget(self.scroll,1)
-        footer=QHBoxLayout();self.footer_layout=footer;hint=self._label('Это окно не мешает работе с заметками.');hint.setObjectName('helpSecondary');footer.addWidget(hint,1)
+        if compact:
+            layout.addWidget(self.content)
+        else:
+            self.scroll=QScrollArea();self.scroll.setWidgetResizable(True);self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.scroll.setWidget(self.content);layout.addWidget(self.scroll,1)
+        footer=QHBoxLayout();self.footer_layout=footer
+        if compact:
+            footer.addStretch()
+        else:
+            hint=self._label('Это окно не мешает работе с заметками.');hint.setObjectName('helpSecondary');footer.addWidget(hint,1)
         self.done_button=QPushButton('Понятно');self.done_button.setObjectName('helpDone');self.done_button.clicked.connect(self.close);footer.addWidget(self.done_button);layout.addLayout(footer)
         area=(parent.screen() if parent else self.screen()).availableGeometry()
         self.setMaximumSize(max(420,area.width()-24),max(340,area.height()-24))
-        self.resize(min(640,self.maximumWidth()),min(760,self.maximumHeight()))
+        if not compact:
+            self.resize(min(640,self.maximumWidth()),min(760,self.maximumHeight()))
 
     @staticmethod
     def _label(text,bold=False):
@@ -93,13 +104,17 @@ class StyledDialog(QDialog):
 
 class AboutDialog(StyledDialog):
     def __init__(self, parent=None):
-        super().__init__('О программе', 'Orange Notes', parent)
-        self._card('note', 'Orange Notes', [('Ваши записи под рукой', 'Заметки, напоминания и локальный помощник. Данные хранятся на вашем устройстве.')])
+        super().__init__('О программе', 'Orange Notes', parent, compact=True)
+        self.cards.addWidget(self._label('Заметки и напоминания. Данные хранятся на вашем устройстве.'))
+        self.close_button.setToolTip('Закрыть (Esc)')
+        self.close_button.setAccessibleName('Закрыть')
+        self.done_button.setText('Закрыть')
+        self.adjustSize()
 
 
 class HelpDialog(StyledDialog):
     def __init__(self,parent=None):
-        super().__init__('Быстрый старт','Заметки, планы и напоминания — спокойно и понятно.',parent)
+        super().__init__('Быстрый старт','Как создавать заметки и настраивать напоминания',parent)
         self._card('note','С чего начать',[
             ('Создайте заметку','Нажмите + или '+shortcut_label('Ctrl+N')+'. Название и текст сохраняются автоматически.'),
             ('Форматирование и списки','Выделенные кнопки B и I показывают активное форматирование. Повторное нажатие отключает его. Доступны чек-лист, маркированный и нумерованный списки. Enter добавляет пункт; Enter в пустом пункте завершает список. Нажатие на квадрат отмечает дело.')])
@@ -110,7 +125,7 @@ class HelpDialog(StyledDialog):
             ('Одно время или гибкий повтор','Выберите дату либо дни недели и несколько времён. Например: Пн, Ср, Пт в 09:00 и 18:30. Затем нажмите «Сохранить».'),
             ('Выполнить или отложить','Ближайшее событие можно выполнить или отложить на 10 минут. Повторяющееся расписание при этом сохраняется.'),
             ('Если пропустили уведомление','Откройте раздел «Требуют внимания» слева, через меню трея или быстрые действия. События остаются там до выполнения или откладывания; закрытие баннера не выполняет задачу. Значок трея показывает число ожидающих событий, если системный трей доступен.'),
-            ('Резервная карточка в Windows','Если Windows сообщает, что уведомления отключены, в открытом приложении появляется резервная карточка с текстом напоминания и числом событий. «Посмотреть» открывает «Требуют внимания», «Почему?» — диагностику. Карточка не включает уведомления ОС и не заменяет баннер Windows, когда окно приложения закрыто.'),
+            ('Резервная карточка в Windows','Если Windows сообщает, что уведомления отключены, в открытом приложении появляется резервная карточка с текстом напоминания и числом событий. Кнопка «Посмотреть» открывает «Требуют внимания». По кнопке «Почему?» можно проверить уведомления. Карточка не включает уведомления ОС и не заменяет баннер Windows, когда окно приложения закрыто.'),
             ('После закрытия окна','Если фоновая служба настроена, напоминания продолжают работать и после выхода из приложения. Компьютер должен быть включён, а пользователь должен войти в Windows.'),
             ('Если уведомление не пришло','Откройте «Состояние напоминаний» в меню приложения. Проверьте общий переключатель уведомлений Windows и разрешение для Orange Notes.')])
         self._card('folder','Порядок в заметках',[

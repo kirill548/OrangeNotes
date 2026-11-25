@@ -6,7 +6,12 @@ from PySide6.QtSvg import QSvgRenderer
 
 SHAPES = {
     'chevron_down': '<path d="m5 9 7 7 7-7"/>',
-    'copy': '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',
+    'bold': '<path d="M6 4h6a4 4 0 0 1 0 8H6zm0 8h7a4 4 0 0 1 0 8H6z"/>',
+    'italic': '<path d="M11 4h8M5 20h8M15 4 9 20"/>',
+    'numbered': '<path d="M10 6h11M10 12h11M10 18h11M3 5l2-1v5m-2 4a2 2 0 0 1 4 0c0 1-4 4-4 5h4"/>',
+    'microphone': '<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3m-3 0h6"/>',
+    'stop': '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+    'copy': '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2"/>',
     'dot': '<circle cx="12" cy="12" r="7"/>',
     'note': '<rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/>',
     'folder': '<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3z"/><path d="M3 10h18"/>',
@@ -24,7 +29,7 @@ SHAPES = {
     'gift': '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9M12 8v13"/><path d="M12 8C2 8 6 0 10 4l2 4c10 0 6-8 2-4z"/>',
     'team': '<circle cx="9" cy="7" r="4"/><path d="M2 21v-3a7 7 0 0 1 14 0v3zM16 4a4 4 0 0 1 0 8M19 15c3 1 3 3 3 6"/>',
     'check': '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="m7 12 3 3 7-7"/>',
-    'checklist': '<rect x="2" y="4" width="5" height="5" rx="1"/><rect x="2" y="15" width="5" height="5" rx="1"/><path d="M11 6.5h11M11 17.5h11"/>',
+    'checklist': '<path d="m3 6 2 2 4-4M12 6h9M12 17h9"/><rect x="3" y="14" width="6" height="6" rx="1"/>',
     'tick': '<path d="m4 12 5 5L20 6"/>',
     'list': '<path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/>',
     'link': '<path d="m10 7 2-2a5 5 0 0 1 7 7l-3 3M14 17l-2 2a5 5 0 0 1-7-7l3-3M8 16l8-8"/>',

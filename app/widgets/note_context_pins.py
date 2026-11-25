@@ -16,7 +16,7 @@ class NoteContextPins(QWidget):
         self.include_trash = False
         self._pins = {}
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(4)
-        self.caption = QLabel('Прикреплённые заметки · 0/8'); layout.addWidget(self.caption)
+        self.caption = QLabel('Прикреплённые заметки (0/8)'); layout.addWidget(self.caption)
         row = QHBoxLayout()
         self.search = QLineEdit(); self.search.setPlaceholderText('Найти заметку по заголовку…')
         self.search.setAccessibleName('Поиск заметок для контекста'); row.addWidget(self.search, 1)
@@ -77,7 +77,7 @@ class NoteContextPins(QWidget):
         for item in rows:
             if item['id'] not in self._pins:
                 title = item['title'].strip() or 'Без названия'
-                self.candidates.addItem(title[:65] + ' · #' + str(item['id']), item['id'])
+                self.candidates.addItem(f'{title[:65]} (№ {item["id"]})', item['id'])
                 self.candidates.setItemData(self.candidates.count()-1, title, Qt.ToolTipRole)
         self.candidates.setPlaceholderText('Нет подходящих заметок')
         # A placeholder keeps the combo at -1 after clear(), even with new rows.
@@ -121,10 +121,10 @@ class NoteContextPins(QWidget):
             item = self.pin_row.takeAt(0)
             if item.widget(): item.widget().deleteLater()
         for note_id, title in self._pins.items():
-            button = QPushButton(title[:16] + ' ×'); button.setToolTip(title + ' · #' + str(note_id))
+            button = QPushButton(title[:16] + ' ×'); button.setToolTip(f'{title} (№ {note_id})')
             button.setAccessibleName('Убрать из контекста: ' + title)
             button.clicked.connect(lambda checked=False, value=note_id: self.remove(value)); self.pin_row.addWidget(button)
         self.pin_row.addStretch()
         self.pin_area.setVisible(bool(self._pins))
-        self.caption.setText('Прикреплённые заметки · ' + str(len(self._pins)) + '/8')
+        self.caption.setText(f'Прикреплённые заметки ({len(self._pins)}/8)')
         self._update_add()

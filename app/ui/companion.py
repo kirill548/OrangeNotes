@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QCheckBox,QComboBox,QDialog,QDateTimeEdit,QFormLa
 from app.services.memory_store import MemoryStore
 from app.widgets.companion_mascot import companion_icon
 from app.utils.app_icon import application_icon
+from app.ui.icons import icon
 from app.services.audio_capture import VoiceInputController
 from app.services.app_paths import get_app_dir, ai_dir, stt_dir, resolve_app_path, portable_app_path, check_app_writable
 
@@ -207,7 +208,7 @@ class CompanionDialog(QDialog):
         memory=MemoryStore(self.database_path)
         try:self.workspaces=memory.list_workspaces()
         finally:memory.close()
-        self.setWindowTitle('Помощник Nopen')
+        self.setWindowTitle('Помощник Orange Notes')
         self.setWindowIcon(application_icon())
         self.setModal(False)
         self.setWindowModality(Qt.NonModal)
@@ -220,23 +221,20 @@ class CompanionDialog(QDialog):
             QCheckBox::indicator {width:16px;height:16px;border:1px solid #c9cfd5;border-radius:5px;background:white;}
             QCheckBox::indicator:checked {background:#ff931f;border-color:#ff931f;}
             QPushButton {background:white;border:1px solid #eee4d8;border-radius:9px;padding:8px 12px;}
-            QPushButton#companionSend {background:#ff890b;color:white;border:none;font-weight:600;}
+            QPushButton#companionSend {background:#ff890b;color:#291800;border:none;font-weight:600;}
             QPushButton#companionSend:disabled {background:#dac5b0;}
             QScrollArea {border:none;background:transparent;}
         ''')
-        layout=QVBoxLayout(self);layout.setContentsMargins(20,18,20,16);layout.setSpacing(12)
+        layout=QVBoxLayout(self);layout.setContentsMargins(16,14,16,14);layout.setSpacing(8)
         header=QHBoxLayout()
-        mascot=QLabel();mascot.setPixmap(companion_icon().pixmap(QSize(48,48)));header.addWidget(mascot)
-        headings=QVBoxLayout()
-        title=QLabel('Помощник по заметкам');title.setStyleSheet('font-size:18px;font-weight:600;');headings.addWidget(title)
-        subtitle=QLabel('Спросите, найдите заметку или создайте напоминание.');subtitle.setWordWrap(True);headings.addWidget(subtitle)
-        header.addLayout(headings,1)
+        mascot=QLabel();mascot.setPixmap(companion_icon().pixmap(QSize(32,32)));header.addWidget(mascot)
+        title=QLabel('Помощник');title.setStyleSheet('font-size:18px;font-weight:600;');header.addWidget(title,1)
         self.new_chat_button=QPushButton('Новый разговор');self.new_chat_button.clicked.connect(self.new_conversation);header.addWidget(self.new_chat_button)
         layout.addLayout(header)
         connection=QHBoxLayout()
         self.connection_banner=QLabel('Проверяю ИИ…')
         self.connection_banner.setTextFormat(Qt.PlainText);self.connection_banner.setWordWrap(True)
-        self.connection_banner.setStyleSheet('background:#fff0dc;border-radius:8px;padding:8px;color:#86520c;')
+        self.connection_banner.setStyleSheet('color:#566375;padding:3px 0;')
         connection.addWidget(self.connection_banner,1)
         self.setup_button=QPushButton('Настройки ИИ');self.setup_button.clicked.connect(self.show_settings);connection.addWidget(self.setup_button)
         layout.addLayout(connection)
@@ -318,10 +316,10 @@ class CompanionDialog(QDialog):
         for label,text,mode in [('Создать заметку','Создай заметку: позвонить завтра в 10:00.','discuss'),('Найти','Найди, что я планировал сделать.','memory'),('Обсудить','Помоги разобраться в ситуации. Сначала уточни, чего я хочу добиться.','discuss'),('Проверить','Проверь план по моим заметкам: что упущено и какие есть противоречия?','audit')]:
             button=QPushButton(label);button.clicked.connect(lambda checked=False,q=text,m=mode:self._suggest(q,m));prompts.addWidget(button)
         layout.addWidget(self.quick_actions);self.quick_actions.hide()
-        self.input=QPlainTextEdit();self.input.setPlaceholderText(shortcut_label('Например: «Создай заметку: позвонить завтра в 10:00»\nCtrl+Enter — отправить, Enter — новая строка'));self.input.setMaximumHeight(75);self.input.setAccessibleName('Ваш вопрос')
+        self.input=QPlainTextEdit();self.input.setPlaceholderText(shortcut_label('Например: «Напомни завтра в 10:00 позвонить»\nОтправка: Ctrl+Enter. Новая строка: Enter.'));self.input.setMaximumHeight(75);self.input.setAccessibleName('Ваш вопрос')
         voice_row=QHBoxLayout();voice_row.addWidget(self.input,1)
-        self.microphone_button=QPushButton('🎙');self.microphone_button.setAccessibleName('Голосовой ввод');self.microphone_button.setFixedWidth(48)
-        self.microphone_button.setToolTip('Надиктовать текст. Запись остаётся на компьютере. Нажмите ещё раз, чтобы распознать; «Отменить» — чтобы удалить запись.')
+        self.microphone_button=QPushButton();self.microphone_button.setIcon(icon('microphone',size=20));self.microphone_button.setIconSize(QSize(20,20));self.microphone_button.setAccessibleName('Голосовой ввод');self.microphone_button.setFixedWidth(40)
+        self.microphone_button.setToolTip('Начать запись на компьютере. Нажмите ещё раз, чтобы распознать текст. Кнопка «Отменить» удаляет запись.')
         self.microphone_button.clicked.connect(self._toggle_voice);voice_row.addWidget(self.microphone_button);layout.addLayout(voice_row)
         from app.services.stt_installer import STTManager
         self.stt_manager=STTManager(stt_dir())
@@ -365,7 +363,7 @@ class CompanionDialog(QDialog):
     def _voice_state_changed(self,state):
         if not self._voice_active or self._voice_discard:return
         recording=state=='recording'
-        self.microphone_button.setText('■' if recording else '🎙')
+        self.microphone_button.setIcon(icon('stop' if recording else 'microphone',size=20))
         self.microphone_button.setEnabled(recording)
         self.status.setText('Слушаю…' if recording else 'Распознаю…' if state=='transcribing' else 'Готов')
 
@@ -385,7 +383,7 @@ class CompanionDialog(QDialog):
         self._voice_discard=True;self.voice_input.cancel()
 
     def _voice_finished(self):
-        self._voice_active=False;self.microphone_button.setText('🎙');self.microphone_button.setEnabled(True)
+        self._voice_active=False;self.microphone_button.setIcon(icon('microphone',size=20));self.microphone_button.setEnabled(True)
         self.send_button.setEnabled(self._thread is None);self.cancel_button.setEnabled(self._thread is not None)
         if self._closing:self.close();self.shutdown_ready.emit();_ACTIVE_DIALOGS.discard(self)
 
@@ -419,13 +417,13 @@ class CompanionDialog(QDialog):
         if response.get('model_ready'):
             message='Локальный ИИ подключён. Модель: '+self.config['model']
             latency=response.get('latency_ms')
-            if isinstance(latency,(int,float)):message+=' · соединение проверено за '+str(round(latency))+' мс'
-            if not response.get('embedding_ready'):message+=' · поиск по смыслу ещё не настроен'
+            if isinstance(latency,(int,float)):message+='. Соединение проверено за '+str(round(latency))+' мс'
+            if not response.get('embedding_ready'):message+='. Поиск по смыслу ещё не настроен'
             if self.config.get('provider')=='search':message='Локальный ИИ найден. Сейчас выбран поиск без модели; нажмите «Настройки ИИ», чтобы включить разговор.'
         else:message='Локальный ИИ-помощник не подключён. Поиск и создание заметок доступны без модели.'
         self.connection_banner.setToolTip(message)
         self.connection_banner.setText('ИИ готов' if response.get('model_ready') and self.config.get('provider')!='search' else 'Поиск без ИИ')
-        self.connection_banner.setStyleSheet('background:#eaf7ee;border-radius:8px;padding:8px;color:#286b42;' if response.get('model_ready') and self.config.get('provider')!='search' else 'background:#fff0dc;border-radius:8px;padding:8px;color:#86520c;')
+        self.connection_banner.setStyleSheet('background:#eaf7ee;border-radius:8px;padding:8px;color:#286b42;' if response.get('model_ready') and self.config.get('provider')!='search' else 'color:#566375;padding:3px 0;')
         if self._settings_dialog:self._settings_dialog.result_label.setText(message)
 
     def show_onboarding(self):
@@ -503,9 +501,9 @@ class CompanionDialog(QDialog):
             self.metrics_collector.set_model(self.config.get("model"))
 
     def _welcome(self):
-        self.chat.setPlainText('Помощник\nПривет! Я ваш маленький помощник. Можно просто поздороваться, спросить, как работает приложение, или попросить создать заметку.\n\n'
-                               'Попробуйте: «Создай заметку: посмотреть почту завтра в 09:00». Я покажу черновик: вы проверите текст и время, затем нажмёте «Сохранить в заметки».\n\n'
-                               'Чтобы обсудить конкретные записи, нажмите «Прикрепить заметки». Ваши заметки остаются на компьютере.')
+        self.chat.setPlainText('Помощник\nНапишите, что хотите найти или записать.\n\n'
+                               'Например: «Напомни завтра в 09:00 проверить почту». Проверьте черновик и нажмите «Сохранить в заметки».\n\n'
+                               'Чтобы задать вопрос по конкретной записи, прикрепите её к чату.')
         self.scope_hint.setText('Использую только пространство «'+self.workspace.currentText()+'». Личные и рабочие заметки не смешиваются.')
         self.status.setText('Готов')
         if self._connection_status:self.status.setText(self.connection_banner.text())
@@ -524,7 +522,7 @@ class CompanionDialog(QDialog):
 
     def _context_pins_changed(self):
         count=len(self.context_pins.note_ids)
-        self.attach_notes_button.setText('Заметки · '+str(count) if count else 'Прикрепить заметки')
+        self.attach_notes_button.setText(f'Заметки ({count})' if count else 'Прикрепить заметки')
         self.context_pins.setVisible(self.attach_notes_button.isChecked() or bool(count))
 
     def new_conversation(self):
@@ -538,7 +536,7 @@ class CompanionDialog(QDialog):
 
     def _show_draft(self,draft):
         if not isinstance(draft,dict) or draft.get('workspace_id')!=self.workspace_id:return
-        self.draft_heading.setText('Черновик напоминания · создаётся только после подтверждения' if draft.get('once_at') else 'Черновик заметки · создаётся только после подтверждения')
+        self.draft_heading.setText('Черновик напоминания' if draft.get('once_at') else 'Черновик заметки')
         self.draft_create.setText('Сохранить в заметки')
         from app.services.assistant_actions import recurrence_label
         rule = draft.get('recurrence') or draft.get('rrule')
@@ -864,9 +862,9 @@ class CompanionDialog(QDialog):
         text=str(response.get('text') or '')
         search_only=response.get('status')=='search_only'
         if search_only:
-            notice=('ИИ не сформировал подтверждённый ответ. Ниже — исходные фрагменты заметок, а не ответ помощника.'
+            notice=('Не удалось подтвердить ответ. Вот фрагменты найденных заметок.'
                     if response.get('sources') else 'В ваших заметках нет информации об этом')
-            self.chat.appendPlainText('\nРезультаты поиска · без генерации\n'+notice)
+            self.chat.appendPlainText('\nРезультаты поиска (без ответа ИИ)\n'+notice)
         else:
             self.chat.appendPlainText('\nПомощник\n'+text)
         sources=[{'note_id':source['note_id'],'revision':source.get('revision')} for source in response.get('sources') or [] if isinstance(source,dict) and 'note_id' in source]
@@ -885,7 +883,7 @@ class CompanionDialog(QDialog):
                 card=QWidget();card.setObjectName('searchSourceCard')
                 card.setStyleSheet('QWidget#searchSourceCard {background:#f5f3ee;border:1px solid #e3ddd3;border-radius:8px;}')
                 card_layout=QVBoxLayout(card);card_layout.setContentsMargins(9,7,9,7)
-                label=QLabel('Источник: '+title[:100]+' · исходный текст заметки')
+                label=QLabel('Источник: '+title[:100])
                 label.setTextFormat(Qt.PlainText);label.setWordWrap(True);card_layout.addWidget(label)
                 excerpt=QLabel(str(source.get('excerpt') or '')[:1600])
                 excerpt.setObjectName('searchSourceExcerpt');excerpt.setTextFormat(Qt.PlainText)
@@ -1100,8 +1098,8 @@ class CompanionDialog(QDialog):
                     'Поиск по заметкам продолжает работать без модели.')
         models=set(response.get('models') or [])
         missing=[]
-        if not response.get('model_ready'):missing.append('разговор — '+config['model'])
-        if config['embedding_model'] not in models:missing.append('поиск по смыслу — '+config['embedding_model'])
+        if not response.get('model_ready'):missing.append('диалог: '+config['model'])
+        if config['embedding_model'] not in models:missing.append('поиск по смыслу: '+config['embedding_model'])
         if missing:
             prefix='Разговор готов. ' if response.get('model_ready') else 'Локальный сервис работает. '
             return prefix+'Не найдены модели: '+'; '.join(missing)+'. Добавьте полный ИИ-комплект и повторите проверку.'

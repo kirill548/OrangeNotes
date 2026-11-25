@@ -76,7 +76,7 @@ void main() {
     gateway.controller.add(const AiEvent(AiEventKind.token, text: 'встречи'));
     await tester.pump();
     expect(find.text('План встречи'), findsOneWidget);
-    expect(find.text('Подключён · Готовлю ответ…'), findsOneWidget);
+    expect(find.text('Готовлю ответ…'), findsOneWidget);
     gateway.controller.add(const AiEvent(AiEventKind.done));
     await tester.pump();
     expect(find.byTooltip('Отправить'), findsOneWidget);
@@ -94,12 +94,9 @@ void main() {
       );
       gateway.controller.add(const AiEvent(AiEventKind.done));
       await tester.pump();
-      expect(
-        find.text('Недоступен · Локальный поиск на телефоне'),
-        findsOneWidget,
-      );
+      expect(find.text('Поиск на телефоне'), findsOneWidget);
       expect(find.text('local_search'), findsNothing);
-      expect(find.text('Результаты поиска · на телефоне'), findsOneWidget);
+      expect(find.text('Результаты поиска на телефоне'), findsOneWidget);
     },
   );
   testWidgets('stop cancels request and late tokens cannot change response', (

@@ -29,6 +29,6 @@ class InteractiveHelperTests(unittest.TestCase):
     def test_draft_is_confirmation_only_and_recurrence_is_visible(self):
         before=self.store.db.execute('SELECT COUNT(*) FROM notes').fetchone()[0]
         self.dialog._show_draft({'workspace_id':self.dialog.workspace_id,'title':'Отчет','body':'Проверить отчет','once_at':'2099-10-12T10:00:00','rrule':'FREQ=WEEKLY;BYDAY=MO'})
-        self.assertIn('подтверждения',self.dialog.draft_heading.text())
+        self.assertEqual(self.dialog.draft_heading.text(),'Черновик напоминания')
         self.assertEqual('По понедельникам',self.dialog.draft_recurrence.text())
         self.assertEqual(self.store.db.execute('SELECT COUNT(*) FROM notes').fetchone()[0],before)

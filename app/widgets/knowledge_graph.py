@@ -60,7 +60,7 @@ class BacklinksPanel(QWidget):
             self.note_requested.emit(value)
 
     def update_links(self, rows, mentions=()):
-        self.heading.setText('Обратные ссылки · ' + str(len(rows)))
+        self.heading.setText(f'Обратные ссылки ({len(rows)})')
         for widget, entries in ((self.links, rows), (self.mentions, mentions)):
             widget.clear()
             for row in entries:
@@ -102,7 +102,7 @@ class GraphView(QGraphicsView):
         self._active_id = None
         self._titles = {}
         self.setDragMode(QGraphicsView.ScrollHandDrag)
-        self.setAccessibleName('Граф заметок: колесо мыши — масштаб, перетаскивание — перемещение')
+        self.setAccessibleName('Граф заметок. Масштаб меняется колёсиком мыши. Граф можно перетащить.')
         self._zoom = 1.0
         self._press = None
         self._positions = {}

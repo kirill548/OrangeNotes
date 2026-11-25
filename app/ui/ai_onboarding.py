@@ -44,8 +44,8 @@ class AIOnboardingWizard(QDialog):
         intro=QLabel('Поиск, подсказки и создание заметок уже работают без модели. Для свободного разговора подключите локальный ИИ. Заметки не отправляются в облако.');intro.setWordWrap(True);layout.addWidget(intro)
         self.status_label=QLabel('Проверяю подключение…');self.status_label.setWordWrap(True);self.status_label.setTextFormat(Qt.PlainText);layout.addWidget(self.status_label)
         self.server_label=QLabel('Сервер: ещё не проверен')
-        self.model_label=QLabel('Диалог: qwen3:4b — ещё не проверен')
-        self.embedding_label=QLabel('Поиск по смыслу: qwen3-embedding:0.6b — ещё не проверен')
+        self.model_label=QLabel('Диалог: qwen3:4b (проверка ещё не запускалась)')
+        self.embedding_label=QLabel('Поиск по смыслу: qwen3-embedding:0.6b (проверка ещё не запускалась)')
         self.details_label=QLabel('Транспорт: NDJSON stream=true');self.details_label.setWordWrap(True)
         for label in (self.server_label,self.model_label,self.embedding_label,self.details_label):
             label.setTextFormat(Qt.PlainText);label.setWordWrap(True);layout.addWidget(label)
@@ -76,8 +76,8 @@ class AIOnboardingWizard(QDialog):
         self._status=dict(status)
         available=bool(status.get('available'));ready=bool(status.get('model_ready'))
         self.server_label.setText('Сервер Ollama: '+('подключён' if available else 'не найден'))
-        self.model_label.setText('Диалог: '+str(self.config.get('model','qwen3:4b'))+' — '+('готов' if ready else 'модель не найдена'))
-        self.embedding_label.setText('Поиск по смыслу: '+str(self.config.get('embedding_model','qwen3-embedding:0.6b'))+' — '+('готов' if status.get('embedding_ready') else 'модель не найдена; обычный поиск доступен'))
+        self.model_label.setText('Диалог: '+str(self.config.get('model','qwen3:4b'))+' · '+('готов' if ready else 'модель не найдена'))
+        self.embedding_label.setText('Поиск по смыслу: '+str(self.config.get('embedding_model','qwen3-embedding:0.6b'))+' · '+('готов' if status.get('embedding_ready') else 'модель не найдена; обычный поиск доступен'))
         latency=status.get('latency_ms')
         self.details_label.setText('NDJSON stream=true'+(' · проверка соединения '+str(round(latency))+' мс' if isinstance(latency,(int,float)) else ''))
         if ready:message='Локальный ИИ подключён. Можно начать с «Привет» или попросить помочь с заметкой.'

@@ -87,7 +87,7 @@ class AIStatusStatusBarWidget(QPushButton):
             f'Выборка: {metrics.get("sample_count", 0)} из 20 завершённых запросов',
             f'Источник GPU: {metrics.get("provider") or "N/A"}',
             str(metrics.get('detail') or ''),
-            'GPU — общесистемные измерения, а не доказательство режима модели.',
+            'Показана общая загрузка видеокарты.',
             'Нажмите для перехода к настройкам ИИ.']))
 
     def _open_menu(self):

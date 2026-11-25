@@ -38,13 +38,13 @@ def companion_icon(size=48):
 class CompanionLauncher(QPushButton):
     """Root window can place this launcher in its navigation column."""
     def __init__(self,parent=None):
-        super().__init__('Помощник\nЧат по заметкам',parent)
-        self.setIcon(companion_icon());self.setIconSize(QSize(44,44))
-        self.setMinimumHeight(68)
+        super().__init__('Помощник',parent)
+        self.setIcon(companion_icon());self.setIconSize(QSize(28,28))
+        self.setMinimumHeight(44)
         self.setAccessibleName('Открыть ИИ-помощника по заметкам')
         self.setToolTip('Задайте вопрос о своих заметках или обсудите идею')
         self.setCursor(Qt.PointingHandCursor)
-        self.setStyleSheet('QPushButton {text-align:left;background:#fff5e9;border:1px solid #ffe0bb;border-radius:16px;padding:8px;color:#70451e;font-size:13px;} QPushButton:hover {background:#ffebd2;border-color:#ffad55;} QPushButton:focus {border:2px solid #ff890b;}')
+        self.setStyleSheet('QPushButton {text-align:left;background:transparent;border:1px solid #e8dfd4;border-radius:8px;padding:6px 8px;color:#293648;font-size:13px;} QPushButton:hover {background:#ffebd2;border-color:#ffad55;} QPushButton:focus {border:2px solid #ff890b;}')
 
     def sizeHint(self):
         # Native button hints can measure a multiline label as one long line.

@@ -9,7 +9,7 @@ class SynonymDictionaryDialog(QDialog):
         super().__init__(parent)
         self.database_path = database_path
         self.workspace_id = workspace_id
-        self.setWindowTitle('Словарь синонимов — ' + workspace_name)
+        self.setWindowTitle(f'Словарь синонимов ({workspace_name})')
         self.setMinimumWidth(440)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel('Ваши слова помогают найти заметки, если точного совпадения нет.\n'

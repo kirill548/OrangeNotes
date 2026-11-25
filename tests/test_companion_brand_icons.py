@@ -23,7 +23,7 @@ class CompanionBrandIconsTests(unittest.TestCase):
 
     def test_welcome_message_has_bee_avatar(self):
         dialog=self.dialog()
-        self.assertTrue(dialog.chat.toPlainText().startswith('Помощник\nПривет!'))
+        self.assertTrue(dialog.chat.toPlainText().startswith('Помощник\nНапишите, что хотите найти или записать.'))
         self.assertEqual(len(list(dialog.chat.assistant_avatar_positions())),1)
         dialog.chat.clear()
         dialog._welcome()

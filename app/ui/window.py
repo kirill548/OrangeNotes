@@ -20,7 +20,7 @@ LARGE_DOCUMENT_PREVIEW_CHARS = 4096
 
 
 def large_document_preview(body):
-    return plain_body(body[:LARGE_DOCUMENT_PREVIEW_CHARS])[:240] + ' · Большая заметка'
+    return plain_body(body[:LARGE_DOCUMENT_PREVIEW_CHARS])[:240] + ' (Большая заметка)'
 
 
 class Window(QMainWindow):
@@ -131,7 +131,7 @@ class Window(QMainWindow):
         for signal in [self.title.textChanged,self.body.textChanged,self.tags.textChanged,self.folder.currentIndexChanged,self.favorite.toggled]:
             signal.connect(self.dirty)
         self.tray = QSystemTrayIcon(self.icon,self)
-        self.tray.setToolTip('Orange Notes — напоминания')
+        self.tray.setToolTip('Напоминания Orange Notes')
         menu = QMenu(self)
         for name, callback in [('Открыть',self.open_window),('Новая заметка',self.new_note),('Требуют внимания',self.show_attention_reminders),('Ближайшие напоминания',self.upcoming),('Выход',self.quit)]:
             menu.addAction(name,callback)
@@ -191,6 +191,7 @@ class Window(QMainWindow):
         self.nav.setIconSize(QSize(22,22))
         selected=self.nav.currentItem()
         self.search_scope.setText('Поиск: '+(selected.text() if selected else 'Все заметки'))
+        self.search_scope.setVisible(self.scope != ('all', None))
         if hasattr(self,'day_suggestions_button'):
             self.day_suggestions_button.setVisible(self.scope[0]=='myday')
         while self.chips.count():
@@ -339,7 +340,7 @@ class Window(QMainWindow):
                     item=QListWidgetItem()
                     item.setData(Qt.UserRole,row['id'])
                 self.notes.insertItem(index,item)
-            item.setSizeHint(QSize(0,125 if upcoming else 115))
+            item.setSizeHint(QSize(0,112 if upcoming else 96))
             key=(row['title'],plain[:150],reminder_text,bool(row['favorite']),row['icon_name'])
             if self._card_keys.get(row['id'])!=key:
                 self.notes.setItemWidget(item,card(row['title'] or 'Без названия',plain,reminder_text,row['favorite'],on_favorite=lambda nid=row['id']:self.card_favorite(nid),icon_name=row['icon_name'],on_activate=lambda nid=row['id']:self.activate_note_card(nid)))
@@ -353,8 +354,7 @@ class Window(QMainWindow):
             self.clear_editor(refresh=False)
         if not self.current and self.notes.count():
             self.notes.setCurrentRow(0)
-        ordering = 'По времени напоминания' if kind in ('reminders','today') else 'По дате изменения'
-        self.count.setText(f'Заметок: {self.notes.count()} · {ordering}')
+        self.count.setText(f'Заметок: {self.notes.count()}')
         self.empty.setVisible(self.notes.count()==0)
         self.empty.setText('Ничего не найдено. Измените поиск или фильтр.' if query or self.filter.currentIndex() else 'Корзина пуста.' if kind=='trash' else 'Начните день с чистого листа. Откройте предложения или добавьте заметку в мой день. Завтра этот список начнётся заново; заметки сохранятся.' if kind=='myday' else 'Заметок пока нет. Нажмите +, чтобы создать заметку.')
 
@@ -433,7 +433,7 @@ class Window(QMainWindow):
         self.folder.setCurrentIndex(max(0,self.folder.findData(row['folder_id'])))
         self.tags.setText(', '.join(r[0] for r in self.store.rows('SELECT t.name FROM tags t JOIN note_tags nt ON nt.tag_id=t.id WHERE nt.note_id=? ORDER BY t.name',(note_id,))))
         self.update_reminder_label()
-        self.saved.setText('Сохранено · '+row['updated_at'].replace('T',' '))
+        self.saved.setText('Сохранено в '+row['updated_at'].replace('T',' '))
         deleted=bool(row['deleted'])
         self.day_button.setEnabled(not deleted and not row['archived'])
         self.icon_button.setEnabled(not deleted)
@@ -530,7 +530,9 @@ class Window(QMainWindow):
             dialog.setWindowIcon(self.icon)
             dialog.resize(850, 600)
             layout = QVBoxLayout(dialog)
-            layout.addWidget(QLabel('Нажмите на заметку, чтобы открыть. Колесо мыши — масштаб, перетаскивание — перемещение.'))
+            graph_hint = QLabel('Нажмите на узел, чтобы открыть заметку. Колёсико меняет масштаб. Граф можно перетащить.')
+            graph_hint.setWordWrap(True)
+            layout.addWidget(graph_hint)
             dialog.view = GraphView(dialog)
             dialog.view.note_requested.connect(self.open_linked_note)
             layout.addWidget(dialog.view)
@@ -551,7 +553,7 @@ class Window(QMainWindow):
         try:
             self.store.save_note(self.current,self.title.text(),self.body.toHtml(),self.folder.currentData(),self.favorite.isChecked(),self.tags.text())
         except (sqlite3.Error,ValueError):
-            self.saved.setText('Не удалось сохранить — Ctrl+S для повторной попытки')
+            self.saved.setText('Не удалось сохранить. Нажмите Ctrl+S, чтобы повторить.')
             self._mini_companion.notify_event('Не удалось сохранить. Изменения остались в редакторе.','error')
             if not self._save_error_reported:
                 self._save_error_reported=True
@@ -559,7 +561,7 @@ class Window(QMainWindow):
             return False
         self._save_error_reported=False
         self._dirty = False
-        self.saved.setText('Сохранено · '+datetime.now().strftime('%H:%M:%S'))
+        self.saved.setText('Сохранено в '+datetime.now().strftime('%H:%M:%S'))
         self.refresh_knowledge()
         self._mini_companion.notify_event('Изменения заметки сохранены.','saved')
         selected_icon=self.store.rows('SELECT icon_name FROM notes WHERE id=?',(self.current,))[0][0]
@@ -608,7 +610,7 @@ class Window(QMainWindow):
                 rows=self.store.rows('SELECT * FROM notes WHERE id=? AND deleted=0',(note_id,))
                 if not rows: return
                 source=rows[0]
-                new_id=self.store.db.execute('INSERT INTO notes(title,body,folder_id,updated_at,icon_name,workspace_id) VALUES (?,?,?,?,?,?)',((source['title'] or 'Без названия')+' — копия',source['body'],source['folder_id'],datetime.now().isoformat(timespec='seconds'),source['icon_name'],source['workspace_id'])).lastrowid
+                new_id=self.store.db.execute('INSERT INTO notes(title,body,folder_id,updated_at,icon_name,workspace_id) VALUES (?,?,?,?,?,?)',((source['title'] or 'Без названия')+' (копия)',source['body'],source['folder_id'],datetime.now().isoformat(timespec='seconds'),source['icon_name'],source['workspace_id'])).lastrowid
                 self.store.db.execute('INSERT INTO note_tags(note_id,tag_id) SELECT ?,tag_id FROM note_tags WHERE note_id=?',(new_id,note_id))
         except sqlite3.Error:
             QMessageBox.warning(self,'Не удалось дублировать заметку','База данных недоступна. Исходная заметка не изменена.')
@@ -1086,10 +1088,10 @@ class Window(QMainWindow):
 
     def schedule_text(self,r):
         if not r: return ''
-        suffix=' · '+r['timezone_id'] if r.get('timezone_id') and r['timezone_id']!=device_zone() else ''
+        suffix=' ('+r['timezone_id']+')' if r.get('timezone_id') and r['timezone_id']!=device_zone() else ''
         if r['mode']=='repeat':
             days='Ежедневно' if set(r['days'])==set(range(7)) else ', '.join(['Пн','Вт','Ср','Чт','Пт','Сб','Вс'][d] for d in sorted(r['days']))
-            return days+' · '+', '.join(r['times'])+suffix
+            return days+' в '+', '.join(r['times'])+suffix
         return datetime.fromisoformat(r['once_at']).strftime('%d.%m.%Y, %H:%M')+suffix
 
     def event_text(self,event):
@@ -1349,7 +1351,7 @@ class Window(QMainWindow):
         joins=' FROM reminder_events e JOIN reminders r ON r.id=e.reminder_id JOIN notes n ON n.id=r.note_id WHERE '
         rows=self.store.rows('SELECT DISTINCT r.note_id'+joins+condition,params)
         count=len(rows)
-        self.attention_button.setText('Требуют внимания · заметок: '+str(count)+' · Открыть')
+        self.attention_button.setText(f'Требуют внимания: {count}')
         self.attention_button.setVisible(count>0)
         from app.services.notification_health import read_notification_health
         health=read_notification_health(self.store)
@@ -1361,7 +1363,7 @@ class Window(QMainWindow):
             events=self.store.rows('SELECT e.title,e.body'+joins+condition+' ORDER BY COALESCE(e.due_utc,e.scheduled_utc,e.due_at,e.scheduled_at),e.id LIMIT 1',params)
         self.notification_fallback.update_events(blocked,events,event_count)
         if hasattr(self,'tray'):
-            self.tray.setToolTip('Orange Notes'+(' · Требуют внимания: '+str(count)+' заметок' if count else ' — напоминания')+(' · Уведомления Windows отключены' if blocked else ''))
+            self.tray.setToolTip('Orange Notes'+('\nТребуют внимания: '+str(count)+' заметок' if count else '\nНапоминания')+('\nУведомления Windows отключены' if blocked else ''))
             from app.ui.tray_badge import counted_icon
             badge_state=(event_count,blocked)
             if getattr(self,'_tray_badge_state',None)!=badge_state:
@@ -1369,7 +1371,7 @@ class Window(QMainWindow):
                 self.tray.setIcon(counted_icon(base,event_count))
                 self._tray_badge_state=badge_state
             if event_count:
-                self.tray.setToolTip(self.tray.toolTip()+' · Событий: '+str(event_count))
+                self.tray.setToolTip(self.tray.toolTip()+'\nСобытий: '+str(event_count))
         if count>self._attention_count:
             self._mini_companion.notify_event('Есть напоминания, требующие внимания.','attention')
         self._attention_count=count
