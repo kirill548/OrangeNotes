@@ -62,6 +62,62 @@ def setup_background(database, result):
     result['ready'] = True
 
 
+def notify_running_window(server_name, note_id):
+    from PySide6.QtNetwork import QLocalSocket
+
+    socket = QLocalSocket()
+    socket.connectToServer(server_name)
+    if not socket.waitForConnected(1500):
+        return False
+    socket.write(json.dumps({'note_id': note_id}).encode())
+    socket.waitForBytesWritten(1500)
+    socket.disconnectFromServer()
+    return True
+
+
+def running_windows_build(lock):
+    if sys.platform != 'win32' or not FROZEN:
+        return None
+    from app.utils.windows_instance import executable_path
+
+    info = lock.getLockInfo()
+    return executable_path(info[0]) if info else None
+
+
+def wait_for_running_build(lock, server_name, target):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QVBoxLayout
+
+    dialog = QDialog()
+    dialog.setWindowTitle('Открыта другая сборка Orange Notes')
+    dialog.setMinimumWidth(390)
+    layout = QVBoxLayout(dialog)
+    message = QLabel('Закройте работающие «Заметки» через «…» → «Выйти из приложения» '
+                     'или через значок Orange Notes рядом с часами. Эта сборка откроется после выхода.')
+    message.setWordWrap(True)
+    layout.addWidget(message)
+    buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+    show_window = buttons.addButton('Показать открытое окно', QDialogButtonBox.ActionRole)
+    show_window.clicked.connect(lambda: notify_running_window(server_name, None))
+    buttons.rejected.connect(dialog.reject)
+    layout.addWidget(buttons)
+    timer = QTimer(dialog)
+    timer.setInterval(300)
+
+    def check_lock():
+        if lock.tryLock(0):
+            dialog.accept()
+        elif running_windows_build(lock) == target and notify_running_window(server_name, None):
+            # Another copy of this same build has already taken over.
+            dialog.reject()
+
+    timer.timeout.connect(check_lock)
+    timer.start()
+    dialog.exec()
+    timer.stop()
+    return lock.isLocked()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--notification-self-test', action='store_true')
@@ -96,7 +152,7 @@ def main(argv=None):
                 with log_path.open('a',encoding='utf-8') as output:output.write(str(message)+'\n')
             except OSError:pass
         qInstallMessageHandler(qt_message)
-    from PySide6.QtNetwork import QLocalServer, QLocalSocket
+    from PySide6.QtNetwork import QLocalServer
     from app.ui.window import Window
     import hashlib
     server_name = 'OrangeNotes.' + hashlib.sha256(str(database).encode()).hexdigest()[:20]
@@ -117,9 +173,9 @@ def main(argv=None):
     store = None
     lock = None
     try:
-        store = Store(database)
         selected = None
         if args.notification:
+            store = Store(database)
             action = notification_action(store, args.notification)
             if not action:
                 return 0  # An obsolete notification must never modify a new task.
@@ -129,18 +185,21 @@ def main(argv=None):
                 except OSError: pass
                 return 0
             selected = action['note_id']
+        database.parent.mkdir(parents=True, exist_ok=True)
         lock = QLockFile(str(database.parent / 'app.lock'))
         lock.setStaleLockTime(0)
         if not lock.tryLock(0):
-            socket = QLocalSocket()
-            socket.connectToServer(server_name)
-            if socket.waitForConnected(1500):
-                socket.write(json.dumps({'note_id': selected}).encode())
-                socket.waitForBytesWritten(1500)
-                socket.disconnectFromServer()
+            running = running_windows_build(lock) if not args.notification else None
+            target = Path(sys.executable).resolve()
+            if running and running != target:
+                if not wait_for_running_build(lock, server_name, target):
+                    return 0
             else:
-                QMessageBox.information(None,'Orange Notes уже работает','Откройте приложение через значок в системном трее.')
-            return 0
+                if not notify_running_window(server_name, selected):
+                    QMessageBox.information(None,'Orange Notes уже работает','Откройте приложение через значок в системном трее.')
+                return 0
+        if store is None:
+            store = Store(database)
         from app.services.platform_background import supported
         from app.utils.sandbox import in_flatpak
         sandboxed=in_flatpak()
@@ -181,7 +240,7 @@ def main(argv=None):
                     if result.get('notifications_disabled'):
                         settings_button=QPushButton('Настройки уведомлений',window)
                         settings_button.clicked.connect(lambda:QDesktopServices.openUrl(QUrl('ms-settings:notifications')))
-                        window.statusBar().addPermanentWidget(settings_button)
+                        window.status_actions.addWidget(settings_button)
                     timer.stop()
             timer.timeout.connect(status)
             timer.start()

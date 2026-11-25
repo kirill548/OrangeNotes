@@ -1,4 +1,7 @@
 """Small SVG icon set, rendered locally without additional dependencies."""
+from functools import lru_cache
+from pathlib import Path
+
 from PySide6.QtCore import QByteArray, Qt, QRectF
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
@@ -8,7 +11,7 @@ SHAPES = {
     'chevron_down': '<path d="m5 9 7 7 7-7"/>',
     'bold': '<path d="M6 4h6a4 4 0 0 1 0 8H6zm0 8h7a4 4 0 0 1 0 8H6z"/>',
     'italic': '<path d="M11 4h8M5 20h8M15 4 9 20"/>',
-    'numbered': '<path d="M10 6h11M10 12h11M10 18h11M3 5l2-1v5m-2 4a2 2 0 0 1 4 0c0 1-4 4-4 5h4"/>',
+    'numbered': '<path d="m3 8 3-2v12m-3 0h6m5-9h7m-7 6h7"/>',
     'microphone': '<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3m-3 0h6"/>',
     'stop': '<rect x="6" y="6" width="12" height="12" rx="2"/>',
     'copy': '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2"/>',
@@ -46,9 +49,7 @@ SHAPES = {
 }
 
 
-def pixmap(name, color='#17202c', size=24, filled=False):
-    shape = SHAPES.get(name,SHAPES['note'])
-    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="{color if filled else "none"}" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{shape}</g></svg>'
+def _svg_pixmap(svg, size):
     result = QPixmap(size*2,size*2)
     result.setDevicePixelRatio(2)
     result.fill(Qt.transparent)
@@ -58,16 +59,61 @@ def pixmap(name, color='#17202c', size=24, filled=False):
     return result
 
 
+def pixmap(name, color='#17202c', size=24, filled=False):
+    shape = SHAPES.get(name,SHAPES['note'])
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="{color if filled else "none"}" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{shape}</g></svg>'
+    return _svg_pixmap(svg, size)
+
+
 def icon(name,color='#17202c',size=24,filled=False):
     return QIcon(pixmap(name,color,size,filled))
 
 
+_PHOSPHOR_ASSETS = Path(__file__).resolve().parents[1] / 'assets' / 'phosphor'
+
+
+@lru_cache(maxsize=32)
+def _phosphor_svg(name):
+    return (_PHOSPHOR_ASSETS / f'{name}.svg').read_text(encoding='utf-8')
+
+
+def duotone_pixmap(name, color, size=24):
+    return _svg_pixmap(_phosphor_svg(name).replace('currentColor', color), size)
+
+
+def duotone_icon(name, color, size=24):
+    return QIcon(duotone_pixmap(name, color, size))
+
+
+# Keys are the existing SQLite values. Only the artwork and palette change.
+_NOTE_SYMBOLS = {
+    'note': ('note-pencil', '#A24F25', '#F8EBDD'),
+    'phone': ('phone-call', '#346952', '#E6F0E8'),
+    'laptop': ('briefcase', '#63516F', '#F0EAF3'),
+    'plane': ('airplane-tilt', '#2B637A', '#E6F0F4'),
+    'book': ('book-open-text', '#825028', '#F4EBDF'),
+    'gift': ('shopping-bag-open', '#A05146', '#F8EBE8'),
+    'team': ('chats-circle', '#675080', '#F0EAF4'),
+    'calendar': ('calendar-dots', '#9D4B27', '#F8EBDD'),
+    'star': ('star', '#9E621F', '#FAF0DB'),
+    'check': ('list-checks', '#367256', '#E6F0E8'),
+}
+
+_AUTOMATIC_SYMBOLS = (
+    (('позвон', 'звонок', 'телефон'), 'phone'),
+    (('презентац', 'проект'), 'laptop'),
+    (('отпуск', 'путеше', 'поездк'), 'plane'),
+    (('книг', 'читать'), 'book'),
+    (('подар', 'купить', 'покупк'), 'gift'),
+    (('команд', 'встреч'), 'team'),
+)
+
+
 def note_symbol(title,selected=None):
     if selected:
-        colors={'laptop':('#6556ff','#f0edff'),'team':('#6556ff','#f0edff'),'plane':('#12c997','#e7fbf4'),'book':('#139cff','#e9f5ff'),'gift':('#ff3885','#fff0f5')}
-        color,bg=colors.get(selected,('#ff8700','#fff2df'))
-        return selected,color,bg
+        return _NOTE_SYMBOLS.get(selected, _NOTE_SYMBOLS['note'])
     title=title.casefold()
-    for words,name,color,bg in [(['позвон','звонок','телефон'],'phone','#ff8700','#fff2df'),(['презентац','проект'],'laptop','#6556ff','#f0edff'),(['отпуск','путеше','поездк'],'plane','#12c997','#e7fbf4'),(['книг','читать'],'book','#139cff','#e9f5ff'),(['подар','купить','покупк'],'gift','#ff3885','#fff0f5'),(['команд','встреч'],'team','#6556ff','#f0edff')]:
-        if any(word in title for word in words): return name,color,bg
-    return 'note','#ff8700','#fff2df'
+    for words, name in _AUTOMATIC_SYMBOLS:
+        if any(word in title for word in words):
+            return _NOTE_SYMBOLS[name]
+    return _NOTE_SYMBOLS['note']

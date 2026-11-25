@@ -9,7 +9,7 @@ from app.services.scheduler import Scheduler, next_occurrence
 from app.database.store import Store, plain_body
 from app.ui.reminders import ReminderDialog
 from app.ui.design import build, card
-from app.ui.icons import icon, note_symbol
+from app.ui.icons import duotone_icon, icon, note_symbol
 from app.services.day_focus import DayFocus
 from app.utils.timezones import utc_stamp, event_due_local, event_scheduled_local, device_zone
 
@@ -85,9 +85,18 @@ class Window(QMainWindow):
         self._graph_dialog = None
         self._knowledge_workspace = None
         self._knowledge_note = None
+        status_bar = self.statusBar()
+        status_bar.setObjectName('windowStatus')
+        status_bar.setSizeGripEnabled(False)
+        status_content = QWidget(status_bar)
+        status_content.setObjectName('statusActions')
+        self.status_actions = QHBoxLayout(status_content)
+        self.status_actions.setContentsMargins(10, 6, 12, 6)
+        self.status_actions.setSpacing(8)
+        status_bar.addPermanentWidget(status_content)
         graph_button = QPushButton('Граф заметок')
         graph_button.clicked.connect(self.show_knowledge_graph)
-        self.statusBar().addPermanentWidget(graph_button)
+        self.status_actions.addWidget(graph_button)
         from app.services.knowledge_graph import KnowledgeGraphIndexer
         self.knowledge_indexer = KnowledgeGraphIndexer(store.path)
         self.knowledge_indexer.start()
@@ -101,12 +110,12 @@ class Window(QMainWindow):
         self._undo = None
         self.undo_button = QPushButton('Отменить последнее действие')
         self.undo_button.clicked.connect(self.undo_change)
-        self.statusBar().addPermanentWidget(self.undo_button)
+        self.status_actions.addWidget(self.undo_button)
         self.undo_button.hide()
         from app.widgets.ai_status import AIStatusStatusBarWidget
         self.ai_status_widget = AIStatusStatusBarWidget(self)
         self.ai_status_widget.settings_requested.connect(self.show_ai_settings)
-        self.statusBar().addPermanentWidget(self.ai_status_widget)
+        self.status_actions.addWidget(self.ai_status_widget)
         from app.services.ai_metrics import AIMetricsCollector
         from app.services.ai_monitor import AIHardwareMonitor
         self.ai_metrics = AIMetricsCollector(self)
@@ -133,7 +142,7 @@ class Window(QMainWindow):
         self.tray = QSystemTrayIcon(self.icon,self)
         self.tray.setToolTip('Напоминания Orange Notes')
         menu = QMenu(self)
-        for name, callback in [('Открыть',self.open_window),('Новая заметка',self.new_note),('Требуют внимания',self.show_attention_reminders),('Ближайшие напоминания',self.upcoming),('Выход',self.quit)]:
+        for name, callback in [('Открыть',self.open_window),('Новая заметка',self.new_note),('Требуют внимания',self.show_attention_reminders),('Ближайшие напоминания',self.upcoming),('Выход',self.quit_from_menu)]:
             menu.addAction(name,callback)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(lambda reason: self.open_window() if reason==QSystemTrayIcon.Trigger else None)
@@ -172,13 +181,21 @@ class Window(QMainWindow):
         items += [(r['name'],'folder',r['id']) for r in folders]
         items += [('Метки','heading',None)]
         items += [(r['name'],'tag',r['id']) for r in self.store.rows('SELECT * FROM tags ORDER BY name')]
+        sections = {
+            'all': 'folders', 'myday': 'day-section-sun', 'reminders': 'bell-ringing',
+            'attention': 'flag-banner', 'today': 'calendar-31', 'favorite': 'star',
+            'archive': 'archive', 'trash': 'trash',
+        }
+        section_colors = {'all': '#9E5026', 'attention': '#A4443A'}
         for name,kind,value in items:
             item = QListWidgetItem(name)
             item.setData(Qt.UserRole,(kind,value))
-            symbol={'all':'folder','myday':'sun','reminders':'bell','attention':'bell','today':'calendar','favorite':'star','archive':'archive','trash':'trash','folder':'folder','tag':'dot'}.get(kind)
-            color={'Личные':'#ff9800','Работа':'#6960ff','Учёба':'#16c995','Путешествия':'#16c995','Покупки':'#ff3885','Важно':'#ff3885','Идеи':'#ffb300','Встречи':'#258cff','Финансы':'#16c995'}.get(name,'#ff9800' if kind in ('folder','all') else '#17202c')
-            if symbol:
-                item.setIcon(icon(symbol,color,22,kind in ('all','folder','tag')))
+            if kind in sections:
+                item.setIcon(duotone_icon(sections[kind], section_colors.get(kind, '#58483B'), 24))
+                item.setSizeHint(QSize(0,36))
+            elif kind in ('folder', 'tag'):
+                color={'Личные':'#ff9800','Работа':'#6960ff','Учёба':'#16c995','Путешествия':'#16c995','Покупки':'#ff3885','Важно':'#ff3885','Идеи':'#ffb300','Встречи':'#258cff','Финансы':'#16c995'}.get(name,'#ff9800' if kind=='folder' else '#17202c')
+                item.setIcon(icon('folder' if kind=='folder' else 'dot',color,22,True))
                 item.setSizeHint(QSize(0,36))
             if kind=='heading':
                 item.setFlags(Qt.NoItemFlags)
@@ -188,7 +205,7 @@ class Window(QMainWindow):
             if (kind,value)==self.scope:
                 self.nav.setCurrentItem(item)
         self.nav.blockSignals(False)
-        self.nav.setIconSize(QSize(22,22))
+        self.nav.setIconSize(QSize(24,24))
         selected=self.nav.currentItem()
         self.search_scope.setText('Поиск: '+(selected.text() if selected else 'Все заметки'))
         self.search_scope.setVisible(self.scope != ('all', None))
@@ -437,9 +454,8 @@ class Window(QMainWindow):
         deleted=bool(row['deleted'])
         self.day_button.setEnabled(not deleted and not row['archived'])
         self.icon_button.setEnabled(not deleted)
-        symbol,color,_=note_symbol(row['title'],row['icon_name'])
-        self.icon_button.setIcon(icon(symbol,color))
-        self.icon_button.setToolTip('Иконка выбрана вручную' if row['icon_name'] else 'Иконка подбирается автоматически по названию. Нажмите, чтобы выбрать другую.')
+        self.icon_button.setToolTip('Открыть коллекцию значков. Выбран значок вручную.' if row['icon_name']
+                                   else 'Открыть коллекцию значков. Сейчас значок подбирается по названию.')
         self.title.setReadOnly(deleted)
         self.body.setReadOnly(deleted)
         for widget in [self.folder,self.tags,self.favorite,self.reminder_label,self.edit_reminder_button]:
@@ -564,9 +580,6 @@ class Window(QMainWindow):
         self.saved.setText('Сохранено в '+datetime.now().strftime('%H:%M:%S'))
         self.refresh_knowledge()
         self._mini_companion.notify_event('Изменения заметки сохранены.','saved')
-        selected_icon=self.store.rows('SELECT icon_name FROM notes WHERE id=?',(self.current,))[0][0]
-        symbol,color,_=note_symbol(self.title.text(),selected_icon)
-        self.icon_button.setIcon(icon(symbol,color))
         if refresh:
             self.refresh_nav()
             self.refresh_list()
@@ -668,10 +681,14 @@ class Window(QMainWindow):
             dialog.accept()
         for index,(name,label) in enumerate(options):
             button=QPushButton(label)
-            symbol,color,_=note_symbol(self.title.text(),name)
-            button.setIcon(icon(symbol,color,28))
-            button.setIconSize(QSize(28,28))
-            button.setMinimumSize(130,52)
+            button.setObjectName('noteIconOption')
+            if name is None:
+                symbol, color = 'sliders-horizontal', '#89511F'
+            else:
+                symbol,color,_=note_symbol('',name)
+            button.setIcon(duotone_icon(symbol,color,32))
+            button.setIconSize(QSize(32,32))
+            button.setMinimumSize(142,58)
             button.setCheckable(True)
             button.setChecked(name==selected)
             button.setAutoDefault(False)
@@ -785,6 +802,8 @@ class Window(QMainWindow):
 
     def set_pet_visible(self, visible):
         self.app_menu_button.menu().pet_action.setChecked(visible)
+        self.pet_toggle.setChecked(visible)
+        self.pet_toggle.setToolTip('Скрыть питомца' if visible else 'Показать питомца на экране')
         if visible:
             self.companion_dock.show()
             self._mini_companion.show()
@@ -1419,6 +1438,17 @@ class Window(QMainWindow):
         monitor = getattr(self, 'ai_hardware_monitor', None)
         if monitor is not None:
             monitor.stop()
+
+    def quit_from_menu(self):
+        companion = self._companion_dialog
+        if companion and companion.has_unsubmitted_input():
+            self.open_window()
+            answer = QMessageBox.question(self, 'Выйти из Orange Notes?',
+                                          'В помощнике остался черновик или неотправленный текст.',
+                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if answer != QMessageBox.Yes:
+                return
+        self.quit()
 
     def quit(self):
         if not self.close_reminder_panel(): return

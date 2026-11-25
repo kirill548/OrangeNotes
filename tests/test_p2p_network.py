@@ -393,10 +393,12 @@ def test_slow_synchronous_commit_never_emits_late_ack(certificates):
         import time
         committed=[]
         def slow_commit(*args):
-            time.sleep(.08)
+            time.sleep(.75)
             committed.append(True)
-        server,client,a,_=setup_pair(certificates,slow_commit,timeout=.03)
-        client.timeout=2
+        # Leave room for the TLS handshake on a loaded runner. The commit still
+        # blocks past the deadline, and the client must never receive a late ACK.
+        server,client,a,_=setup_pair(certificates,slow_commit,timeout=.5)
+        client.timeout=4
         try:
             address=await server.start()
             with pytest.raises((TimeoutError,asyncio.IncompleteReadError,ConnectionResetError)):

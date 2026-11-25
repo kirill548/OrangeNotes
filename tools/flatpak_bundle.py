@@ -7,13 +7,20 @@ import tempfile
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 ROOT=Path(__file__).resolve().parents[1]
 MANIFEST=ROOT/'packaging/flatpak/org.orangenotes.OrangeNotes.json'
 
 
 def run(args):
-    return subprocess.run(args,check=True,capture_output=True,text=True).stdout.strip()
+    try:
+        return subprocess.run(args,check=True,capture_output=True,text=True).stdout.strip()
+    except subprocess.CalledProcessError as error:
+        for output in (error.stdout, error.stderr):
+            if output:
+                print(output.rstrip(), file=sys.stderr)
+        raise
 
 
 def bundle_hash(folder):

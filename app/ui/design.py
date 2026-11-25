@@ -2,10 +2,11 @@ from html import escape
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QSplitter, QListWidget, QLineEdit, QComboBox, QCheckBox, QTextEdit, QToolBar, QSizePolicy, QLayout, QStackedWidget, QScrollArea, QMenu
-from app.ui.icons import icon, pixmap, note_symbol
+from app.ui.icons import duotone_icon, duotone_pixmap, icon, pixmap, note_symbol
 from app.ui.editor import NoteEditor
 from app.ui.app_menu import create_app_menu_button
 from app.ui.folder_assignment import FolderAssignment
+from app.utils.runtime_paths import resource_path
 from app.widgets.companion_mascot import CompanionLauncher
 
 STYLE = '''
@@ -22,14 +23,30 @@ QPushButton {border:1px solid #eeece8; background:white; border-radius:8px; padd
 QPushButton:hover {background:#fff2e4; border-color:#ffc38d;}
 QPushButton:disabled {color:#9098a1; background:#fafafa; border-color:#eeece8;}
 QPushButton#primary {background:#ff890b; border:0; color:#291800; font-weight:600;}
-QPushButton#new {background:#ff890b; color:#291800; border:0; border-radius:24px; font-size:30px; padding:0;}
-QPushButton#chip {background:#f4f3f1; border:0; padding:7px 8px; border-radius:12px; font-size:12px;}
-QPushButton#chip:checked {background:#ff890b; color:white;}
+QPushButton#createNote, QPushButton#new {background:#f3ebe2; border:1px solid #dfcebd; color:#513526;}
+QPushButton#createNote {font-weight:600;}
+QPushButton#new {border-radius:11px; padding:0;}
+QPushButton#createNote:hover, QPushButton#new:hover {background:#ece0d3; border-color:#cbb097;}
+QPushButton#createNote:pressed, QPushButton#new:pressed {background:#e5d5c5;}
+QPushButton#chip {background:#f4f3f1; border:1px solid transparent; padding:5px 10px; border-radius:8px; font-size:12px;}
+QPushButton#chip:checked {background:#efe7dd; border-color:#dccdbb; color:#533b28;}
+QPushButton#chip:hover {border-color:#cbb097;}
+QPushButton#createNote:focus, QPushButton#new:focus, QPushButton#chip:focus,
+QPushButton#quickReminder:focus {border-color:#9c6a44;}
+QPushButton#quickReminder {padding:0;}
+QPushButton#quickReminder:hover {background:#f8f3ed; border-color:#dfcebd;}
+QPushButton#quickReminder:pressed {background:#efe5da;}
+QPushButton#quickReminder QLabel:disabled {color:#9098a1;}
 QPushButton#flat {border:0; background:transparent; color:#777f89; text-align:left; padding:7px 0;}
-QPushButton#reminder {background:#fff3e5; border:0; color:#f27500; text-align:left; padding:20px; border-radius:16px; font-size:15px;}
+QPushButton#reminder {background:#fff3e5; border:0; color:#855021; text-align:left; padding:20px; border-radius:16px; font-size:15px;}
+QStatusBar#windowStatus {background:#fcfbf9; border-top:1px solid #eeece8;}
+QStatusBar#windowStatus::item {border:none;}
+QWidget#statusActions {background:transparent;}
 QListWidget {border:0; background:transparent; outline:0;}
 QListWidget#navigation::item {padding:8px 12px; margin:2px 0; border-radius:10px;}
 QListWidget#navigation::item:selected {background:#ffead5; color:#1c2028;}
+QPushButton#noteIconOption {text-align:left; padding:8px 12px;}
+QPushButton#noteIconOption:checked {background:#f7ebdd; border-color:#bb875b;}
 QListWidget#cards::item {border:1px solid #efede9; border-radius:10px; background:white; margin:4px 0;}
 QListWidget#cards::item:selected {border:1px solid #e9cfb2; background:#fff5e8;}
 QWidget#card {background:transparent; border:0;}
@@ -97,6 +114,18 @@ def build(window):
     assistant.clicked.connect(w.show_companion)
     w.companion_button=assistant
     ll.addWidget(assistant)
+    w.pet_toggle = QCheckBox('Показывать питомца')
+    w.pet_toggle.setObjectName('petToggle')
+    w.pet_toggle.setAccessibleName('Показывать питомца на экране')
+    w.pet_toggle.setToolTip('Показать питомца на экране')
+    tick = resource_path('app/assets/checkbox-tick.svg').as_posix()
+    w.pet_toggle.setStyleSheet(
+        'QCheckBox {background:transparent; padding:4px 8px; spacing:8px; font-size:13px;}'
+        'QCheckBox::indicator {width:15px; height:15px; border-radius:4px;}'
+        f'QCheckBox::indicator:checked {{background:white;border-color:#a77b55;image:url("{tick}");}}'
+    )
+    w.pet_toggle.clicked.connect(w.set_pet_visible)
+    ll.addWidget(w.pet_toggle,0,Qt.AlignLeft)
     ll.addSpacing(14)
     w.nav = QListWidget()
     w.nav.setObjectName('navigation')
@@ -156,7 +185,7 @@ def build(window):
     ml.addLayout(filter_row)
     ml.addWidget(w.search_scope)
     w.day_suggestions_button=QPushButton('Предложения для моего дня')
-    w.day_suggestions_button.setIcon(icon('sun','#ff890b',18))
+    w.day_suggestions_button.setIcon(duotone_icon('lightbulb-filament','#9e621f',18))
     w.day_suggestions_button.clicked.connect(w.show_day_suggestions)
     w.day_suggestions_button.hide()
     ml.addWidget(w.day_suggestions_button)
@@ -187,10 +216,10 @@ def build(window):
     w.count.setStyleSheet('font-size:11px;color:#90969e;')
     footer.addWidget(w.count,1)
     new = QPushButton()
-    new.setIcon(icon('plus','#291800',26))
-    new.setIconSize(QSize(26,26))
+    new.setIcon(icon('plus','#69462e',22))
+    new.setIconSize(QSize(22,22))
     new.setObjectName('new')
-    new.setFixedSize(48,48)
+    new.setFixedSize(42,42)
     new.setToolTip('Новая заметка')
     new.setAccessibleName('Новая заметка')
     new.clicked.connect(w.new_note)
@@ -232,6 +261,10 @@ def build(window):
     for name,text in [('archive','В архив'),('delete','В корзину'),('restore','Восстановить')]:
         button=QPushButton(text)
         action=w.editor_actions[name]
+        if name in ('archive', 'delete'):
+            symbol = 'archive' if name == 'archive' else 'trash'
+            action.setIcon(duotone_icon(symbol, '#58483B', 24))
+            button.setIconSize(QSize(20,20))
         button.setIcon(action.icon())
         button.clicked.connect(action.trigger)
         action.changed.connect(lambda a=action,b=button:(b.setVisible(a.isVisible()),b.setEnabled(a.isEnabled()),b.setText(a.text() if a.text() in ('В архив','Из архива','Вернуть из архива','В корзину','Удалить навсегда','Удалить окончательно','Восстановить') else b.text())))
@@ -243,10 +276,11 @@ def build(window):
     w.title.setPlaceholderText('Название заметки')
     title_row=QHBoxLayout()
     title_row.addWidget(w.title,1)
-    w.icon_button=QPushButton('Иконка')
-    w.icon_button.setIcon(icon('note','#ff8700'))
-    w.icon_button.setAccessibleName('Изменить иконку заметки')
-    w.icon_button.setToolTip('Выбрать иконку заметки вручную')
+    w.icon_button=QPushButton('Значок')
+    w.icon_button.setIcon(duotone_icon('squares-four','#855021',20))
+    w.icon_button.setIconSize(QSize(20,20))
+    w.icon_button.setAccessibleName('Выбрать значок заметки')
+    w.icon_button.setToolTip('Открыть коллекцию значков')
     w.icon_button.clicked.connect(w.choose_icon)
     title_row.addWidget(w.icon_button)
     layout.addLayout(title_row)
@@ -290,8 +324,8 @@ def build(window):
     w.note_workspace.currentIndexChanged.connect(w.move_note_workspace)
     layout.addWidget(w.note_workspace)
     w.reminder_label = QPushButton('Добавить напоминание')
-    w.reminder_label.setIcon(icon('bell','#ff890b',30))
-    w.reminder_label.setIconSize(QSize(30,30))
+    w.reminder_label.setIcon(duotone_icon('bell-simple','#855021',26))
+    w.reminder_label.setIconSize(QSize(26,26))
     w.reminder_label.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Fixed)
     w.reminder_label.setObjectName('reminder')
     w.reminder_label.clicked.connect(w.edit_reminder)
@@ -310,7 +344,8 @@ def build(window):
     actions.addWidget(w.reminder_history_button)
     layout.addLayout(actions)
     w.day_button=QPushButton('Добавить в мой день')
-    w.day_button.setIcon(icon('sun','#ff890b',18))
+    w.day_button.setIcon(duotone_icon('sun','#9e621f',20))
+    w.day_button.setIconSize(QSize(20,20))
     w.day_button.clicked.connect(w.toggle_my_day)
     layout.addWidget(w.day_button)
     label = QLabel('Быстрое время')
@@ -318,18 +353,36 @@ def build(window):
     layout.addWidget(label)
     quick = QHBoxLayout()
     w.quick_buttons = {}
-    for text,kind,symbol in [('Сегодня\nвечером','evening','moon'),('Завтра\nутром','morning','sun'),('Через\nчас','hour','clock')]:
-        button = QPushButton(text)
-        button.setIcon(icon(symbol,'#ff9800' if symbol=='sun' else '#81858c',24))
-        button.setIconSize(QSize(24,24))
+    shortcuts = [
+        ('Сегодня вечером', 'evening', 'moon-stars', '#675080'),
+        ('Завтра утром', 'morning', 'sun-horizon', '#9e621f'),
+        ('Через час', 'hour', 'clock-countdown', '#2b637a'),
+    ]
+    for text, kind, symbol, color in shortcuts:
+        button = QPushButton()
+        button.setObjectName('quickReminder')
+        button.setAccessibleName(text)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        content = QVBoxLayout(button)
+        content.setContentsMargins(5, 9, 5, 9)
+        content.setSpacing(6)
+        glyph = QLabel()
+        glyph.setPixmap(duotone_pixmap(symbol, color, 22))
+        caption = QLabel(text)
+        caption.setWordWrap(True)
+        for part in (glyph, caption):
+            part.setAttribute(Qt.WA_TransparentForMouseEvents)
+            part.setAlignment(Qt.AlignCenter)
+            content.addWidget(part)
         button.clicked.connect(lambda checked=False,k=kind: w.quick_reminder(k))
         button.setToolTip({'evening':'Напоминание сегодня в 20:00. Если уже позже, напомнит через час. Заменяет текущее расписание.','morning':'Одноразовое напоминание завтра в 09:00. Заменяет текущее расписание.','hour':'Одноразовое напоминание через час. Заменяет текущее расписание.'}[kind])
         w.quick_buttons[kind] = button
-        quick.addWidget(button)
+        quick.addWidget(button, 1)
     layout.addLayout(quick)
     edit = QPushButton('Настроить расписание')
     w.edit_reminder_button = edit
-    edit.setIcon(icon('bell','#17202c',20))
+    edit.setIcon(duotone_icon('clock-clockwise','#58483B',20))
+    edit.setIconSize(QSize(20,20))
     edit.clicked.connect(w.edit_reminder)
     layout.addWidget(edit)
     w.saved = QLabel('Выберите или создайте заметку')
@@ -349,7 +402,7 @@ def build(window):
     welcome_layout.addWidget(explanation)
     cta=QPushButton('Создать заметку')
     cta.setToolTip('Новая заметка (Ctrl+N)')
-    cta.setObjectName('primary')
+    cta.setObjectName('createNote')
     cta.clicked.connect(w.new_note)
     welcome_layout.addWidget(cta,0,Qt.AlignLeft)
     welcome_layout.addStretch()
@@ -409,7 +462,7 @@ def card(title,plain,reminder,favorite,on_favorite=None,icon_name=None,on_activa
     row.setSizeConstraint(QLayout.SetNoConstraint)
     symbol,color,bg=note_symbol(title,icon_name)
     tile = QLabel()
-    tile.setPixmap(pixmap(symbol,color,24))
+    tile.setPixmap(duotone_pixmap(symbol,color,24))
     tile.setObjectName('tile')
     tile.setStyleSheet(f'background:{bg};border-radius:12px;')
     tile.setAlignment(Qt.AlignCenter)

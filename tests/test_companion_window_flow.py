@@ -24,6 +24,12 @@ class CompanionWindowFlowTests(unittest.TestCase):
                 pet=window._mini_companion
                 self.assertIs(pet.parentWidget(),window.companion_dock)
                 self.assertFalse(window.companion_dock.isVisible())
+                QTest.mouseClick(window.pet_toggle,Qt.LeftButton)
+                self.assertIsNone(window._companion_dialog)
+                self.assertTrue(window.app_menu_button.menu().pet_action.isChecked())
+                self.assertTrue(pet.isVisible())
+                QTest.mouseClick(window.pet_toggle,Qt.LeftButton)
+                self.assertFalse(window.companion_dock.isVisible())
                 QTest.mouseClick(window.companion_button,Qt.LeftButton)
                 self.assertFalse(window.companion_dock.isVisible())
                 dialog=window._companion_dialog
@@ -57,6 +63,7 @@ class CompanionWindowFlowTests(unittest.TestCase):
                 QTest.mouseClick(pet.dismiss,Qt.LeftButton)
                 self.assertFalse(window.companion_dock.isVisible())
                 self.assertFalse(pet_action.isChecked())
+                self.assertFalse(window.pet_toggle.isChecked())
                 self.assertTrue(dialog.isVisible())
                 dialog.close()
                 QTest.mouseClick(window.companion_button, Qt.LeftButton)

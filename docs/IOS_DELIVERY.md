@@ -2,7 +2,7 @@
 
 Статус: инфраструктура сборки подготовлена. Наличие workflow не означает успешную сборку, подпись, загрузку в TestFlight или проверку на физическом iPhone. Результаты конкретного запуска фиксируются отдельно.
 
-Для Stability & Hardening Update v0.2.1 требуется новый артефакт с версией **0.2.1+2**, собранный из релизного коммита с исправлениями стресс-аудита. IPA v0.2.0 повторно не используется. Перед публикацией проверяются Info.plist, ZIP CRC и SHA256; результат CI и сумма указываются в описании релиза.
+[Релиз v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) содержит unsigned IPA версии **0.2.1+2** и SHA256. Сборки после этого тега ищите в Mobile CI по коммиту.
 
 ## Без аккаунта Apple Developer
 
@@ -47,8 +47,7 @@ Secrets Environment:
 подписки Apple Developer Program пока нет. TestFlight в этом состоянии
 не активирован и не используется как обещанный канал установки.
 
-Скачайте `OrangeNotes-iOS-unsigned-requires-resigning` из артефактов успешного
-Mobile CI. Внутри — `OrangeNotes-iOS-unsigned.ipa` и `SHA256SUMS.txt`.
+Скачайте IPA из [Assets v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) или `OrangeNotes-iOS-unsigned-requires-resigning` из артефактов успешного Mobile CI нужного коммита. Внутри — `OrangeNotes-iOS-unsigned.ipa` и `SHA256SUMS.txt`.
 Unsigned-архив нельзя установить простым открытием файла на iPhone.
 Следуйте официальным инструкциям выбранного инструмента подписи:
 [AltStore Classic](https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows)

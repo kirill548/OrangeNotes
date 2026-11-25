@@ -31,6 +31,19 @@ class SimplifiedCompanionTests(unittest.TestCase):
         self.assertNotIn('NDJSON',dialog.connection_banner.toolTip())
         self.assertNotIn('NDJSON',dialog.connection_banner.text())
 
+    def test_search_options_fit_at_minimum_window_height(self):
+        dialog = self.dialog()
+        dialog.resize(dialog.minimumSize())
+        dialog.search_options_button.click()
+        self.app.processEvents()
+        panel = dialog.advanced_panel
+        for control in (dialog.synonyms_button, dialog.linked_context_depth):
+            self.assertGreaterEqual(control.height(), control.fontMetrics().height() + 16)
+            self.assertGreaterEqual(control.geometry().top(), 10)
+            self.assertLess(control.geometry().bottom(), panel.height() - 9)
+        self.assertGreaterEqual(dialog.include_trash.x() - dialog.include_archive.geometry().right(), 18)
+        self.assertGreaterEqual(dialog.fuzzy_identifiers.y() - dialog.linked_context_depth.geometry().bottom(), 9)
+
     def test_missing_model_is_plain_search_without_fake_ready(self):
         dialog=self.dialog()
         dialog._connection_changed({'model_ready':False})

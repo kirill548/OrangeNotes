@@ -25,7 +25,7 @@ git push -u origin main
 
 Если репозиторий GitHub ещё не создан, вместо `git remote add origin` можно выполнить `gh repo create USERNAME/OrangeNotes --public --source . --remote origin`, затем `git push -u origin main`.
 
-Обновите ссылки на репозиторий в README и документации под нового владельца. В копии workflow `mobile-ci.yml` добавьте `main` в `on.push.branches`: текущая конфигурация исходного проекта слушает `v0.2.0-dev`. Если переносите остальные workflows, проверьте их ветки, права и пути отдельно.
+Обновите ссылки на репозиторий в README и документации под нового владельца. В копии workflow `mobile-ci.yml` проверьте `on.push.branches`. В Orange Notes указаны `main` и `v0.2.0-dev`. Если переносите остальные workflows, проверьте их ветки, права и пути отдельно.
 
 ## 2. Сборка и проверка iOS-артефакта
 

@@ -4,7 +4,11 @@ from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPixmap, QRegion
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QLabel, QMenu, QToolButton, QWidgetAction
 
-from app.ui.icons import icon
+from app.ui.icons import duotone_icon
+from app.widgets.companion_mascot import companion_icon
+
+
+MENU_INK = '#58483B'
 
 
 MENU_STYLE = '''
@@ -61,18 +65,20 @@ class ApplicationMenu(QMenu):
         self.setSeparatorsCollapsible(False)
         self.add_heading('Справка')
         from app.utils.shortcuts import shortcut_label
-        self.addAction(icon('search','#6d7786',18),'Быстрые действия ('+shortcut_label('Ctrl+K')+')',window.show_command_palette)
-        self.help_action=self.addAction(icon('book','#6d7786',18),'Помощь и горячие клавиши',window.show_help)
+        self.addAction(duotone_icon('magnifying-glass',MENU_INK,18),'Быстрые действия ('+shortcut_label('Ctrl+K')+')',window.show_command_palette)
+        self.help_action=self.addAction(duotone_icon('book-open-text',MENU_INK,18),'Помощь и горячие клавиши',window.show_help)
         from app.utils.app_icon import application_icon
         self.about_action=self.addAction(application_icon(),'О программе',lambda: window.show_about())
-        self.status_action=self.addAction(icon('bell','#6d7786',18),'Состояние напоминаний',window.reminder_status)
-        self.pet_action = self.addAction('Показывать питомца')
+        self.status_action=self.addAction(duotone_icon('bell-ringing',MENU_INK,18),'Состояние напоминаний',window.reminder_status)
+        self.pet_action = self.addAction(companion_icon(), 'Показывать питомца')
         self.pet_action.setCheckable(True)
         self.pet_action.triggered.connect(window.set_pet_visible)
         self.add_heading('Данные')
-        self.export_action=self.addAction(icon('share','#6d7786',18),'Экспорт заметки',window.export_note)
-        self.backup_action=self.addAction(icon('archive','#6d7786',18),'Резервная копия базы',window.backup_database)
-        self.restore_action=self.addAction(icon('archive','#6d7786',18),'Восстановить базу из копии',window.restore_database)
+        self.export_action=self.addAction(duotone_icon('export',MENU_INK,18),'Экспорт заметки',window.export_note)
+        self.backup_action=self.addAction(duotone_icon('database',MENU_INK,18),'Резервная копия базы',window.backup_database)
+        self.restore_action=self.addAction(duotone_icon('arrow-counter-clockwise',MENU_INK,18),'Восстановить базу из копии',window.restore_database)
+        self.addSeparator()
+        self.addAction(duotone_icon('sign-out',MENU_INK,18),'Выйти из приложения',window.quit_from_menu)
         self.aboutToShow.connect(self.update_actions)
 
     def resizeEvent(self,event):

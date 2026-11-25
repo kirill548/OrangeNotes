@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QCheckBox,QComboBox,QDialog,QDateTimeEdit,QFormLa
 from app.services.memory_store import MemoryStore
 from app.widgets.companion_mascot import companion_icon
 from app.utils.app_icon import application_icon
+from app.utils.runtime_paths import resource_path
 from app.ui.icons import icon
 from app.services.audio_capture import VoiceInputController
 from app.services.app_paths import get_app_dir, ai_dir, stt_dir, resolve_app_path, portable_app_path, check_app_writable
@@ -219,12 +220,14 @@ class CompanionDialog(QDialog):
             QPlainTextEdit,QLineEdit,QComboBox {background:white;border:1px solid #e9e4dc;border-radius:9px;padding:8px;}
             QComboBox::drop-down {border:none;width:22px;}
             QCheckBox::indicator {width:16px;height:16px;border:1px solid #c9cfd5;border-radius:5px;background:white;}
-            QCheckBox::indicator:checked {background:#ff931f;border-color:#ff931f;}
+            QCheckBox::indicator:checked {image:url("__checkbox_tick__");border-color:#a77b55;}
+            QWidget#companionOptions {background:#faf7f3;border:1px solid #eee4d8;border-radius:10px;}
+            QWidget#companionOptions QCheckBox {spacing:8px;min-height:22px;}
             QPushButton {background:white;border:1px solid #eee4d8;border-radius:9px;padding:8px 12px;}
             QPushButton#companionSend {background:#ff890b;color:#291800;border:none;font-weight:600;}
             QPushButton#companionSend:disabled {background:#dac5b0;}
             QScrollArea {border:none;background:transparent;}
-        ''')
+        '''.replace('__checkbox_tick__', resource_path('app/assets/checkbox-tick.svg').as_posix()))
         layout=QVBoxLayout(self);layout.setContentsMargins(16,14,16,14);layout.setSpacing(8)
         header=QHBoxLayout()
         mascot=QLabel();mascot.setPixmap(companion_icon().pixmap(QSize(32,32)));header.addWidget(mascot)
@@ -249,32 +252,53 @@ class CompanionDialog(QDialog):
         controls.addWidget(self.attach_notes_button)
         self.search_options_button=QPushButton('Параметры');self.search_options_button.setCheckable(True)
         controls.addWidget(self.search_options_button);layout.addLayout(controls)
-        self.advanced_panel=QWidget();advanced=QVBoxLayout(self.advanced_panel);advanced.setContentsMargins(0,0,0,0)
-        advanced_row=QHBoxLayout()
+        self.advanced_panel=QWidget(self)
+        self.advanced_panel.setObjectName('companionOptions')
+        self.advanced_panel.setAttribute(Qt.WA_StyledBackground)
+        advanced=QVBoxLayout(self.advanced_panel)
+        advanced.setContentsMargins(12,10,12,10)
+        advanced.setSpacing(9)
         self.mode=QComboBox()
         for label,value in [('Найти в заметках','memory'),('Обсудить','discuss'),('Проверить','audit'),('Подготовить черновик','draft')]:self.mode.addItem(label,value)
         self.mode.setCurrentIndex(self.mode.findData('discuss'));self.mode.hide()
         self.settings_button=QPushButton('Настройки ИИ');self.settings_button.clicked.connect(self.show_settings);self.settings_button.hide()
         self.synonyms_button=QPushButton('Синонимы');self.synonyms_button.setToolTip('Настроить свои слова для поиска в выбранном пространстве')
-        self.synonyms_button.clicked.connect(self.show_synonyms);advanced_row.addWidget(self.synonyms_button);advanced.addLayout(advanced_row)
+        self.synonyms_button.setMinimumHeight(36)
+        self.synonyms_button.clicked.connect(self.show_synonyms)
+        advanced.addWidget(self.synonyms_button,0,Qt.AlignLeft)
         self.mode_hint=QLabel();self.mode_hint.setWordWrap(True);self.mode_hint.setTextFormat(Qt.PlainText);self.mode_hint.hide()
         self.mode.currentIndexChanged.connect(self._mode_changed);self._mode_changed()
         self.scope_hint=QLabel();self.scope_hint.setWordWrap(True);self.scope_hint.hide()
         options=QHBoxLayout()
+        options.setSpacing(18)
         self.include_archive=QCheckBox('Включать архив');self.include_archive.setChecked(True)
         self.include_trash=QCheckBox('Искать в корзине');self.include_trash.setChecked(False)
         options.addWidget(self.include_archive);options.addWidget(self.include_trash);options.addStretch();advanced.addLayout(options)
         self.fuzzy_identifiers=QCheckBox('Искать похожие номера при опечатке');self.fuzzy_identifiers.setChecked(True)
         self.fuzzy_identifiers.setToolTip('Только если точных совпадений нет. Похожие номера показываются отдельно.')
-        advanced.addWidget(QLabel('Связанные заметки для ответа'))
+        connection_depth=QVBoxLayout()
+        connection_depth.setSpacing(5)
+        connection_depth.addWidget(QLabel('Связанные заметки для ответа'))
         self.linked_context_depth=QComboBox()
         for label, depth in [('Только прикреплённые',0),('Связи первого уровня',1),('Связи первого и второго уровня',2)]:
             self.linked_context_depth.addItem(label,depth)
         self.linked_context_depth.addItem('Пусть помощник выберет связи','auto')
         self.linked_context_depth.setToolTip('Добавляет связанные заметки к прикреплённому контексту только в выбранном пространстве.')
-        advanced.addWidget(self.linked_context_depth)
-        advanced.addWidget(self.fuzzy_identifiers);layout.addWidget(self.advanced_panel);self.advanced_panel.hide()
-        self.search_options_button.toggled.connect(self.advanced_panel.setVisible)
+        self.linked_context_depth.setMinimumHeight(36)
+        connection_depth.addWidget(self.linked_context_depth)
+        advanced.addLayout(connection_depth)
+        advanced.addWidget(self.fuzzy_identifiers)
+        options_height = self.advanced_panel.sizeHint().height()
+        self.advanced_panel.setMinimumHeight(options_height)
+        self.advanced_scroll=QScrollArea()
+        self.advanced_scroll.setWidgetResizable(True)
+        self.advanced_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.advanced_scroll.setMinimumHeight(100)
+        self.advanced_scroll.setMaximumHeight(options_height)
+        self.advanced_scroll.setWidget(self.advanced_panel)
+        layout.addWidget(self.advanced_scroll)
+        self._set_options_visible(False)
+        self.search_options_button.toggled.connect(self._set_options_visible)
         from app.widgets.note_context_pins import NoteContextPins
         self.context_pins=NoteContextPins(self.store,self)
         self.context_pins.set_scope(self.workspace_id,self.include_archive.isChecked(),self.include_trash.isChecked())
@@ -343,6 +367,10 @@ class CompanionDialog(QDialog):
         self.send_button=QPushButton('Отправить');self.send_button.setObjectName('companionSend');self.send_button.clicked.connect(self.send);footer.addWidget(self.send_button);layout.addLayout(footer)
         self.workspace.currentIndexChanged.connect(self._scope_changed)
         self._welcome()
+
+    def _set_options_visible(self, visible):
+        self.advanced_panel.setVisible(visible)
+        self.advanced_scroll.setVisible(visible)
 
     def _toggle_voice(self):
         if self._voice_active:
@@ -980,6 +1008,9 @@ class CompanionDialog(QDialog):
         if self._open_onboarding_pending and not self._closing:
             self._open_onboarding_pending=False
             QTimer.singleShot(0,self.show_onboarding)
+
+    def has_unsubmitted_input(self):
+        return self._action_draft is not None or bool(self.input.toPlainText().strip())
 
     def request_close(self):self.close()
 
