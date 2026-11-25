@@ -95,7 +95,7 @@ class Window(QMainWindow):
         from app.widgets.companion_mascot import MiniCompanion
         self._mini_companion=MiniCompanion(self.companion_dock)
         self._mini_companion.activated.connect(self.show_companion)
-        self._mini_companion.dismiss.clicked.connect(self.companion_dock.hide)
+        self._mini_companion.dismiss.clicked.connect(lambda: self.set_pet_visible(False))
         self.nav.setContextMenuPolicy(Qt.CustomContextMenu)
         self.nav.customContextMenuRequested.connect(self.collection_menu)
         self._undo = None
@@ -783,11 +783,17 @@ class Window(QMainWindow):
         dialog.commandTriggered.connect(execute)
         dialog.show()
 
+    def set_pet_visible(self, visible):
+        self.app_menu_button.menu().pet_action.setChecked(visible)
+        if visible:
+            self.companion_dock.show()
+            self._mini_companion.show()
+            self._mini_companion.reposition()
+        else:
+            self.companion_dock.hide()
+
     def show_companion(self):
         if not self.close_reminder_panel() or not self.save():return
-        self.companion_dock.show()
-        self._mini_companion.show()
-        self._mini_companion.reposition()
         if self._companion_dialog is None:
             from app.ui.companion import CompanionDialog
             self._companion_dialog=CompanionDialog(self.store,self,metrics_collector=self.ai_metrics)

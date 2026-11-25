@@ -25,9 +25,15 @@ class CompanionWindowFlowTests(unittest.TestCase):
                 self.assertIs(pet.parentWidget(),window.companion_dock)
                 self.assertFalse(window.companion_dock.isVisible())
                 QTest.mouseClick(window.companion_button,Qt.LeftButton)
-                self.assertTrue(window.companion_dock.isVisible())
+                self.assertFalse(window.companion_dock.isVisible())
                 dialog=window._companion_dialog
+                self.assertTrue(dialog.isVisible())
                 dialog.config['provider']='search'
+                pet_action = window.app_menu_button.menu().pet_action
+                self.assertFalse(pet_action.isChecked())
+                pet_action.trigger()
+                self.assertTrue(pet_action.isChecked())
+                self.assertTrue(pet.isVisible())
                 def ask(text):
                     dialog.input.setPlainText(text);dialog.send()
                     deadline=time.monotonic()+5
@@ -50,8 +56,16 @@ class CompanionWindowFlowTests(unittest.TestCase):
                 self.assertEqual(pet.bubble.text(),'Заметка и напоминание созданы.')
                 QTest.mouseClick(pet.dismiss,Qt.LeftButton)
                 self.assertFalse(window.companion_dock.isVisible())
-                window.show_companion();app.processEvents()
-                self.assertTrue(window.companion_dock.isVisible())
+                self.assertFalse(pet_action.isChecked())
+                self.assertTrue(dialog.isVisible())
+                dialog.close()
+                QTest.mouseClick(window.companion_button, Qt.LeftButton)
+                self.assertTrue(dialog.isVisible())
+                self.assertFalse(window.companion_dock.isVisible())
+                pet_action.trigger()
+                self.assertTrue(pet.isVisible())
+                pet_action.trigger()
+                self.assertFalse(window.companion_dock.isVisible())
             finally:
                 if window._companion_dialog:window._companion_dialog.close()
                 # A close can be deferred while saving. Explicitly stop DB

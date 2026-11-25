@@ -66,6 +66,9 @@ class ApplicationMenu(QMenu):
         from app.utils.app_icon import application_icon
         self.about_action=self.addAction(application_icon(),'О программе',lambda: window.show_about())
         self.status_action=self.addAction(icon('bell','#6d7786',18),'Состояние напоминаний',window.reminder_status)
+        self.pet_action = self.addAction('Показывать питомца')
+        self.pet_action.setCheckable(True)
+        self.pet_action.triggered.connect(window.set_pet_visible)
         self.add_heading('Данные')
         self.export_action=self.addAction(icon('share','#6d7786',18),'Экспорт заметки',window.export_note)
         self.backup_action=self.addAction(icon('archive','#6d7786',18),'Резервная копия базы',window.backup_database)
