@@ -2,7 +2,9 @@
 
 Статус: инфраструктура сборки подготовлена. Наличие workflow не означает успешную сборку, подпись, загрузку в TestFlight или проверку на физическом iPhone. Результаты конкретного запуска фиксируются отдельно.
 
-[Релиз v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) содержит unsigned IPA версии **0.2.1+2** и SHA256. Сборки после этого тега ищите в Mobile CI по коммиту.
+[Релиз v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) содержит unsigned IPA версии **0.2.1+2** и SHA256. Сборки после этого тега ищите в [Mobile CI](https://github.com/kirill548/OrangeNotes/actions/workflows/mobile-ci.yml) по коммиту.
+
+На компьютере с Windows можно установить сам Orange Notes Desktop по [отдельной инструкции](../DISTRIBUTION.md#установка-на-windows). В новых успешных сборках [Desktop CI](https://github.com/kirill548/OrangeNotes/actions/workflows/release-builds.yml) ищите `OrangeNotes-Windows-AMD64-Setup.exe`. Мастер создаёт выбранную папку на любом доступном для записи диске и устанавливает приложение для текущего пользователя без прав администратора. Есть и отдельный portable ZIP. База заметок хранится отдельно, при переносе установки сохраните `ai/` и `stt/`. Удаление установленной копии доступно в параметрах Windows. Официальные v0.1.5 и v0.2.1 автоматически не получат установщик.
 
 ## Без аккаунта Apple Developer
 
@@ -43,9 +45,7 @@ Secrets Environment:
 
 ## Текущий способ установки
 
-15 октября 2026 пользователь выбрал unsigned IPA и повторную подпись:
-подписки Apple Developer Program пока нет. TestFlight в этом состоянии
-не активирован и не используется как обещанный канал установки.
+Опубликованные пакеты iOS доступны в формате unsigned IPA. Установка через TestFlight для проекта пока не подтверждена.
 
 Скачайте IPA из [Assets v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) или `OrangeNotes-iOS-unsigned-requires-resigning` из артефактов успешного Mobile CI нужного коммита. Внутри — `OrangeNotes-iOS-unsigned.ipa` и `SHA256SUMS.txt`.
 Unsigned-архив нельзя установить простым открытием файла на iPhone.

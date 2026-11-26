@@ -5,7 +5,7 @@
 
 | Платформа | Архитектура | Форматы Lite |
 |---|---|---|
-| Windows | x64 / AMD64 | `.exe` в standalone-каталоге, `OrangeNotes-Windows-AMD64.zip` |
+| Windows | x64 / AMD64 | `OrangeNotes-Windows-AMD64-Setup.exe` и portable `OrangeNotes-Windows-AMD64.zip` |
 | Linux | x64 / AMD64 | tar.gz, AppImage, `.deb`, Flatpak |
 | macOS Intel | x86_64 | `.app`, `.dmg`, архив бандла |
 | macOS Apple Silicon | arm64 | `.app`, `.dmg`, архив бандла |

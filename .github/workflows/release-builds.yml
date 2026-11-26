@@ -131,12 +131,27 @@ jobs:
         env:
           TARGET_OS: ${{ runner.os }}
         run: python tools/verify_portable_bundle.py
+      - name: Build Windows installer and checksums
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python tools/build_windows_installer.py --bundle dist/OrangeNotes --output-dir dist
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $names = @('OrangeNotes-Windows-AMD64.zip', 'OrangeNotes-Windows-AMD64-Setup.exe')
+          $names | ForEach-Object {
+            $digest = (Get-FileHash -LiteralPath (Join-Path 'dist' $_) -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest  $_"
+          } | Set-Content -LiteralPath dist/SHA256SUMS-Windows.txt -Encoding ascii
       - name: Remove temporary certificates
         if: always() && github.event_name != 'pull_request' && runner.os != 'Linux'
         run: python tools/ci_signing.py --cleanup
       - name: Windows frozen smoke test
         if: runner.os == 'Windows'
         run: python tools/smoke_frozen.py dist/OrangeNotes/OrangeNotes.exe --hostile-qt-env
+      - name: Windows installer, custom folder and uninstall
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tools/smoke_windows_installer.ps1 -Setup dist/OrangeNotes-Windows-AMD64-Setup.exe
       - name: Linux frozen GUI startup
         if: runner.os == 'Linux'
         run: xvfb-run -a python tools/smoke_portable.py dist/OrangeNotes/OrangeNotes
@@ -171,6 +186,8 @@ jobs:
           name: OrangeNotes-${{ matrix.name }}
           path: |
             dist/OrangeNotes-*.zip
+            dist/OrangeNotes-*-Setup.exe
+            dist/SHA256SUMS-Windows.txt
             dist/OrangeNotes-*.tar.gz
             dist/OrangeNotes-*.dmg
             dist/OrangeNotes-*.AppImage

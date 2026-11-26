@@ -18,7 +18,7 @@ class ReleasePackagingTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.module.ROOT = self.root
         (self.root / 'app/assets').mkdir(parents=True)
-        (self.root / 'app/assets/app.png').write_bytes(b'test-icon')
+        (self.root / 'app/assets/app.png').write_bytes((filename.parents[1] / 'app/assets/app.png').read_bytes())
         (self.root / 'DISTRIBUTION.md').write_text('distribution', encoding='utf-8')
 
     def test_macos_resources_are_inside_app_not_windows_folder(self):
@@ -39,6 +39,9 @@ class ReleasePackagingTests(unittest.TestCase):
         self.assertEqual(archive.call_args.args[1], 'gztar')
         self.assertIn('Terminal=false', (folder / 'OrangeNotes.desktop').read_text())
         self.assertTrue((folder / 'OrangeNotes.png').is_file())
+        from PySide6.QtGui import QImage
+        icon = QImage(str(folder / 'OrangeNotes.png'))
+        self.assertEqual((icon.width(), icon.height()), (256, 256))
 
     def test_macos_microphone_purpose_preserves_identity_and_updates_version(self):
         folder = self.module.bundle_directory('darwin')

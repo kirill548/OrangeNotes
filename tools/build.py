@@ -73,7 +73,14 @@ def prepare_bundle(folder, target=None):
     if licenses.exists():
         shutil.copytree(licenses, resources / 'licenses', dirs_exist_ok=True)
     if target.startswith('linux'):
-        shutil.copy2(ROOT / 'app/assets/app.png', folder / 'OrangeNotes.png')
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QImage
+
+        icon = QImage(str(ROOT / 'app/assets/app.png'))
+        if icon.isNull() or not icon.scaled(256, 256, Qt.KeepAspectRatio, Qt.SmoothTransformation).save(
+            str(folder / 'OrangeNotes.png')
+        ):
+            raise RuntimeError('Could not export the 256-pixel Linux desktop icon.')
         (folder / 'OrangeNotes.desktop').write_text(
             '[Desktop Entry]\nType=Application\nName=Orange Notes\n'
             'Comment=Local notes and reminders\nExec=OrangeNotes\n'

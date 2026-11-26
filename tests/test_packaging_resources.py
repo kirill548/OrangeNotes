@@ -22,7 +22,7 @@ class PackagingResourceTests(unittest.TestCase):
         (self.root / 'licenses/NOTICE.txt').write_text('license notice')
         (self.root / 'DISTRIBUTION.md').write_text('distribution instructions')
         (self.root / 'app/assets').mkdir(parents=True)
-        (self.root / 'app/assets/app.png').write_bytes(b'icon')
+        (self.root / 'app/assets/app.png').write_bytes((filename.parents[1] / 'app/assets/app.png').read_bytes())
 
     def test_macos_main_completes_resources_before_signing(self):
         folder = self.build.bundle_directory('darwin')

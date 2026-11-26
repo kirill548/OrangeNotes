@@ -273,7 +273,11 @@ class CompanionDialog(QDialog):
         options.setSpacing(18)
         self.include_archive=QCheckBox('Включать архив');self.include_archive.setChecked(True)
         self.include_trash=QCheckBox('Искать в корзине');self.include_trash.setChecked(False)
-        options.addWidget(self.include_archive);options.addWidget(self.include_trash);options.addStretch();advanced.addLayout(options)
+        for checkbox in (self.include_archive,self.include_trash):
+            checkbox.setAttribute(Qt.WA_LayoutUsesWidgetRect)
+            options.addWidget(checkbox)
+        options.addStretch()
+        advanced.addLayout(options)
         self.fuzzy_identifiers=QCheckBox('Искать похожие номера при опечатке');self.fuzzy_identifiers.setChecked(True)
         self.fuzzy_identifiers.setToolTip('Только если точных совпадений нет. Похожие номера показываются отдельно.')
         connection_depth=QVBoxLayout()

@@ -8,7 +8,7 @@
 
 | Платформа | Клиент / стек | Доступность |
 |---|---|---|
-| Windows x64 | Python 3.12, PySide6 / Qt6 | [ZIP с OrangeNotes.exe в v0.1.5](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.5); новые тестовые пакеты в GitHub Actions |
+| Windows x64 | Python 3.12, PySide6 / Qt6 | [ZIP с OrangeNotes.exe в v0.1.5](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.5); установщик и portable ZIP в новых тестовых сборках GitHub Actions |
 | Linux x64 | Python 3.12, PySide6 / Qt6 | tar.gz, AppImage, DEB и экспериментальный Flatpak в v0.1.5 |
 | macOS Intel / Apple Silicon | Python 3.12, PySide6 / Qt6 | Отдельные `.app` / DMG для каждой архитектуры в v0.1.5 |
 | Android | Flutter / Dart, Kotlin host | Debug APK собран в Mobile CI; установка на физическом устройстве требует проверки |
@@ -123,13 +123,17 @@ zip -qry OrangeNotes-iOS-unsigned.ipa Payload
 shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
 ```
 
-Это упаковка неподписанного device-бандла, не подписанный экспорт App Store. Готовые CI-пакеты находятся в артефактах workflow [Mobile analysis and native builds](.github/workflows/mobile-ci.yml). При публикации сопровождающий прикрепляет IPA и SHA256 к GitHub Release.
+Это упаковка неподписанного бандла для устройства. Готовые CI-пакеты находятся в разделе Artifacts запусков [Mobile analysis and native builds](https://github.com/kirill548/OrangeNotes/actions/workflows/mobile-ci.yml). При публикации сопровождающий прикрепляет IPA и SHA256 к GitHub Release.
 
 ## Установка и тестирование
 
 ### Desktop: Windows, Linux и macOS
 
-Откройте [Assets релиза v0.1.5](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.5). В Windows скачайте `OrangeNotes-Windows-AMD64.zip`, распакуйте папку целиком и запустите `OrangeNotes.exe`. Для Linux доступны tar.gz, AppImage и DEB, для macOS выберите свой процессор. Тестовые пакеты ищите в разделе Artifacts соответствующего запуска [Desktop package qualification](.github/workflows/release-builds.yml). Подробности есть в [руководстве по установке](DISTRIBUTION.md).
+Опубликованные пакеты Desktop находятся в [Assets релиза v0.1.5](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.5). Для Linux доступны tar.gz, AppImage и DEB. Для macOS выберите пакет под Intel или Apple Silicon.
+
+Для установки новой тестовой сборки Windows откройте успешный запуск [Desktop package qualification](https://github.com/kirill548/OrangeNotes/actions/workflows/release-builds.yml) нужного коммита. В разделе **Artifacts** ищите `OrangeNotes-Windows-x64` и внутри него `OrangeNotes-Windows-AMD64-Setup.exe`. Сверьте его SHA-256 по `SHA256SUMS-Windows.txt`. Мастер устанавливает приложение для текущего пользователя без прав администратора. По умолчанию предлагается `%LOCALAPPDATA%\Programs\Orange Notes`. Папку установки выбирают в мастере, независимо от расположения скачанного файла. Можно указать доступную для записи папку на любом диске. Если папки ещё нет, мастер её создаст. Приложение можно удалить через «Установленные приложения» в параметрах Windows.
+
+Для запуска без установки используйте отдельный portable-архив `OrangeNotes-Windows-AMD64.zip`. Распакуйте его целиком и запустите `OrangeNotes.exe`. База заметок находится отдельно в `%LOCALAPPDATA%\OrangeNotes`. При обновлении и переносе сохраняйте папки `ai/` и `stt/` рядом с приложением. Новый установщик появится в CI после успешной сборки и автоматически не добавится к официальным v0.1.5 и v0.2.1. Подробнее о пакетах, обновлении и резервной копии можно прочитать в [руководстве по установке](DISTRIBUTION.md).
 
 ### Android: тестовый APK
 

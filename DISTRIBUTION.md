@@ -1,16 +1,27 @@
 # Установка и сборка Orange Notes Desktop
 
-Стабильные [десктопные пакеты v0.1.5](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.5) собраны для Windows x64, Linux x64 и двух архитектур macOS. Релиз [v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) содержит iOS-артефакт и контрольную сумму. Для свежих тестовых пакетов откройте [Desktop package qualification](.github/workflows/release-builds.yml), выберите успешный запуск нужного коммита и проверьте Artifacts.
+Стабильные [десктопные пакеты v0.1.5](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.5) собраны для Windows x64, Linux x64 и двух архитектур macOS. Релиз [v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) содержит iOS-артефакт и контрольную сумму. Свежие тестовые пакеты находятся в разделе **Artifacts** успешного запуска [Desktop package qualification](https://github.com/kirill548/OrangeNotes/actions/workflows/release-builds.yml) нужного коммита. Новый установщик Windows доступен в тестовых сборках CI после успешной упаковки. К официальным v0.1.5 и v0.2.1 он автоматически не добавляется.
 
 ## Пакеты и переносимость
 
 | Платформа | Формат | Запуск |
 |---|---|---|
-| Windows x64 | ZIP с EXE | Распакуйте весь архив, запустите `OrangeNotes.exe`; сохраните соседнюю `_internal/` |
+| Windows x64 | Установщик EXE в новых тестовых сборках, отдельный portable ZIP | Запустите мастер или распакуйте ZIP целиком и откройте `OrangeNotes.exe` |
 | Linux x64 | tar.gz, AppImage, DEB, Flatpak | Распакуйте tar.gz с правами доступа и запустите `./OrangeNotes` |
 | macOS Intel / Apple Silicon | `.app` в ZIP, DMG | Выберите свою архитектуру, перенесите `.app` в доступное для записи место |
 
 Windows x86 и Windows 7/8 не поддерживаются стеком проекта. Intel и Apple Silicon собираются отдельно, Universal не заявляется. Linux требует системные библиотеки Qt/X11/OpenGL; совместимость со всеми дистрибутивами не обещается. Для Qt Multimedia необходимы доступный аудиобэкенд и разрешение на микрофон. Их отсутствие обрабатывается в настройках без падения приложения.
+
+## Установка на Windows
+
+1. В успешном запуске CI скачайте артефакт `OrangeNotes-Windows-x64`. Внутри ищите `OrangeNotes-Windows-AMD64-Setup.exe` и `SHA256SUMS-Windows.txt`. В файле приведены суммы установщика и отдельного portable ZIP.
+2. Запустите мастер и выберите папку приложения независимо от папки загрузки браузера. По умолчанию предлагается `%LOCALAPPDATA%\Programs\Orange Notes`. Можно указать любой диск, на котором у текущего пользователя есть права записи. Если указанной папки нет, мастер создаст её. Установка выполняется для текущей учётной записи без прав администратора.
+3. Для обновления закройте Orange Notes, сделайте резервную копию заметок и укажите ту же папку установки. Модели, настройки ИИ и голосовые компоненты сохраняются в `ai/` и `stt/`. Если выбираете другую папку, сначала скопируйте эти каталоги в резервное место, затем восстановите их в новой папке до первого запуска. База в `%LOCALAPPDATA%\OrangeNotes` остаётся на месте.
+4. Для удаления откройте «Установленные приложения» в параметрах Windows и выберите Orange Notes. Перед удалением отдельно скопируйте заметки, `ai/` и `stt/`, если хотите сохранить их для переноса.
+
+Для запуска без мастера возьмите отдельный `OrangeNotes-Windows-AMD64.zip`. Распакуйте весь архив вместе с `_internal/` и запустите `OrangeNotes.exe`.
+
+## Данные и переносимость
 
 Управляемые настройки ИИ, среда выполнения и модели находятся в `AppDir/ai/`, whisper.cpp и веса — в `AppDir/stt/`. В Windows/Linux AppDir — папка исполняемого файла; в macOS — `OrangeNotes.app/Contents/MacOS/`. Lite содержит шаблонные каталоги без моделей. Не удаляйте эти папки при обновлении. База заметок и обычные пользовательские настройки хранятся отдельно в системной папке данных (Windows: `%LOCALAPPDATA%/OrangeNotes`); перенос папки приложения сам по себе не переносит базу.
 
@@ -33,6 +44,14 @@ python -m pip install -r requirements-build.txt -r requirements-dev.txt
 python tools/run_regression.py
 python tools/build.py --clean --edition lite
 ```
+
+Чтобы собрать установщик на Windows с установленным Inno Setup, после сборки Lite выполните:
+
+```powershell
+python tools/build_windows_installer.py --bundle dist/OrangeNotes --output-dir dist
+```
+
+Готовый файл появится в `dist/OrangeNotes-Windows-AMD64-Setup.exe`. Сборка установщика не заменяет portable ZIP.
 
 PyInstaller собирает пакет на соответствующей ОС, не выполняет кросс-компиляцию. Linux AppImage и macOS DMG подготавливаются платформенными шагами CI. Конфигурация содержит Windows x64, Linux x64, macOS Intel и Apple Silicon. Для диагностики нативного whisper.cpp: `python tools/stt_native_smoke.py --help`; для Apple CLI/CMake: `python tools/diagnose_whisper_macos.py --help`.
 
