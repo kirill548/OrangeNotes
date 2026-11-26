@@ -85,6 +85,16 @@ class MiniCompanion(QWidget):
         self._bee=_bee_pixmap()
         if not self._bee.isNull():
             self._bee = self._bee.scaled(120, 120, Qt.KeepAspectRatio, Qt.FastTransformation)
+        sheet = QPixmap(str(resource_path('app/assets/bee_flight_sheet.png')))
+        # Use the same crop in both halves so the body stays still on each wingbeat.
+        self._wingbeats = tuple(
+            sheet.copy(x + 87, 112, 720, 686).scaled(120, 120, Qt.KeepAspectRatio, Qt.FastTransformation)
+            for x in (0, sheet.width() // 2)
+        ) if not sheet.isNull() else ()
+        self._turn_sprite = QPixmap(str(resource_path('app/assets/bee_flight_turn.png')))
+        if not self._turn_sprite.isNull():
+            self._turn_sprite = self._turn_sprite.scaled(120, 120, Qt.KeepAspectRatio, Qt.FastTransformation)
+        self._facing_right = True
         self._idle_since = time.monotonic()
         self._bank = 0
         self._flight_home = None
@@ -92,7 +102,7 @@ class MiniCompanion(QWidget):
         self._recent_events=deque(maxlen=16)
         parent.installEventFilter(self)
         parent.destroyed.connect(self._dispose)
-        self.timer=QTimer(self);self.timer.setInterval(40);self.timer.timeout.connect(self.update)
+        self.timer=QTimer(self);self.timer.setInterval(33);self.timer.timeout.connect(self.update)
         self._flight = QVariantAnimation(self)
         self._flight.setStartValue(0.0)
         self._flight.setEndValue(0.0)
@@ -218,6 +228,7 @@ class MiniCompanion(QWidget):
         arc = math.sin(math.pi * progress)
         x = round(self._outing_offset.x() * arc ** 2)
         y = round(self._outing_offset.y() * arc * (0.8 + 0.2 * math.sin(math.tau * progress)))
+        self._facing_right = (self._outing_offset.x() > 0) == (progress < 0.5)
         self._bank = (6 if self._outing_offset.x() > 0 else -6) * (1 - 2 * progress)
         self.move(self._flight_home + QPoint(x, y))
 
@@ -242,16 +253,31 @@ class MiniCompanion(QWidget):
         if was_flying:
             self._animate_flight(0.0, 180)
 
+    def _flight_sprite(self, elapsed):
+        turn = self._flight.currentValue()
+        if self._flight_home is not None:
+            turn = min(turn, abs(self._outing.currentValue() - 0.5) / 0.10)
+        if turn >= 0.70 and self._wingbeats:
+            return self._wingbeats[int(elapsed * 18) % len(self._wingbeats)]
+        if turn >= 0.20 and not self._turn_sprite.isNull():
+            return self._turn_sprite
+        return self._bee
+
     def paintEvent(self,event):
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);p.setRenderHint(QPainter.SmoothPixmapTransform,False)
-        phase = (time.monotonic() - self._idle_since) * 2.8
+        elapsed = time.monotonic() - self._idle_since
+        phase = elapsed * 2.8
         lift = self._flight.currentValue()
+        sprite = self._flight_sprite(elapsed)
         p.translate(100 + math.sin(phase / 2) * 2,
                     self.bubble.height() + 71 + math.sin(phase) * 3 - lift * 10)
         p.rotate(math.sin(phase / 2) * 2 + self._bank * lift)
         p.translate(-60, -60)
-        if not self._bee.isNull():
-            p.drawPixmap((120-self._bee.width())//2,(120-self._bee.height())//2,self._bee)
+        if sprite is not self._bee and not self._facing_right:
+            p.translate(120, 0)
+            p.scale(-1, 1)
+        if not sprite.isNull():
+            p.drawPixmap((120-sprite.width())//2,(120-sprite.height())//2,sprite)
         else:p.save();p.scale(2.5,2.5);_draw_bee(p);p.restore()
 
     def notify_event(self,text,kind='info'):
@@ -305,7 +331,10 @@ class MiniCompanion(QWidget):
             self._placed = True
             self.setCursor(Qt.ClosedHandCursor)
             screen = QGuiApplication.screenAt(cursor) or self.screen()
+            old_x = self.x()
             self._move_on_screen(self._origin + offset, screen.availableGeometry())
+            if self.x() != old_x:
+                self._facing_right = self.x() > old_x
 
     def mouseReleaseEvent(self,event):
         if event.button()==Qt.LeftButton and self._start is not None:
