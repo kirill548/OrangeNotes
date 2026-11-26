@@ -238,6 +238,10 @@ class Store:
                 raise ValueError('Текст заметки содержит недопустимые символы.') from error
         names = sorted(set(t.strip() for t in tags.split(',') if t.strip()))
         with self.db:
+            # Wait for the indexer's write transaction before reading the version
+            # that will be updated. Upgrading a stale read can fail immediately.
+            if not self.db.in_transaction:
+                self.db.execute('BEGIN IMMEDIATE')
             previous=self.db.execute('SELECT title,body,workspace_id FROM notes WHERE id=?',(note_id,)).fetchone()
             if previous and previous['title'] != title:
                 from app.services.knowledge_graph import rename_references, rewrite_wiki_titles

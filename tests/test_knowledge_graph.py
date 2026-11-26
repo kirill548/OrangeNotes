@@ -120,6 +120,29 @@ def test_atomic_rename_rolls_back_on_invalid_folder(setup):
     assert s.db.execute('SELECT body FROM notes WHERE id=?',(source,)).fetchone()[0]=='[[A]]'
 
 
+def test_note_save_holds_write_lock_before_rewriting_links(setup, monkeypatch):
+    from app.services import knowledge_graph
+
+    store, graph = setup
+    target = add(store, 'A')
+    source = add(store, 'Source', '[[A]]')
+    rewrite = knowledge_graph.rename_references
+
+    def check_lock(db, *args):
+        peer = sqlite3.connect(store.path, timeout=0)
+        try:
+            with pytest.raises(sqlite3.OperationalError) as error:
+                peer.execute('BEGIN IMMEDIATE')
+            assert error.value.sqlite_errorcode == sqlite3.SQLITE_BUSY
+        finally:
+            peer.close()
+        return rewrite(db, *args)
+
+    monkeypatch.setattr(knowledge_graph, 'rename_references', check_lock)
+    store.save_note(target, 'B', '', None, False, '')
+    assert graph.linked_notes(source, 1)[0]['id'] == target
+
+
 def test_reopening_store_does_not_invalidate_clean_index(setup):
     s, g = setup
     add(s, 'A', '[[B]]'); add(s, 'B')
