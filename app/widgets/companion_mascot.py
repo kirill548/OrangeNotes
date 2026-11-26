@@ -243,8 +243,6 @@ class MiniCompanion(QWidget):
         if self._flight_home is not None:
             if return_home:
                 self.move(self._flight_home)
-            else:
-                self._placed = True
             self._flight_home = None
 
     def _interrupt_outing(self):
@@ -295,6 +293,7 @@ class MiniCompanion(QWidget):
 
     def showEvent(self,event):
         super().showEvent(event)
+        self._placed = True
         self.timer.start()
         if not self.bubble.isHidden():
             self._bubble_timer.start()
@@ -328,7 +327,6 @@ class MiniCompanion(QWidget):
                 self._bank = -6 if offset.x() < 0 else 6
                 self._animate_flight(1.0, 160)
             self._dragged = True
-            self._placed = True
             self.setCursor(Qt.ClosedHandCursor)
             screen = QGuiApplication.screenAt(cursor) or self.screen()
             old_x = self.x()
