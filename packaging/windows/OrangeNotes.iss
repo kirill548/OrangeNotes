@@ -19,9 +19,8 @@ AppendDefaultDirName=yes
 AllowRootDirectory=no
 DisableDirPage=no
 DisableProgramGroupPage=yes
-PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
-UsePreviousPrivileges=no
+PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=commandline
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
@@ -46,8 +45,6 @@ en.ForeignFolder=This folder already contains files with the same names as Orang
 ru.ForeignFolder=В этой папке уже есть файлы с теми же именами, что у файлов Orange Notes. Выберите отдельную папку, чтобы сохранить существующие файлы.
 en.FolderUnavailable=No write access to "%1".%n%nChoose a folder you can write to on this drive or another one.
 ru.FolderUnavailable=Нет доступа на запись в папку «%1».%n%nВыберите доступную папку на этом или другом диске.
-en.AdminOption=For a protected folder, close Setup and reopen it with "Install for all users" to request administrator access.
-ru.AdminOption=Для защищённой папки перезапустите мастер, выберите «Установить для всех пользователей» и подтвердите запрос Windows.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:DesktopIcon}"; Flags: unchecked
@@ -138,8 +135,6 @@ var
   Parent, NextParent: String;
 begin
   Result := FmtMessage(CustomMessage('FolderUnavailable'), [Folder]);
-  if not IsAdminInstallMode then
-    Result := Result + #13#10#13#10 + CustomMessage('AdminOption');
   Parent := RemoveBackslashUnlessRoot(Folder);
   while not DirExists(Parent) do
   begin

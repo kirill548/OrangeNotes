@@ -129,7 +129,7 @@ class CompanionUITests(unittest.TestCase):
         self.assertFalse(dialog._commit_draft());self.assertEqual(len(created),1)
         dialog._show_draft({**draft,'draft_id':uuid4().hex});dialog._scope_changed();self.assertIsNone(dialog._action_draft)
 
-    def test_mini_pet_click_keyboard_drag_and_resize_bounds(self):
+    def test_mini_pet_click_drag_and_screen_bounds(self):
         from app.widgets.companion_mascot import MiniCompanion
         from PySide6.QtCore import QPoint
         from PySide6.QtWidgets import QSplitter,QWidget
@@ -138,9 +138,8 @@ class CompanionUITests(unittest.TestCase):
         activated=[];pet.activated.connect(lambda:activated.append(True))
         self.assertTrue(pet.isWindow())
         self.assertTrue(pet.testAttribute(Qt.WA_TranslucentBackground))
-        self.assertEqual(pet.focusPolicy(), Qt.TabFocus)
+        self.assertTrue(pet.windowFlags() & Qt.WindowDoesNotAcceptFocus)
         QTest.mouseClick(pet,Qt.LeftButton,pos=QPoint(70,80));self.assertEqual(len(activated),1)
-        QTest.keyClick(pet,Qt.Key_Return);self.assertEqual(len(activated),2)
         bounds=pet.screen().availableGeometry()
         self.parent.resize(320,240)
         self.parent.move(bounds.topLeft()+QPoint(20,20))
@@ -151,19 +150,23 @@ class CompanionUITests(unittest.TestCase):
         self.assertTrue(self.parent.frameGeometry().contains(before))
         QTest.mousePress(pet,Qt.LeftButton,pos=QPoint(70,80))
         QTest.mouseMove(pet,pet.mapFromGlobal(target))
+        self.assertEqual(pet._flight.endValue(),1.0)
         QTest.mouseRelease(pet,Qt.LeftButton,pos=pet.mapFromGlobal(target))
-        self.assertEqual(len(activated),2)
+        self.assertEqual(pet._flight.endValue(),0.0)
+        self.assertEqual(len(activated),1)
         self.assertFalse(self.parent.frameGeometry().contains(pet.pos()))
         self.assertTrue(pet.screen().availableGeometry().contains(pet.geometry()))
         self.parent.hide();self.app.processEvents();self.assertFalse(pet.isVisible())
         self.parent.show();self.app.processEvents();self.assertTrue(pet.isVisible())
-        QTest.mouseClick(pet.dismiss,Qt.LeftButton);self.assertFalse(pet.isVisible())
+        pet.set_pet_visible(False)
+        self.assertFalse(pet.isVisible())
 
     def test_mini_pet_pending_callbacks_die_with_widget(self):
         from app.widgets.companion_mascot import MiniCompanion
         import shiboken6
-        pet=MiniCompanion(self.parent);pet._animate()
-        self.assertTrue(pet._position_timer.isActive());self.assertTrue(pet._blink_timer.isActive())
+        pet=MiniCompanion(self.parent);pet._animate_flight(1.0,160)
+        self.assertTrue(pet._position_timer.isActive())
+        self.assertEqual(pet._flight.endValue(),1.0)
         shiboken6.delete(pet)
         self.app.processEvents();QTest.qWait(180)
         self.assertFalse(shiboken6.isValid(pet))

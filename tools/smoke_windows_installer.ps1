@@ -7,11 +7,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $setupPath = (Resolve-Path -LiteralPath $Setup).Path
 $scratch = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
-$install = Join-Path $scratch ('Orange Notes setup check ' + [Guid]::NewGuid().ToString('N'))
+$root = Join-Path $scratch ('Orange Notes setup check ' + [Guid]::NewGuid().ToString('N'))
+$install = if ($AllUsers) { Join-Path $root 'Orange Notes' } else { $root }
 $executable = Join-Path $install 'OrangeNotes.exe'
 $silent = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOCLOSEAPPLICATIONS')
-$mode = if ($AllUsers) { '/ALLUSERS' } else { '/CURRENTUSER' }
-$arguments = $silent + @($mode, ('/DIR="' + $install + '"'), '/TASKS=desktopicon')
+$arguments = $silent + @(('/DIR="' + $install + '"'), '/TASKS=desktopicon')
+if (!$AllUsers) { $arguments += '/CURRENTUSER' }
 $programsFolder = if ($AllUsers) { 'CommonPrograms' } else { 'Programs' }
 $desktopFolder = if ($AllUsers) { 'CommonDesktopDirectory' } else { 'DesktopDirectory' }
 $hive = if ($AllUsers) { 'HKLM' } else { 'HKCU' }
@@ -31,7 +32,18 @@ foreach ($shortcut in @($startMenu, $desktop)) {
 }
 if (Test-Path -LiteralPath $uninstallKey) { throw 'Installer smoke requires a clean Orange Notes installation entry.' }
 
-if (!$AllUsers) {
+if ($AllUsers) {
+    [void][IO.Directory]::CreateDirectory($root)
+    $acl = Get-Acl -LiteralPath $root
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($identity in @('S-1-5-32-544', 'S-1-5-18')) {
+        $sid = [Security.Principal.SecurityIdentifier]::new($identity)
+        $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+            $sid, 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')
+        $acl.AddAccessRule($rule)
+    }
+    Set-Acl -LiteralPath $root -AclObject $acl
+} else {
     $protected = "$install protected"
     $blocked = Join-Path $protected 'Orange Notes'
     $log = "$install denied.log"
@@ -43,7 +55,7 @@ if (!$AllUsers) {
     $denied.AddAccessRule($rule)
     try {
         Set-Acl -LiteralPath $protected -AclObject $denied
-        $blockedArgs = $silent + @($mode, ('/DIR="' + $blocked + '"'), ('/LOG="' + $log + '"'))
+        $blockedArgs = $silent + @('/CURRENTUSER', ('/DIR="' + $blocked + '"'), ('/LOG="' + $log + '"'))
         $process = Start-Process -FilePath $setupPath -ArgumentList $blockedArgs -Wait -PassThru -WindowStyle Hidden
         if ($process.ExitCode -eq 0 -or !(Select-String -LiteralPath $log -SimpleMatch 'Destination check rejected the installation folder:' -Quiet)) {
             throw 'Setup did not reject a protected folder before installing.'

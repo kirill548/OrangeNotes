@@ -2,8 +2,10 @@
 import math
 import time
 from collections import deque
+from weakref import ref
+from app.ui.icons import duotone_icon
 from app.utils.runtime_paths import resource_path
-from PySide6.QtCore import Qt, QRect, QRectF, QSize, QPoint, QEvent, QTimer, Signal
+from PySide6.QtCore import Qt, QRect, QRectF, QSize, QPoint, QEvent, QTimer, Signal, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QPainter, QPen, QIcon, QPixmap, QFontMetrics, QGuiApplication
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget, QLabel, QMenu, QStyle, QStyleOptionButton
 
@@ -63,35 +65,45 @@ class CompanionLauncher(QPushButton):
 
 
 class MiniCompanion(QWidget):
-    """Desktop pet owned by the notes window. Dragging never opens the chat."""
+    """Non-activating desktop pet. Only a click opens the chat."""
     activated=Signal()
     dismissRequested=Signal()
 
     def __init__(self,parent):
-        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setFixedSize(200,172)
+        flags = Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus
+        super().__init__(None, flags)
+        self._owner = ref(parent)
+        self.setFixedWidth(200)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setFocusPolicy(Qt.TabFocus)
-        self.setAccessibleName('Мини-помощник. Нажмите Enter, чтобы открыть чат')
+        self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)
+        self.setAccessibleName('Питомец Orange Notes')
         self.setToolTip('Нажмите, чтобы поговорить. Перетащите, чтобы передвинуть.')
         self.setCursor(Qt.PointingHandCursor)
-        self._start=None;self._origin=None;self._dragged=False;self._placed=False;self._blink=False
+        self._start=None;self._origin=None;self._dragged=False;self._placed=False
         self._enabled=False
-        self._bee=_bee_pixmap();self._phase=0.;self._recent_events=deque(maxlen=16)
+        self._bee=_bee_pixmap()
+        if not self._bee.isNull():
+            self._bee = self._bee.scaled(120, 120, Qt.KeepAspectRatio, Qt.FastTransformation)
+        self._idle_since = time.monotonic()
+        self._bank = 0
+        self._recent_events=deque(maxlen=16)
         parent.installEventFilter(self)
-        self.timer=QTimer(self);self.timer.setInterval(100);self.timer.timeout.connect(self._animate)
-        self._blink_timer=QTimer(self);self._blink_timer.setSingleShot(True);self._blink_timer.setInterval(150);self._blink_timer.timeout.connect(self._open_eyes)
+        parent.destroyed.connect(self._dispose)
+        self.timer=QTimer(self);self.timer.setInterval(40);self.timer.timeout.connect(self.update)
+        self._flight = QVariantAnimation(self)
+        self._flight.setStartValue(0.0)
+        self._flight.setEndValue(0.0)
+        self._flight.setEasingCurve(QEasingCurve.OutCubic)
+        self._flight.valueChanged.connect(lambda _: self.update())
         self._position_timer=QTimer(self);self._position_timer.setSingleShot(True);self._position_timer.timeout.connect(self.reposition)
         self._bubble_timer=QTimer(self);self._bubble_timer.setSingleShot(True);self._bubble_timer.setInterval(8000);self._bubble_timer.timeout.connect(self.bubble_expired)
         self.bubble=QLabel('Привет! Помочь?',self);self.bubble.setGeometry(1,0,198,47)
         self.bubble.setTextFormat(Qt.PlainText);self.bubble.setWordWrap(True)
         self.bubble.setAlignment(Qt.AlignCenter);self.bubble.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.bubble.setStyleSheet('QLabel {background:#fff8ed;border:1px solid #ffddb1;border-radius:12px;color:#795027;font-size:12px;}')
-        self.dismiss=QPushButton('×',self);self.dismiss.setGeometry(178,49,22,22);self.dismiss.setAccessibleName('Скрыть питомца');self.dismiss.setToolTip('Скрыть питомца');self.dismiss.clicked.connect(self._dismiss)
-        self.dismiss.setStyleSheet('QPushButton {background:#fff8ed;border:1px solid #ffddb1;border-radius:11px;color:#795027;padding:0;}')
         self._pet_menu = QMenu(self)
-        self._pet_menu.addAction('Скрыть питомца', self._dismiss)
+        self._pet_menu.addAction(duotone_icon('eye-slash', '#58483B', 18), 'Скрыть питомца', self._dismiss)
         self._layout_bubble()
         self._position_timer.start(0)
 
@@ -100,13 +112,15 @@ class MiniCompanion(QWidget):
         bounds=QFontMetrics(self.bubble.font()).boundingRect(QRect(0,0,self.bubble.width()-12,1000),Qt.TextWordWrap,self.bubble.text())
         height=max(47,bounds.height()+8)
         self.bubble.setFixedHeight(height)
-        self.dismiss.move(178,height+2)
-        self.setFixedHeight(height+125)
+        self.setFixedHeight(height+140)
         self.reposition()
 
     def reposition(self):
+        owner = self._owner()
+        if owner is None:
+            return
         screen = QGuiApplication.screenAt(self.geometry().center()) if self._placed else None
-        screen = screen or self.parentWidget().screen()
+        screen = screen or owner.screen()
         bounds = screen.availableGeometry()
         point = self.pos() if self._placed else QPoint(bounds.right()-self.width()-23,
                                                        bounds.bottom()-self.height()-23)
@@ -131,32 +145,44 @@ class MiniCompanion(QWidget):
         event.accept()
 
     def _sync_visibility(self):
-        owner = self.parentWidget()
-        if self._enabled and owner.isVisible() and not owner.isMinimized():
+        owner = self._owner()
+        if self._enabled and owner is not None and (owner.isVisible() or owner.isMinimized()):
             self.reposition()
             self.show()
         else:
             self.hide()
 
+    def _dispose(self):
+        self._position_timer.stop()
+        self.hide()
+        self.deleteLater()
+
     def eventFilter(self,watched,event):
-        if watched is self.parentWidget():
+        if watched is self._owner():
             if event.type() in (QEvent.Hide, QEvent.WindowStateChange, QEvent.Show):
                 self._sync_visibility()
             elif event.type() == QEvent.ScreenChangeInternal:
                 self.reposition()
         return super().eventFilter(watched,event)
 
-    def _animate(self):
-        self._phase=(self._phase+.16)%(math.pi*2);self._blink=True;self.update();self._blink_timer.start()
-
-    def _open_eyes(self):self._blink=False;self.update()
+    def _animate_flight(self, destination, duration):
+        progress = self._flight.currentValue()
+        self._flight.stop()
+        self._flight.setStartValue(progress)
+        self._flight.setEndValue(destination)
+        self._flight.setDuration(duration)
+        self._flight.start()
 
     def paintEvent(self,event):
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);p.setRenderHint(QPainter.SmoothPixmapTransform,False)
-        p.translate(40,self.bubble.height()+3+math.sin(self._phase)*3)
+        phase = (time.monotonic() - self._idle_since) * 2.8
+        lift = self._flight.currentValue()
+        p.translate(100 + math.sin(phase / 2) * 2,
+                    self.bubble.height() + 71 + math.sin(phase) * 3 - lift * 10)
+        p.rotate(math.sin(phase / 2) * 2 + self._bank * lift)
+        p.translate(-60, -60)
         if not self._bee.isNull():
-            scaled=self._bee.scaled(120,120,Qt.KeepAspectRatio,Qt.FastTransformation)
-            p.drawPixmap((120-scaled.width())//2,(120-scaled.height())//2,scaled)
+            p.drawPixmap((120-self._bee.width())//2,(120-self._bee.height())//2,self._bee)
         else:p.save();p.scale(2.5,2.5);_draw_bee(p);p.restore()
 
     def notify_event(self,text,kind='info'):
@@ -182,7 +208,10 @@ class MiniCompanion(QWidget):
         self._start = None
         self.setCursor(Qt.PointingHandCursor)
         self._pet_menu.hide()
-        self.timer.stop();self._blink_timer.stop();self._bubble_timer.stop();super().hideEvent(event)
+        self._flight.stop()
+        self._flight.setStartValue(0.0)
+        self._flight.setEndValue(0.0)
+        self.timer.stop();self._bubble_timer.stop();super().hideEvent(event)
 
     def mousePressEvent(self,event):
         if event.button() == Qt.LeftButton:
@@ -197,6 +226,9 @@ class MiniCompanion(QWidget):
         cursor = event.globalPosition().toPoint()
         offset = cursor - self._start
         if self._dragged or offset.manhattanLength() >= QApplication.startDragDistance():
+            if not self._dragged:
+                self._bank = -6 if offset.x() < 0 else 6
+                self._animate_flight(1.0, 160)
             self._dragged = True
             self._placed = True
             self.setCursor(Qt.ClosedHandCursor)
@@ -208,10 +240,8 @@ class MiniCompanion(QWidget):
             self.mouseMoveEvent(event)
             self._start = None
             self.setCursor(Qt.PointingHandCursor)
-            if not self._dragged:
+            if self._dragged:
+                self._animate_flight(0.0, 260)
+            else:
                 self.activated.emit()
             event.accept()
-
-    def keyPressEvent(self,event):
-        if event.key() in (Qt.Key_Return,Qt.Key_Enter,Qt.Key_Space):self.activated.emit();event.accept()
-        else:super().keyPressEvent(event)

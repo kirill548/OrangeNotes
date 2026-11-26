@@ -103,7 +103,7 @@ class Window(QMainWindow):
         QApplication.instance().aboutToQuit.connect(self.stop_knowledge_workers)
         from app.widgets.companion_mascot import MiniCompanion
         self._mini_companion=MiniCompanion(self)
-        self._mini_companion.activated.connect(self.show_companion)
+        self._mini_companion.activated.connect(self._open_companion_from_pet)
         self._mini_companion.dismissRequested.connect(lambda: self.set_pet_visible(False))
         self.nav.setContextMenuPolicy(Qt.CustomContextMenu)
         self.nav.customContextMenuRequested.connect(self.collection_menu)
@@ -805,6 +805,11 @@ class Window(QMainWindow):
         self.pet_toggle.setChecked(visible)
         self.pet_toggle.setToolTip('Скрыть питомца' if visible else 'Показать питомца на экране')
         self._mini_companion.set_pet_visible(visible)
+
+    def _open_companion_from_pet(self):
+        if self.isMinimized():
+            self.setWindowState(self.windowState() & ~Qt.WindowMinimized)
+        self.show_companion()
 
     def show_companion(self):
         if not self.close_reminder_panel() or not self.save():return
