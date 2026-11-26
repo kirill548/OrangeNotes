@@ -131,7 +131,7 @@ shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
 
 Опубликованные пакеты Desktop находятся в [Assets релиза v0.1.5](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.5). Для Linux доступны tar.gz, AppImage и DEB. Для macOS выберите пакет под Intel или Apple Silicon.
 
-Для установки новой тестовой сборки Windows откройте успешный запуск [Desktop package qualification](https://github.com/kirill548/OrangeNotes/actions/workflows/release-builds.yml) нужного коммита. В разделе **Artifacts** ищите `OrangeNotes-Windows-x64` и внутри него `OrangeNotes-Windows-AMD64-Setup.exe`. Сверьте его SHA-256 по `SHA256SUMS-Windows.txt`.
+Для установки новой тестовой сборки Windows откройте успешный запуск [Desktop package qualification](https://github.com/kirill548/OrangeNotes/actions/workflows/release-builds.yml) нужного коммита. В разделе **Artifacts** ищите `OrangeNotes-Windows-x64` и внутри него `Orange Notes Setup.exe`. Сверьте его SHA-256 по `SHA256SUMS-Windows.txt`.
 
 Запустите установщик и подтвердите запрос Windows. Затем в мастере выберите диск и папку, например `D:\Install\Orange Notes`. Путь по умолчанию — `C:\Program Files\Orange Notes`. Мастер создаст папку, если её ещё нет. Удаление доступно через «Установленные приложения» в параметрах Windows.
 

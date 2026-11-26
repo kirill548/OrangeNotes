@@ -14,7 +14,7 @@ Windows x86 и Windows 7/8 не поддерживаются стеком про
 
 ## Установка на Windows
 
-1. В успешном запуске CI скачайте артефакт `OrangeNotes-Windows-x64`. Внутри ищите `OrangeNotes-Windows-AMD64-Setup.exe` и `SHA256SUMS-Windows.txt`. В файле приведены суммы установщика и отдельного portable ZIP.
+1. В успешном запуске CI скачайте артефакт `OrangeNotes-Windows-x64`. Внутри ищите `Orange Notes Setup.exe` и `SHA256SUMS-Windows.txt`. В файле приведены суммы установщика и отдельного portable ZIP.
 2. Запустите установщик и подтвердите запрос Windows. Укажите диск и папку приложения, например `D:\Install\Orange Notes`. Мастер проверит доступ и создаст нужные каталоги. Место сохранения скачанного EXE выбирается в браузере.
 3. Для обновления закройте Orange Notes, сделайте резервную копию заметок и выберите прежнюю папку установки. При обновлении ранней тестовой версии, установленной только для одного пользователя, запустите мастер с параметром `/CURRENTUSER`. Модели, настройки ИИ и голосовые компоненты сохраняются в `ai/` и `stt/`. Для их загрузки из приложения текущей учётной записи нужен доступ на запись в эти каталоги. База в `%LOCALAPPDATA%\OrangeNotes` остаётся на месте.
 4. Для удаления откройте «Установленные приложения» в параметрах Windows и выберите Orange Notes. Перед удалением отдельно скопируйте заметки, `ai/` и `stt/`, если хотите сохранить их для переноса.
@@ -51,7 +51,7 @@ python tools/build.py --clean --edition lite
 python tools/build_windows_installer.py --bundle dist/OrangeNotes --output-dir dist
 ```
 
-Готовый файл появится в `dist/OrangeNotes-Windows-AMD64-Setup.exe`. Сборка установщика не заменяет portable ZIP.
+Готовый файл появится в `dist/Orange Notes Setup.exe`. Сборка установщика не заменяет portable ZIP.
 
 PyInstaller собирает пакет на соответствующей ОС, не выполняет кросс-компиляцию. Linux AppImage и macOS DMG подготавливаются платформенными шагами CI. Конфигурация содержит Windows x64, Linux x64, macOS Intel и Apple Silicon. Для диагностики нативного whisper.cpp: `python tools/stt_native_smoke.py --help`; для Apple CLI/CMake: `python tools/diagnose_whisper_macos.py --help`.
 

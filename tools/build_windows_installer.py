@@ -19,7 +19,7 @@ else:
 
 ROOT = Path(__file__).resolve().parents[1]
 SETUP_SCRIPT = ROOT / 'packaging/windows/OrangeNotes.iss'
-SETUP_NAME = 'OrangeNotes-Windows-AMD64-Setup.exe'
+SETUP_NAME = 'Orange Notes Setup.exe'
 PRIVATE_DIRS = {'ai', 'stt', 'ai_packs', 'ollama_profile', 'models', 'runtime'}
 PRIVATE_NAMES = {'settings.json', 'ai_settings.json', 'worker_status.json', 'app.lock'}
 

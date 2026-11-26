@@ -137,7 +137,7 @@ jobs:
         run: |
           python tools/build_windows_installer.py --bundle dist/OrangeNotes --output-dir dist
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $names = @('OrangeNotes-Windows-AMD64.zip', 'OrangeNotes-Windows-AMD64-Setup.exe')
+          $names = @('OrangeNotes-Windows-AMD64.zip', 'Orange Notes Setup.exe')
           $names | ForEach-Object {
             $digest = (Get-FileHash -LiteralPath (Join-Path 'dist' $_) -Algorithm SHA256).Hash.ToLowerInvariant()
             "$digest  $_"
@@ -152,8 +152,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          ./tools/smoke_windows_installer.ps1 -Setup dist/OrangeNotes-Windows-AMD64-Setup.exe
-          ./tools/smoke_windows_installer.ps1 -Setup dist/OrangeNotes-Windows-AMD64-Setup.exe -AllUsers
+          ./tools/smoke_windows_installer.ps1 -Setup 'dist/Orange Notes Setup.exe'
+          ./tools/smoke_windows_installer.ps1 -Setup 'dist/Orange Notes Setup.exe' -AllUsers
       - name: Linux frozen GUI startup
         if: runner.os == 'Linux'
         run: xvfb-run -a python tools/smoke_portable.py dist/OrangeNotes/OrangeNotes
@@ -188,7 +188,7 @@ jobs:
           name: OrangeNotes-${{ matrix.name }}
           path: |
             dist/OrangeNotes-*.zip
-            dist/OrangeNotes-*-Setup.exe
+            dist/Orange Notes Setup.exe
             dist/SHA256SUMS-Windows.txt
             dist/OrangeNotes-*.tar.gz
             dist/OrangeNotes-*.dmg
