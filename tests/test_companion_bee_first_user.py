@@ -46,7 +46,10 @@ class BeeFirstUserTests(unittest.TestCase):
   self.assertIs(pet._flight_sprite(0), pet._wingbeats[0])
   self.assertIs(pet._flight_sprite(0.08), pet._wingbeats[1])
   pet._outing.setCurrentTime(pet._outing.duration() // 2)
-  self.assertGreaterEqual((pet.pos() - home).manhattanLength(), 80)
+  distance = pet.pos() - home
+  self.assertGreaterEqual(distance.manhattanLength(), 30)
+  self.assertLessEqual(abs(distance.x()), 44)
+  self.assertLessEqual(abs(distance.y()), 26)
   self.assertTrue(pet.screen().availableGeometry().contains(pet.geometry()))
   self.assertIs(pet._flight_sprite(0), pet._bee)
   pet._outing.setCurrentTime(pet._outing.duration() * 2 // 3)

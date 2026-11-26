@@ -111,13 +111,13 @@ class MiniCompanion(QWidget):
         self._outing = QVariantAnimation(self)
         self._outing.setStartValue(0.0)
         self._outing.setEndValue(1.0)
-        self._outing.setDuration(2900)
+        self._outing.setDuration(2200)
         self._outing.setEasingCurve(QEasingCurve.InOutSine)
         self._outing.valueChanged.connect(self._move_during_outing)
         self._outing.finished.connect(self._finish_outing)
         self._outing_timer = QTimer(self)
         self._outing_timer.setSingleShot(True)
-        self._outing_timer.setInterval(15000)
+        self._outing_timer.setInterval(24000)
         self._outing_timer.timeout.connect(self._start_outing)
         self._position_timer=QTimer(self);self._position_timer.setSingleShot(True);self._position_timer.timeout.connect(self.reposition)
         self._bubble_timer=QTimer(self);self._bubble_timer.setSingleShot(True);self._bubble_timer.setInterval(8000);self._bubble_timer.timeout.connect(self.bubble_expired)
@@ -212,9 +212,9 @@ class MiniCompanion(QWidget):
         right = max(0, bounds.right() - self.geometry().right())
         up = max(0, home.y() - bounds.top())
         down = max(0, bounds.bottom() - self.geometry().bottom())
-        horizontal = -min(left, 180) if left >= right else min(right, 180)
-        vertical = -min(up, 95) if up >= 65 or up >= down else min(down, 75)
-        if abs(horizontal) < 50 and abs(vertical) < 45:
+        horizontal = -min(left, 44) if left >= right else min(right, 44)
+        vertical = -min(up, 26) if up >= 22 or up >= down else min(down, 22)
+        if abs(horizontal) < 16 and abs(vertical) < 12:
             self._schedule_outing()
             return
         self._flight_home = home
