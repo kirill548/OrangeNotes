@@ -1,7 +1,8 @@
 import unittest
 from unittest.mock import patch
 from PySide6.QtWidgets import QApplication,QWidget
-from PySide6.QtCore import Qt,QRect
+from PySide6.QtCore import Qt,QPoint,QRect
+from PySide6.QtTest import QTest
 from PySide6.QtGui import QFontMetrics
 from app.widgets.companion_mascot import MiniCompanion
 class BeeFirstUserTests(unittest.TestCase):
@@ -29,4 +30,34 @@ class BeeFirstUserTests(unittest.TestCase):
   self.pet.notify_event(text,'error');self.assertEqual(self.pet.bubble.toolTip(),text)
   bounds=QFontMetrics(self.pet.bubble.font()).boundingRect(QRect(0,0,self.pet.bubble.width()-12,1000),Qt.TextWordWrap,self.pet.bubble.text())
   self.assertLessEqual(bounds.height(),self.pet.bubble.height()-6,'Bubble text clips at current fixed height')
+
+ def test_idle_flight_moves_across_the_screen_and_returns(self):
+  pet = self.pet
+  home = pet.pos()
+  self.assertTrue(pet._outing_timer.isActive())
+  pet._outing_timer.stop()
+  pet._start_outing()
+  pet._outing.setCurrentTime(pet._outing.duration() // 2)
+  self.assertGreaterEqual((pet.pos() - home).manhattanLength(), 80)
+  self.assertTrue(pet.screen().availableGeometry().contains(pet.geometry()))
+  pet._outing.setCurrentTime(pet._outing.duration())
+  self.assertEqual(pet.pos(), home)
+  self.assertIsNone(pet._flight_home)
+  self.assertTrue(pet._outing_timer.isActive())
+
+ def test_mouse_interaction_stops_idle_flight_without_opening_chat(self):
+  pet = self.pet
+  activated = []
+  pet.activated.connect(lambda: activated.append(True))
+  pet._start_outing()
+  pet._outing.setCurrentTime(pet._outing.duration() // 2)
+  point = QPoint(100, 90)
+  new_position = pet.pos()
+  QTest.mousePress(pet, Qt.LeftButton, pos=point)
+  self.assertIsNone(pet._flight_home)
+  self.assertEqual(pet.pos(), new_position)
+  self.assertEqual(activated, [])
+  pet.set_pet_visible(False)
+  self.assertFalse(pet._outing_timer.isActive())
+
 if __name__=='__main__':unittest.main()

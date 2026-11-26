@@ -87,6 +87,8 @@ class MiniCompanion(QWidget):
             self._bee = self._bee.scaled(120, 120, Qt.KeepAspectRatio, Qt.FastTransformation)
         self._idle_since = time.monotonic()
         self._bank = 0
+        self._flight_home = None
+        self._outing_offset = QPoint()
         self._recent_events=deque(maxlen=16)
         parent.installEventFilter(self)
         parent.destroyed.connect(self._dispose)
@@ -96,6 +98,17 @@ class MiniCompanion(QWidget):
         self._flight.setEndValue(0.0)
         self._flight.setEasingCurve(QEasingCurve.OutCubic)
         self._flight.valueChanged.connect(lambda _: self.update())
+        self._outing = QVariantAnimation(self)
+        self._outing.setStartValue(0.0)
+        self._outing.setEndValue(1.0)
+        self._outing.setDuration(2900)
+        self._outing.setEasingCurve(QEasingCurve.InOutSine)
+        self._outing.valueChanged.connect(self._move_during_outing)
+        self._outing.finished.connect(self._finish_outing)
+        self._outing_timer = QTimer(self)
+        self._outing_timer.setSingleShot(True)
+        self._outing_timer.setInterval(15000)
+        self._outing_timer.timeout.connect(self._start_outing)
         self._position_timer=QTimer(self);self._position_timer.setSingleShot(True);self._position_timer.timeout.connect(self.reposition)
         self._bubble_timer=QTimer(self);self._bubble_timer.setSingleShot(True);self._bubble_timer.setInterval(8000);self._bubble_timer.timeout.connect(self.bubble_expired)
         self.bubble=QLabel('Привет! Помочь?',self);self.bubble.setGeometry(1,0,198,47)
@@ -104,6 +117,7 @@ class MiniCompanion(QWidget):
         self.bubble.setStyleSheet('QLabel {background:#fff8ed;border:1px solid #ffddb1;border-radius:12px;color:#795027;font-size:12px;}')
         self._pet_menu = QMenu(self)
         self._pet_menu.addAction(duotone_icon('eye-slash', '#58483B', 18), 'Скрыть питомца', self._dismiss)
+        self._pet_menu.aboutToHide.connect(self._outing_timer.start)
         self._layout_bubble()
         self._position_timer.start(0)
 
@@ -117,7 +131,7 @@ class MiniCompanion(QWidget):
 
     def reposition(self):
         owner = self._owner()
-        if owner is None:
+        if owner is None or self._flight_home is not None:
             return
         screen = QGuiApplication.screenAt(self.geometry().center()) if self._placed else None
         screen = screen or owner.screen()
@@ -141,14 +155,16 @@ class MiniCompanion(QWidget):
         self.dismissRequested.emit()
 
     def contextMenuEvent(self, event):
+        self._interrupt_outing()
         self._pet_menu.popup(event.globalPos())
         event.accept()
 
     def _sync_visibility(self):
         owner = self._owner()
         if self._enabled and owner is not None and (owner.isVisible() or owner.isMinimized()):
-            self.reposition()
-            self.show()
+            if self.isHidden():
+                self.reposition()
+                self.show()
         else:
             self.hide()
 
@@ -172,6 +188,59 @@ class MiniCompanion(QWidget):
         self._flight.setEndValue(destination)
         self._flight.setDuration(duration)
         self._flight.start()
+
+    def _schedule_outing(self):
+        if self.isVisible() and self._start is None and not self._pet_menu.isVisible():
+            self._outing_timer.start()
+
+    def _start_outing(self):
+        if not self.isVisible() or self._start is not None or self._pet_menu.isVisible():
+            return
+        bounds = self.screen().availableGeometry()
+        home = self.pos()
+        left = max(0, home.x() - bounds.left())
+        right = max(0, bounds.right() - self.geometry().right())
+        up = max(0, home.y() - bounds.top())
+        down = max(0, bounds.bottom() - self.geometry().bottom())
+        horizontal = -min(left, 180) if left >= right else min(right, 180)
+        vertical = -min(up, 95) if up >= 65 or up >= down else min(down, 75)
+        if abs(horizontal) < 50 and abs(vertical) < 45:
+            self._schedule_outing()
+            return
+        self._flight_home = home
+        self._outing_offset = QPoint(horizontal, vertical)
+        self._animate_flight(1.0, 360)
+        self._outing.start()
+
+    def _move_during_outing(self, progress):
+        if self._flight_home is None:
+            return
+        arc = math.sin(math.pi * progress)
+        x = round(self._outing_offset.x() * arc ** 2)
+        y = round(self._outing_offset.y() * arc * (0.8 + 0.2 * math.sin(math.tau * progress)))
+        self._bank = (6 if self._outing_offset.x() > 0 else -6) * (1 - 2 * progress)
+        self.move(self._flight_home + QPoint(x, y))
+
+    def _finish_outing(self):
+        self._cancel_outing(return_home=True)
+        self._animate_flight(0.0, 320)
+        self._schedule_outing()
+
+    def _cancel_outing(self, *, return_home):
+        self._outing_timer.stop()
+        self._outing.stop()
+        if self._flight_home is not None:
+            if return_home:
+                self.move(self._flight_home)
+            else:
+                self._placed = True
+            self._flight_home = None
+
+    def _interrupt_outing(self):
+        was_flying = self._flight_home is not None
+        self._cancel_outing(return_home=False)
+        if was_flying:
+            self._animate_flight(0.0, 180)
 
     def paintEvent(self,event):
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);p.setRenderHint(QPainter.SmoothPixmapTransform,False)
@@ -203,11 +272,13 @@ class MiniCompanion(QWidget):
         self.timer.start()
         if not self.bubble.isHidden():
             self._bubble_timer.start()
+        self._schedule_outing()
 
     def hideEvent(self,event):
         self._start = None
         self.setCursor(Qt.PointingHandCursor)
         self._pet_menu.hide()
+        self._cancel_outing(return_home=True)
         self._flight.stop()
         self._flight.setStartValue(0.0)
         self._flight.setEndValue(0.0)
@@ -215,6 +286,7 @@ class MiniCompanion(QWidget):
 
     def mousePressEvent(self,event):
         if event.button() == Qt.LeftButton:
+            self._interrupt_outing()
             self._start = event.globalPosition().toPoint()
             self._origin = self.pos()
             self._dragged = False
@@ -244,4 +316,5 @@ class MiniCompanion(QWidget):
                 self._animate_flight(0.0, 260)
             else:
                 self.activated.emit()
+            self._schedule_outing()
             event.accept()
