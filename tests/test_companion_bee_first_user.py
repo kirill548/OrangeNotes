@@ -7,7 +7,7 @@ from app.widgets.companion_mascot import MiniCompanion
 class BeeFirstUserTests(unittest.TestCase):
  @classmethod
  def setUpClass(cls):cls.app=QApplication.instance() or QApplication([])
- def setUp(self):self.parent=QWidget();self.parent.resize(640,480);self.parent.show();self.pet=MiniCompanion(self.parent);self.app.processEvents()
+ def setUp(self):self.parent=QWidget();self.parent.resize(640,480);self.parent.show();self.pet=MiniCompanion(self.parent);self.pet.set_pet_visible(True);self.app.processEvents()
  def tearDown(self):self.parent.close();self.parent.deleteLater();self.app.processEvents()
  def test_updates_are_plain_text_and_do_not_claim_extra_actions(self):
   text='<b>Заметка сохранена</b>'

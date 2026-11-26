@@ -151,7 +151,9 @@ jobs:
       - name: Windows installer, custom folder and uninstall
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./tools/smoke_windows_installer.ps1 -Setup dist/OrangeNotes-Windows-AMD64-Setup.exe
+        run: |
+          ./tools/smoke_windows_installer.ps1 -Setup dist/OrangeNotes-Windows-AMD64-Setup.exe
+          ./tools/smoke_windows_installer.ps1 -Setup dist/OrangeNotes-Windows-AMD64-Setup.exe -AllUsers
       - name: Linux frozen GUI startup
         if: runner.os == 'Linux'
         run: xvfb-run -a python tools/smoke_portable.py dist/OrangeNotes/OrangeNotes

@@ -5,7 +5,8 @@ import time
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
-from PySide6.QtCore import Qt, QCoreApplication, QEvent
+from PySide6.QtCore import Qt, QCoreApplication, QEvent, QPoint
+from PySide6.QtGui import QContextMenuEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from app.database.store import Store
@@ -13,7 +14,7 @@ from app.ui.window import Window
 
 
 class CompanionWindowFlowTests(unittest.TestCase):
-    def test_first_user_greeting_create_reminder_and_pet_dock(self):
+    def test_first_user_greeting_create_reminder_and_desktop_pet(self):
         app=QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as directory:
             store=Store(Path(directory)/'notes.sqlite3')
@@ -22,16 +23,16 @@ class CompanionWindowFlowTests(unittest.TestCase):
             try:
                 self.assertEqual(window.splitter.count(),3)
                 pet=window._mini_companion
-                self.assertIs(pet.parentWidget(),window.companion_dock)
-                self.assertFalse(window.companion_dock.isVisible())
+                self.assertIs(pet.parentWidget(),window)
+                self.assertFalse(pet.isVisible())
                 QTest.mouseClick(window.pet_toggle,Qt.LeftButton)
                 self.assertIsNone(window._companion_dialog)
                 self.assertTrue(window.app_menu_button.menu().pet_action.isChecked())
                 self.assertTrue(pet.isVisible())
                 QTest.mouseClick(window.pet_toggle,Qt.LeftButton)
-                self.assertFalse(window.companion_dock.isVisible())
+                self.assertFalse(pet.isVisible())
                 QTest.mouseClick(window.companion_button,Qt.LeftButton)
-                self.assertFalse(window.companion_dock.isVisible())
+                self.assertFalse(pet.isVisible())
                 dialog=window._companion_dialog
                 self.assertTrue(dialog.isVisible())
                 dialog.config['provider']='search'
@@ -60,19 +61,23 @@ class CompanionWindowFlowTests(unittest.TestCase):
                 reminder=store.reminder(note['id'])
                 self.assertEqual(datetime.fromisoformat(reminder['once_at']).date(),(datetime.now()+timedelta(days=1)).date())
                 self.assertEqual(pet.bubble.text(),'Заметка и напоминание созданы.')
-                QTest.mouseClick(pet.dismiss,Qt.LeftButton)
-                self.assertFalse(window.companion_dock.isVisible())
+                point = QPoint(100, 90)
+                app.sendEvent(pet, QContextMenuEvent(QContextMenuEvent.Mouse, point, pet.mapToGlobal(point)))
+                actions = pet._pet_menu.actions()
+                self.assertEqual([action.text() for action in actions], ['Скрыть питомца'])
+                actions[0].trigger()
+                self.assertFalse(pet.isVisible())
                 self.assertFalse(pet_action.isChecked())
                 self.assertFalse(window.pet_toggle.isChecked())
                 self.assertTrue(dialog.isVisible())
                 dialog.close()
                 QTest.mouseClick(window.companion_button, Qt.LeftButton)
                 self.assertTrue(dialog.isVisible())
-                self.assertFalse(window.companion_dock.isVisible())
+                self.assertFalse(pet.isVisible())
                 pet_action.trigger()
                 self.assertTrue(pet.isVisible())
                 pet_action.trigger()
-                self.assertFalse(window.companion_dock.isVisible())
+                self.assertFalse(pet.isVisible())
             finally:
                 if window._companion_dialog:window._companion_dialog.close()
                 # A close can be deferred while saving. Explicitly stop DB

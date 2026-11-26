@@ -4,8 +4,8 @@ import time
 from collections import deque
 from app.utils.runtime_paths import resource_path
 from PySide6.QtCore import Qt, QRect, QRectF, QSize, QPoint, QEvent, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QIcon, QPixmap, QFontMetrics
-from PySide6.QtWidgets import QPushButton, QWidget, QLabel, QVBoxLayout, QStyle, QStyleOptionButton
+from PySide6.QtGui import QColor, QPainter, QPen, QIcon, QPixmap, QFontMetrics, QGuiApplication
+from PySide6.QtWidgets import QApplication, QPushButton, QWidget, QLabel, QMenu, QStyle, QStyleOptionButton
 
 
 def _bee_pixmap():
@@ -63,18 +63,21 @@ class CompanionLauncher(QPushButton):
 
 
 class MiniCompanion(QWidget):
-    """Bounded, draggable bee. Click/Enter opens chat; dragging never opens it."""
+    """Desktop pet owned by the notes window. Dragging never opens the chat."""
     activated=Signal()
+    dismissRequested=Signal()
 
     def __init__(self,parent):
-        super().__init__(parent)
+        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setFixedSize(200,172)
-        self.setAttribute(Qt.WA_StyledBackground,False)
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setFocusPolicy(Qt.TabFocus)
         self.setAccessibleName('Мини-помощник. Нажмите Enter, чтобы открыть чат')
         self.setToolTip('Нажмите, чтобы поговорить. Перетащите, чтобы передвинуть.')
         self.setCursor(Qt.PointingHandCursor)
         self._start=None;self._origin=None;self._dragged=False;self._placed=False;self._blink=False
+        self._enabled=False
         self._bee=_bee_pixmap();self._phase=0.;self._recent_events=deque(maxlen=16)
         parent.installEventFilter(self)
         self.timer=QTimer(self);self.timer.setInterval(100);self.timer.timeout.connect(self._animate)
@@ -85,10 +88,12 @@ class MiniCompanion(QWidget):
         self.bubble.setTextFormat(Qt.PlainText);self.bubble.setWordWrap(True)
         self.bubble.setAlignment(Qt.AlignCenter);self.bubble.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.bubble.setStyleSheet('QLabel {background:#fff8ed;border:1px solid #ffddb1;border-radius:12px;color:#795027;font-size:12px;}')
-        self.dismiss=QPushButton('×',self);self.dismiss.setGeometry(178,49,22,22);self.dismiss.setAccessibleName('Скрыть мини-помощника');self.dismiss.setToolTip('Скрыть персонажа. Чат останется доступен в боковой панели.');self.dismiss.clicked.connect(self.hide)
+        self.dismiss=QPushButton('×',self);self.dismiss.setGeometry(178,49,22,22);self.dismiss.setAccessibleName('Скрыть питомца');self.dismiss.setToolTip('Скрыть питомца');self.dismiss.clicked.connect(self._dismiss)
         self.dismiss.setStyleSheet('QPushButton {background:#fff8ed;border:1px solid #ffddb1;border-radius:11px;color:#795027;padding:0;}')
+        self._pet_menu = QMenu(self)
+        self._pet_menu.addAction('Скрыть питомца', self._dismiss)
         self._layout_bubble()
-        self.show();self._position_timer.start(0);self._bubble_timer.start()
+        self._position_timer.start(0)
 
     def _layout_bubble(self):
         self.bubble.ensurePolished()
@@ -100,14 +105,45 @@ class MiniCompanion(QWidget):
         self.reposition()
 
     def reposition(self):
-        parent=self.parentWidget()
-        if not parent:return
-        point=self.pos() if self._placed else QPoint(parent.width()-self.width()-24,parent.height()-self.height()-24)
-        self.move(max(0,min(point.x(),max(0,parent.width()-self.width()))),max(0,min(point.y(),max(0,parent.height()-self.height()))))
-        self.raise_()
+        screen = QGuiApplication.screenAt(self.geometry().center()) if self._placed else None
+        screen = screen or self.parentWidget().screen()
+        bounds = screen.availableGeometry()
+        point = self.pos() if self._placed else QPoint(bounds.right()-self.width()-23,
+                                                       bounds.bottom()-self.height()-23)
+        self._move_on_screen(point, bounds)
+
+    def _move_on_screen(self, point, bounds):
+        right = max(bounds.left(), bounds.right() - self.width() + 1)
+        bottom = max(bounds.top(), bounds.bottom() - self.height() + 1)
+        self.move(max(bounds.left(), min(point.x(), right)),
+                  max(bounds.top(), min(point.y(), bottom)))
+
+    def set_pet_visible(self, visible):
+        self._enabled = visible
+        self._sync_visibility()
+
+    def _dismiss(self):
+        self.set_pet_visible(False)
+        self.dismissRequested.emit()
+
+    def contextMenuEvent(self, event):
+        self._pet_menu.popup(event.globalPos())
+        event.accept()
+
+    def _sync_visibility(self):
+        owner = self.parentWidget()
+        if self._enabled and owner.isVisible() and not owner.isMinimized():
+            self.reposition()
+            self.show()
+        else:
+            self.hide()
 
     def eventFilter(self,watched,event):
-        if watched is self.parentWidget() and event.type() in (QEvent.Resize,QEvent.Show):self.reposition()
+        if watched is self.parentWidget():
+            if event.type() in (QEvent.Hide, QEvent.WindowStateChange, QEvent.Show):
+                self._sync_visibility()
+            elif event.type() == QEvent.ScreenChangeInternal:
+                self.reposition()
         return super().eventFilter(watched,event)
 
     def _animate(self):
@@ -122,7 +158,6 @@ class MiniCompanion(QWidget):
             scaled=self._bee.scaled(120,120,Qt.KeepAspectRatio,Qt.FastTransformation)
             p.drawPixmap((120-scaled.width())//2,(120-scaled.height())//2,scaled)
         else:p.save();p.scale(2.5,2.5);_draw_bee(p);p.restore()
-        if self.hasFocus():p.setPen(QPen(QColor('#ff890b'),2));p.setBrush(Qt.NoBrush);p.drawRoundedRect(QRectF(0,0,120,118),16,16)
 
     def notify_event(self,text,kind='info'):
         """Present real app events; bounded dedupe prevents autosave chatter."""
@@ -138,23 +173,44 @@ class MiniCompanion(QWidget):
     def bubble_expired(self):self.bubble.hide()
 
     def showEvent(self,event):
-        super().showEvent(event);self.timer.start()
+        super().showEvent(event)
+        self.timer.start()
+        if not self.bubble.isHidden():
+            self._bubble_timer.start()
 
     def hideEvent(self,event):
+        self._start = None
+        self.setCursor(Qt.PointingHandCursor)
+        self._pet_menu.hide()
         self.timer.stop();self._blink_timer.stop();self._bubble_timer.stop();super().hideEvent(event)
 
     def mousePressEvent(self,event):
-        if event.button()==Qt.LeftButton:self._start=event.globalPosition().toPoint();self._origin=self.pos();self._dragged=False;self.setFocus()
+        if event.button() == Qt.LeftButton:
+            self._start = event.globalPosition().toPoint()
+            self._origin = self.pos()
+            self._dragged = False
+            event.accept()
 
     def mouseMoveEvent(self,event):
-        if self._start is None:return
-        offset=event.globalPosition().toPoint()-self._start
-        if offset.manhattanLength()>6:self._dragged=True;self._placed=True;self.move(self._origin+offset);self.reposition()
+        if self._start is None:
+            return
+        cursor = event.globalPosition().toPoint()
+        offset = cursor - self._start
+        if self._dragged or offset.manhattanLength() >= QApplication.startDragDistance():
+            self._dragged = True
+            self._placed = True
+            self.setCursor(Qt.ClosedHandCursor)
+            screen = QGuiApplication.screenAt(cursor) or self.screen()
+            self._move_on_screen(self._origin + offset, screen.availableGeometry())
 
     def mouseReleaseEvent(self,event):
         if event.button()==Qt.LeftButton and self._start is not None:
-            if not self._dragged:self.activated.emit()
-            self._start=None
+            self.mouseMoveEvent(event)
+            self._start = None
+            self.setCursor(Qt.PointingHandCursor)
+            if not self._dragged:
+                self.activated.emit()
+            event.accept()
 
     def keyPressEvent(self,event):
         if event.key() in (Qt.Key_Return,Qt.Key_Enter,Qt.Key_Space):self.activated.emit();event.accept()

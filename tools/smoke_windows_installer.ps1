@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory)] [string] $Setup,
-    [string] $Python = 'python'
+    [string] $Python = 'python',
+    [switch] $AllUsers
 )
 
 $ErrorActionPreference = 'Stop'
@@ -9,10 +10,14 @@ $scratch = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
 $install = Join-Path $scratch ('Orange Notes setup check ' + [Guid]::NewGuid().ToString('N'))
 $executable = Join-Path $install 'OrangeNotes.exe'
 $silent = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOCLOSEAPPLICATIONS')
-$arguments = $silent + @(('/DIR="' + $install + '"'), '/TASKS=desktopicon')
-$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Orange Notes.lnk'
-$desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Orange Notes.lnk'
-$uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OrangeNotes.Desktop.Windows_is1'
+$mode = if ($AllUsers) { '/ALLUSERS' } else { '/CURRENTUSER' }
+$arguments = $silent + @($mode, ('/DIR="' + $install + '"'), '/TASKS=desktopicon')
+$programsFolder = if ($AllUsers) { 'CommonPrograms' } else { 'Programs' }
+$desktopFolder = if ($AllUsers) { 'CommonDesktopDirectory' } else { 'DesktopDirectory' }
+$hive = if ($AllUsers) { 'HKLM' } else { 'HKCU' }
+$startMenu = Join-Path ([Environment]::GetFolderPath($programsFolder)) 'Orange Notes.lnk'
+$desktop = Join-Path ([Environment]::GetFolderPath($desktopFolder)) 'Orange Notes.lnk'
+$uninstallKey = "${hive}:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OrangeNotes.Desktop.Windows_is1"
 
 function Run-Package([string] $File, [string[]] $Arguments) {
     $process = Start-Process -FilePath $File -ArgumentList $Arguments -Wait -PassThru -WindowStyle Hidden
@@ -26,10 +31,37 @@ foreach ($shortcut in @($startMenu, $desktop)) {
 }
 if (Test-Path -LiteralPath $uninstallKey) { throw 'Installer smoke requires a clean Orange Notes installation entry.' }
 
+if (!$AllUsers) {
+    $protected = "$install protected"
+    $blocked = Join-Path $protected 'Orange Notes'
+    $log = "$install denied.log"
+    [void][IO.Directory]::CreateDirectory($protected)
+    $original = Get-Acl -LiteralPath $protected
+    $denied = Get-Acl -LiteralPath $protected
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new($sid, 'CreateDirectories, CreateFiles', 'Deny')
+    $denied.AddAccessRule($rule)
+    try {
+        Set-Acl -LiteralPath $protected -AclObject $denied
+        $blockedArgs = $silent + @($mode, ('/DIR="' + $blocked + '"'), ('/LOG="' + $log + '"'))
+        $process = Start-Process -FilePath $setupPath -ArgumentList $blockedArgs -Wait -PassThru -WindowStyle Hidden
+        if ($process.ExitCode -eq 0 -or !(Select-String -LiteralPath $log -SimpleMatch 'Destination check rejected the installation folder:' -Quiet)) {
+            throw 'Setup did not reject a protected folder before installing.'
+        }
+        if ((Test-Path -LiteralPath $uninstallKey) -or (Get-ChildItem -LiteralPath $protected -Force)) {
+            throw 'The rejected install left files or an uninstall entry.'
+        }
+    } finally {
+        Set-Acl -LiteralPath $protected -AclObject $original
+        if (!(Get-ChildItem -LiteralPath $protected -Force)) { [IO.Directory]::Delete($protected) }
+        if (Test-Path -LiteralPath $log) { Remove-Item -LiteralPath $log }
+    }
+}
+
 Run-Package $setupPath $arguments
 $registered = Get-ItemProperty -LiteralPath $uninstallKey
 if ($registered.InstallLocation.TrimEnd('\') -ine $install) {
-    throw 'The per-user uninstall entry does not match the custom location.'
+    throw 'The uninstall entry does not match the installation mode and custom location.'
 }
 foreach ($required in @('OrangeNotes.exe', '_internal', 'ai', 'stt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $install $required))) { throw "Missing installed path: $required" }
