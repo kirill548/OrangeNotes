@@ -54,7 +54,7 @@ jobs:
           git merge-base --is-ancestor "$sha" "$GITHUB_SHA"
           gh release view "$TAG" --json isDraft,targetCommitish --jq \
             '.isDraft and .targetCommitish == "'"$sha"'"' | grep -qx true
-          version=$(git show "$sha:orange_notes_mobile/pubspec.yaml" | sed -n 's/^version: \([0-9.]*\)+\([0-9]*\)$/\1 \2/p')
+          version=$(git show "$sha:orange_notes_mobile/pubspec.yaml" | tr -d '\r' | sed -n 's/^version: \([0-9.]*\)+\([0-9]*\)$/\1 \2/p')
           read -r app_version ios_build <<< "$version"
           [[ "$app_version" == "${TAG#v}" && "$ios_build" =~ ^[0-9]+$ ]]
           printf 'CANDIDATE=%s\nAPP_VERSION=%s\nIOS_BUILD=%s\n' "$sha" "$app_version" "$ios_build" >> "$GITHUB_ENV"
