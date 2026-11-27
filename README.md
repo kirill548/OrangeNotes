@@ -9,7 +9,7 @@
 
 ## Скачать
 
-Последний выпуск [v0.2.4](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.4).
+Текущие пакеты доступны на странице [последнего выпуска](https://github.com/kirill548/OrangeNotes/releases/latest). [Что изменилось в v0.2.5](RELEASE_NOTES_v0.2.5.md).
 
 - **Windows x64.** [Установщик](https://github.com/kirill548/OrangeNotes/releases/latest/download/Orange-Notes-Setup.exe) или [портативный ZIP](https://github.com/kirill548/OrangeNotes/releases/latest/download/OrangeNotes-Windows-AMD64.zip). Для запуска из ZIP распакуйте весь архив и откройте `OrangeNotes.exe`.
 - **Linux x64.** AppImage, DEB, Flatpak и tar.gz. [Скачать и установить](DISTRIBUTION.md).
