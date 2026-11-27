@@ -10,7 +10,7 @@ from app.services.scheduler import Scheduler, next_occurrence
 from app.database.store import Store, plain_body
 from app.ui.reminders import ReminderDialog
 from app.ui.design import build, card
-from app.ui.icons import duotone_icon, icon, note_symbol
+from app.ui.icons import duotone_icon, icon, note_symbol, tag_icon
 from app.services.day_focus import DayFocus
 from app.utils.timezones import utc_stamp, event_due_local, event_scheduled_local, device_zone
 
@@ -194,9 +194,12 @@ class Window(QMainWindow):
             if kind in sections:
                 item.setIcon(duotone_icon(sections[kind], section_colors.get(kind, '#58483B'), 24))
                 item.setSizeHint(QSize(0,36))
-            elif kind in ('folder', 'tag'):
-                color={'Личные':'#ff9800','Работа':'#6960ff','Учёба':'#16c995','Путешествия':'#16c995','Покупки':'#ff3885','Важно':'#ff3885','Идеи':'#ffb300','Встречи':'#258cff','Финансы':'#16c995'}.get(name,'#ff9800' if kind=='folder' else '#17202c')
-                item.setIcon(icon('folder' if kind=='folder' else 'dot',color,22,True))
+            elif kind == 'folder':
+                color={'Личные':'#ff9800','Работа':'#6960ff','Учёба':'#16c995','Путешествия':'#16c995','Покупки':'#ff3885','Важно':'#ff3885','Идеи':'#ffb300','Встречи':'#258cff','Финансы':'#16c995'}.get(name,'#ff9800')
+                item.setIcon(icon('folder', color, 22, True))
+                item.setSizeHint(QSize(0,36))
+            elif kind == 'tag':
+                item.setIcon(tag_icon(name))
                 item.setSizeHint(QSize(0,36))
             if kind=='heading':
                 item.setFlags(Qt.NoItemFlags)

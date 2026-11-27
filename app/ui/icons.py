@@ -85,6 +85,39 @@ def duotone_icon(name, color, size=24):
     return QIcon(duotone_pixmap(name, color, size))
 
 
+# Sidebar tag artwork is separate from the note icon picker.
+_TAG_SYMBOLS = {
+    'home': ('#91572E', '<path d="M3 11 12 3.5 21 11l-2-.2V20H5v-9.2z"/>'
+                        '<path d="M9.4 20v-6h5.2v6" fill="none"/>'),
+    'bookmark': ('#735B80', '<path d="M6.5 3.5h11v17L12 16.7l-5.5 3.8z"/>'),
+    'route': ('#316777', '<path d="M7.4 18H15a3.1 3.1 0 0 0 0-6.2H9a3.4 3.4 0 0 1 0-6.8h7.6" fill="none"/>'
+                         '<circle cx="5" cy="18" r="2.35"/><circle cx="19" cy="5" r="2.35"/>'),
+    'glasses': ('#655F37', '<path d="M1.6 8.1h2.5m15.8 0h2.5m-12 2a2 2 0 0 1 3.2 0" fill="none"/>'
+                           '<path d="M4.4 7.2h5a1 1 0 0 1 1 1.1l-.3 4.4a1.6 1.6 0 0 1-1.6 1.5H5.4a1.6 1.6 0 0 1-1.6-1.5l-.4-4.4a1 1 0 0 1 1-1.1Z"/>'
+                           '<path d="M14.6 7.2h5a1 1 0 0 1 1 1.1l-.4 4.4a1.6 1.6 0 0 1-1.6 1.5h-3.1a1.6 1.6 0 0 1-1.6-1.5l-.3-4.4a1 1 0 0 1 1-1.1Z"/>'),
+    'tag': ('#755B47', '<path d="M4 5h9l7 7-7 7H4z"/><circle cx="8" cy="12" r="1" fill="none"/>'),
+}
+
+_TAG_ICON_BY_NAME = {
+    'дом': 'home',
+    'личное': 'bookmark',
+    'поездки': 'route',
+    'путешествия': 'route',
+    'чтение': 'glasses',
+}
+
+
+def tag_icon(name, size=24):
+    symbol = _TAG_ICON_BY_NAME.get(name.strip().casefold(), 'tag')
+    color, shape = _TAG_SYMBOLS[symbol]
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">'
+        f'<g fill="{color}" fill-opacity=".2" stroke="{color}" stroke-width="1.65" '
+        f'stroke-linecap="round" stroke-linejoin="round">{shape}</g></svg>'
+    )
+    return QIcon(_svg_pixmap(svg, size))
+
+
 # Keys are the existing SQLite values. Only the artwork and palette change.
 _NOTE_SYMBOLS = {
     'note': ('note-pencil', '#A24F25', '#F8EBDD'),
