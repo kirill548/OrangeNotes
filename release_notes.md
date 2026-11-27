@@ -1,6 +1,6 @@
 # Журнал изменений Orange Notes
 
-## В разработке после v0.2.1
+## v0.2.2
 
 - Обновлён логотип приложения на Desktop, Android и iOS. Desktop получил комплект Phosphor Duotone в навигации, меню и коллекции значков.
 - В редакторе обновлены значки действий, быстрые напоминания и нижняя строка. Значки архива и корзины совпадают между редактором и навигацией.
@@ -12,6 +12,7 @@
 
 ## Опубликованные версии
 
+- [v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2). Установщик Windows, пакеты Linux и macOS, тестовые сборки Android и iOS. [Описание](RELEASE_NOTES_v0.2.2.md).
 - [v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) — unsigned IPA и SHA256. [Описание](RELEASE_NOTES_v0.2.1.md).
 - [v0.2.0](RELEASE_NOTES_v0.2.0.md) — мобильный прототип и P2P.
 - [v0.1.5](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.5) — опубликованные пакеты Desktop. [Описание](RELEASE_NOTES_v0.1.5.md).

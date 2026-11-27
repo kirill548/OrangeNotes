@@ -1,12 +1,12 @@
 # Установка и сборка Orange Notes Desktop
 
-Стабильные [десктопные пакеты v0.1.5](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.5) собраны для Windows x64, Linux x64 и двух архитектур macOS. Релиз [v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) содержит iOS-артефакт и контрольную сумму. Свежие тестовые пакеты находятся в разделе **Artifacts** успешного запуска [Desktop package qualification](https://github.com/kirill548/OrangeNotes/actions/workflows/release-builds.yml) нужного коммита. Новый установщик Windows доступен в тестовых сборках CI после успешной упаковки. К официальным v0.1.5 и v0.2.1 он автоматически не добавляется.
+Пакеты для Windows, Linux и macOS доступны в [Assets релиза v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2). Контрольные суммы приведены в `SHA256SUMS.txt`. Промежуточные сборки доступны в [GitHub Actions](https://github.com/kirill548/OrangeNotes/actions/workflows/release-builds.yml).
 
 ## Пакеты и переносимость
 
 | Платформа | Формат | Запуск |
 |---|---|---|
-| Windows x64 | Установщик EXE в новых тестовых сборках, отдельный portable ZIP | Запустите мастер или распакуйте ZIP целиком и откройте `OrangeNotes.exe` |
+| Windows x64 | Установщик EXE и портативный ZIP | Запустите мастер или распакуйте ZIP целиком и откройте `OrangeNotes.exe` |
 | Linux x64 | tar.gz, AppImage, DEB, Flatpak | Распакуйте tar.gz с правами доступа и запустите `./OrangeNotes` |
 | macOS Intel / Apple Silicon | `.app` в ZIP, DMG | Выберите свою архитектуру, перенесите `.app` в доступное для записи место |
 
@@ -14,7 +14,7 @@ Windows x86 и Windows 7/8 не поддерживаются стеком про
 
 ## Установка на Windows
 
-1. В успешном запуске CI скачайте артефакт `OrangeNotes-Windows-x64`. Внутри ищите `Orange Notes Setup.exe` и `SHA256SUMS-Windows.txt`. В файле приведены суммы установщика и отдельного portable ZIP.
+1. Скачайте `Orange Notes Setup.exe` из [релиза v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2) и сверьте контрольную сумму по `SHA256SUMS.txt`.
 2. Запустите установщик и подтвердите запрос Windows. Укажите диск и папку приложения, например `D:\Install\Orange Notes`. Мастер проверит доступ и создаст нужные каталоги. Место сохранения скачанного EXE выбирается в браузере.
 3. Для обновления закройте Orange Notes, сделайте резервную копию заметок и выберите прежнюю папку установки. При обновлении ранней тестовой версии, установленной только для одного пользователя, запустите мастер с параметром `/CURRENTUSER`. Модели, настройки ИИ и голосовые компоненты сохраняются в `ai/` и `stt/`. Для их загрузки из приложения текущей учётной записи нужен доступ на запись в эти каталоги. База в `%LOCALAPPDATA%\OrangeNotes` остаётся на месте.
 4. Для удаления откройте «Установленные приложения» в параметрах Windows и выберите Orange Notes. Перед удалением отдельно скопируйте заметки, `ai/` и `stt/`, если хотите сохранить их для переноса.

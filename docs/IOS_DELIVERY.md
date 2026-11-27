@@ -2,9 +2,9 @@
 
 Статус: инфраструктура сборки подготовлена. Наличие workflow не означает успешную сборку, подпись, загрузку в TestFlight или проверку на физическом iPhone. Результаты конкретного запуска фиксируются отдельно.
 
-[Релиз v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) содержит unsigned IPA версии **0.2.1+2** и SHA256. Сборки после этого тега ищите в [Mobile CI](https://github.com/kirill548/OrangeNotes/actions/workflows/mobile-ci.yml) по коммиту.
+В [релизе v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2) доступны unsigned IPA версии **0.2.2+3** и SHA256.
 
-На компьютере с Windows можно установить сам Orange Notes Desktop по [отдельной инструкции](../DISTRIBUTION.md#установка-на-windows). В новых успешных сборках [Desktop CI](https://github.com/kirill548/OrangeNotes/actions/workflows/release-builds.yml) ищите `Orange Notes Setup.exe`. Подтвердите системный запрос Windows и выберите папку на нужном диске. Мастер создаст папку, если её ещё нет. Есть и отдельный portable ZIP. База заметок хранится отдельно, при переносе установки сохраните `ai/` и `stt/`. Удаление установленной копии доступно в параметрах Windows. Официальные v0.1.5 и v0.2.1 автоматически не получат установщик.
+На компьютере с Windows доступен установщик Orange Notes. [Инструкция по установке](../DISTRIBUTION.md#установка-на-windows).
 
 ## Без аккаунта Apple Developer
 
@@ -47,7 +47,7 @@ Secrets Environment:
 
 Опубликованные пакеты iOS доступны в формате unsigned IPA. Установка через TestFlight для проекта пока не подтверждена.
 
-Скачайте IPA из [Assets v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) или `OrangeNotes-iOS-unsigned-requires-resigning` из артефактов успешного Mobile CI нужного коммита. Внутри — `OrangeNotes-iOS-unsigned.ipa` и `SHA256SUMS.txt`.
+Скачайте `OrangeNotes-iOS-unsigned.ipa` и `SHA256SUMS.txt` из [Assets v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2).
 Unsigned-архив нельзя установить простым открытием файла на iPhone.
 Следуйте официальным инструкциям выбранного инструмента подписи:
 [AltStore Classic](https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows)

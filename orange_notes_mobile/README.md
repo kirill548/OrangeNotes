@@ -14,7 +14,7 @@ Desktop HTML bodies are preserved and shown read-only; newly created Markdown no
 SQLite local integer IDs map to UUIDv4 identities; wire deltas follow the desktop LWW protocol.
 The mobile database is not a drop-in copy of the desktop database.
 
-Published iOS files are available in [v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1). Use the [Mobile CI run](https://github.com/kirill548/OrangeNotes/actions/workflows/mobile-ci.yml) for the exact commit to test Android or obtain a newer unsigned IPA.
+The [v0.2.2 release](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2) includes the Android test APK, unsigned iOS IPA, and SHA-256 checksums. Use the [Mobile CI run](https://github.com/kirill548/OrangeNotes/actions/workflows/mobile-ci.yml) for builds from other commits.
 
 See [implementation](../docs/MOBILE_IMPLEMENTATION_v020.md) and
 [iOS delivery](../docs/IOS_DELIVERY.md). Unsigned IPA requires re-signing before installation.
