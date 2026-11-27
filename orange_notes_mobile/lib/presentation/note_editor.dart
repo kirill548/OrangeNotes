@@ -23,16 +23,14 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
   final _speech = VoiceInputSession();
   Timer? _timer;
   int? _id;
-  bool _preview = false,
-      _saving = false,
-      _dirty = false,
-      _leaving = false,
-      _allowExit = false;
+  bool _preview = false, _dirty = false, _leaving = false;
+  int _pendingSaves = 0;
   String _status = '';
   Future<void> _saveQueue = Future.value();
   List<NoteRecord> _suggestions = [], _backlinks = [];
   int? _linkStart;
   bool get _readOnly => widget.note?.readOnlyHtml ?? false;
+  bool get _saving => _pendingSaves > 0;
   @override
   void initState() {
     super.initState();
@@ -52,7 +50,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
   }
 
   void _changed(String _) {
-    _dirty = true;
+    if (!_dirty) setState(() => _dirty = true);
     _timer?.cancel();
     _timer = Timer(const Duration(milliseconds: 500), _save);
   }
@@ -67,14 +65,12 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
         .where((t) => t.isNotEmpty)
         .toSet()
         .toList();
-    _dirty = false;
+    setState(() {
+      _dirty = false;
+      _pendingSaves++;
+      _status = 'Сохраняю…';
+    });
     _saveQueue = _saveQueue.then((_) async {
-      if (mounted) {
-        setState(() {
-          _saving = true;
-          _status = 'Сохраняю…';
-        });
-      }
       try {
         final note = await widget.store.saveNote(
           id: _id,
@@ -83,7 +79,9 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
           tags: tags,
         );
         _id = note.id;
-        if (mounted) setState(() => _status = 'Сохранено на телефоне');
+        if (mounted && !_dirty && _pendingSaves == 1) {
+          setState(() => _status = 'Сохранено на телефоне');
+        }
       } catch (_) {
         _dirty = true;
         if (mounted) {
@@ -93,10 +91,29 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
           );
         }
       } finally {
-        if (mounted) setState(() => _saving = false);
+        _pendingSaves--;
+        if (mounted) setState(() {});
       }
     });
     return _saveQueue;
+  }
+
+  Future<void> _leaveAfterSaving() async {
+    if (_leaving) return;
+    _leaving = true;
+    try {
+      await _speech.stop();
+      if (!mounted) return;
+      await _save();
+      if (mounted &&
+          !_dirty &&
+          !_saving &&
+          ModalRoute.of(context)?.isCurrent == true) {
+        Navigator.pop(context);
+      }
+    } finally {
+      _leaving = false;
+    }
   }
 
   Future<void> _completeLinks() async {
@@ -266,20 +283,9 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: _allowExit || (!_dirty && !_saving),
-    onPopInvokedWithResult: (didPop, result) async {
-      if (didPop || _leaving) return;
-      _leaving = true;
-      await _speech.stop();
-      await _save();
-      if (mounted && !_dirty) {
-        setState(() => _allowExit = true);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) Navigator.pop(context);
-        });
-      } else {
-        _leaving = false;
-      }
+    canPop: !_dirty && !_saving,
+    onPopInvokedWithResult: (didPop, result) {
+      if (!didPop) unawaited(_leaveAfterSaving());
     },
     child: Scaffold(
       appBar: AppBar(

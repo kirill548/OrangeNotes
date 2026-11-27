@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import sqlite3
 import sys
-from PySide6.QtCore import Qt, QTimer, QSize, QSettings, QEvent
+from PySide6.QtCore import Qt, QTimer, QSize, QSettings, QEvent, QIODevice, QSaveFile
 from app.utils.shortcuts import shortcut as native_shortcut
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap, QTextCharFormat, QTextCursor, QTextDocument, QShortcut, QKeySequence
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QListWidget, QListWidgetItem, QLineEdit, QTextEdit, QLabel, QPushButton, QComboBox, QCheckBox, QToolBar, QSystemTrayIcon, QMenu, QMessageBox, QInputDialog, QDialog, QFileDialog)
@@ -18,6 +18,7 @@ from app.utils.timezones import utc_stamp, event_due_local, event_scheduled_loca
 # Display safety threshold only: original data remains intact in SQLite/backups.
 MAX_RICH_DOCUMENT_CHARS = 8_000_000
 LARGE_DOCUMENT_PREVIEW_CHARS = 4096
+OVERSIZED_NOTE_ROLE = Qt.UserRole + 1
 
 
 def large_document_preview(body):
@@ -297,9 +298,8 @@ class Window(QMainWindow):
                 self.notes.blockSignals(False)
             elif self.current:
                 self.clear_editor(refresh=False)
-            if not self.current and self.notes.count():
-                self.notes.setCurrentRow(0)
-                if not self.current: self.load_note(self.notes.item(0).data(Qt.UserRole))
+            if not self.current:
+                self._select_first_editable_note()
             return
         self._list_signature=signature
         if kind in ('reminders','today','attention'):
@@ -338,7 +338,7 @@ class Window(QMainWindow):
                 search_body = plain_body(row['body']) if oversized else plain
                 if query not in (row['title']+' '+search_body).casefold(): continue
             reminder_text = self.event_text(events[row['id']]) if row['id'] in events else self.schedule_text(r) if upcoming else ''
-            entries.append((row,plain,reminder_text,upcoming))
+            entries.append((row,plain,reminder_text,upcoming,oversized))
         self.notes.blockSignals(True)
         wanted={entry[0]['id'] for entry in entries}
         for index in range(self.notes.count()-1,-1,-1):
@@ -348,7 +348,7 @@ class Window(QMainWindow):
                 self.notes.removeItemWidget(item)
                 self.notes.takeItem(index)
         selected = None
-        for index,(row,plain,reminder_text,upcoming) in enumerate(entries):
+        for index,(row,plain,reminder_text,upcoming,oversized) in enumerate(entries):
             item=self.notes.item(index)
             if not item or item.data(Qt.UserRole)!=row['id']:
                 previous=next((position for position in range(index,self.notes.count()) if self.notes.item(position).data(Qt.UserRole)==row['id']),None)
@@ -361,6 +361,7 @@ class Window(QMainWindow):
                     item=QListWidgetItem()
                     item.setData(Qt.UserRole,row['id'])
                 self.notes.insertItem(index,item)
+            item.setData(OVERSIZED_NOTE_ROLE,oversized)
             item.setSizeHint(QSize(0,112 if upcoming else 96))
             key=(row['title'],plain[:150],reminder_text,bool(row['favorite']),row['icon_name'])
             if self._card_keys.get(row['id'])!=key:
@@ -373,11 +374,24 @@ class Window(QMainWindow):
         self.notes.blockSignals(False)
         if self.current and selected is None:
             self.clear_editor(refresh=False)
-        if not self.current and self.notes.count():
-            self.notes.setCurrentRow(0)
+        if not self.current:
+            self._select_first_editable_note()
         self.count.setText(f'Заметок: {self.notes.count()}')
         self.empty.setVisible(self.notes.count()==0)
         self.empty.setText('Ничего не найдено. Измените поиск или фильтр.' if query or self.filter.currentIndex() else 'Корзина пуста.' if kind=='trash' else 'Начните день с чистого листа. Откройте предложения или добавьте заметку в мой день. Завтра этот список начнётся заново; заметки сохранятся.' if kind=='myday' else 'Заметок пока нет. Нажмите +, чтобы создать заметку.')
+
+    def _select_first_editable_note(self):
+        # Row removal can make Qt select the first remaining item while
+        # signals are blocked. Opening it explicitly also skips huge notes
+        # that should show a warning only when the user tries to open one.
+        item = next((item for item in (self.notes.item(i) for i in range(self.notes.count()))
+                     if not item.data(OVERSIZED_NOTE_ROLE)), None)
+        if item is None:
+            return
+        blocked = self.notes.blockSignals(True)
+        self.notes.setCurrentItem(item)
+        self.notes.blockSignals(blocked)
+        self.load_note(item.data(Qt.UserRole))
 
     def activate_note_card(self,note_id):
         # Item widgets consume mouse presses; select explicitly rather than
@@ -533,7 +547,7 @@ class Window(QMainWindow):
         rows = self.store.rows('SELECT workspace_id,deleted FROM notes WHERE id=?', (note_id,))
         if not rows or rows[0]['deleted'] or rows[0]['workspace_id'] != self.note_workspace.currentData():
             return
-        if not self.save():
+        if not self.close_reminder_panel() or not self.save():
             return
         self.load_note(note_id)
         for index in range(self.notes.count()):
@@ -960,9 +974,10 @@ class Window(QMainWindow):
         if not self.save(refresh=False): return
         filename,_=QFileDialog.getSaveFileName(self,'Экспорт заметки','Заметка.txt','Текст (*.txt);;HTML (*.html)')
         if not filename: return
-        path=Path(filename)
-        if path.resolve()==self.store.path:
-            QMessageBox.warning(self,'Выберите другой файл','Экспорт не может перезаписать рабочую базу заметок.')
+        try:
+            path = self.store.validate_output_path(filename)
+        except (OSError, ValueError):
+            QMessageBox.warning(self,'Выберите другой файл','Выберите доступный файл вне рабочей базы заметок.')
             return
         html=path.suffix.lower() in ('.html','.htm')
         try:
@@ -973,7 +988,15 @@ class Window(QMainWindow):
                 content=self.body.toHtml()
                 content=content.replace('<head>','<head><title>'+markup.escape(self.title.text())+'</title>',1)
                 content=re.sub(r'(<body\b[^>]*>)',lambda match:match[0]+'<h1>'+markup.escape(self.title.text())+'</h1>',content,count=1)
-            path.write_text(content,encoding='utf-8')
+            data = content.encode('utf-8')
+            output = QSaveFile(str(path))
+            if not output.open(QIODevice.WriteOnly):
+                raise OSError(output.errorString())
+            if output.write(data) != len(data):
+                output.cancelWriting()
+                raise OSError(output.errorString())
+            if not output.commit():
+                raise OSError(output.errorString())
             self.statusBar().showMessage('Заметка экспортирована',6000)
         except OSError:
             QMessageBox.warning(self,'Экспорт не выполнен','Не удалось записать файл. Выберите другую папку.')

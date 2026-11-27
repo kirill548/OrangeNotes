@@ -2,14 +2,18 @@ import ctypes
 from ctypes import wintypes
 import hashlib
 import io
+import os
 import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget, QVBoxLayout
 
-from app.services.desktop_updates import INSTALLER, REPOSITORY, download_update, select_release
+from app.services.desktop_updates import (
+    INSTALLER, REPOSITORY, STALE_DOWNLOAD_AGE, clean_old_downloads, download_update, select_release,
+)
 from app.services.windows_update import END_SESSION, END_SESSION_CLOSE_APP, QUERY_END_SESSION, handle_setup_message
 from app.ui.desktop_updates import DesktopUpdates
 from app.ui.window import Window
@@ -66,6 +70,30 @@ def test_failed_download_cleans_up(tmp_path, monkeypatch, payload, cancel):
     with pytest.raises(ValueError):
         download_update(release, cancelled, lambda url: io.BytesIO(payload))
     assert list(tmp_path.iterdir()) == []
+
+
+def test_cleanup_only_removes_expired_update_files(tmp_path, monkeypatch):
+    monkeypatch.setattr('app.services.desktop_updates.tempfile.tempdir', str(tmp_path))
+    old = tmp_path / 'OrangeNotes-update-12345678'
+    old.mkdir()
+    expired = old / INSTALLER
+    expired.write_bytes(b'expired installer')
+    timestamp = time.time() - STALE_DOWNLOAD_AGE - 60
+    for path in (expired, old):
+        os.utime(path, (timestamp, timestamp))
+    current = tmp_path / 'OrangeNotes-update-87654321'
+    current.mkdir()
+    (current / INSTALLER).write_bytes(b'recent installer')
+    unrelated = tmp_path / 'OrangeNotes-update-11223344'
+    unrelated.mkdir()
+    (unrelated / 'notes.sqlite3').write_bytes(b'unrelated')
+    os.utime(unrelated, (timestamp, timestamp))
+
+    clean_old_downloads()
+
+    assert not old.exists()
+    assert (current / INSTALLER).exists()
+    assert (unrelated / 'notes.sqlite3').exists()
 
 
 def test_update_protects_companion_drafts_and_checks_save():

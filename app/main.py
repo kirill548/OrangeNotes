@@ -253,7 +253,7 @@ def main(argv=None):
             timer.timeout.connect(status)
             timer.start()
         window.show()
-        if FROZEN and sys.platform == 'win32' and not (args.notification or args.database):
+        if FROZEN and sys.platform == 'win32' and database == Store.default_path().resolve():
             from app.ui.desktop_updates import DesktopUpdates
             window.desktop_updates = DesktopUpdates(window, sys.executable)
         if selected:

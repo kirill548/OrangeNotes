@@ -179,10 +179,18 @@ class Store:
                 self.db.execute('INSERT INTO note_tags(note_id,tag_id) VALUES (?,?)', (note_id,tag))
         return note_id
 
-    def backup_to(self, path):
+    def validate_output_path(self, path):
         destination = Path(path).resolve()
-        if destination == self.path or (destination.exists() and os.path.samefile(destination,self.path)):
-            raise ValueError('Выберите другой файл: это рабочая база заметок.')
+        protected = (self.path, *(self.path.with_name(self.path.name + suffix)
+                                  for suffix in ('-wal', '-shm', '-journal')))
+        for original in protected:
+            if destination == original or (destination.exists() and original.exists()
+                                           and destination.samefile(original)):
+                raise ValueError('Выберите другой файл: этот файл используется базой заметок.')
+        return destination
+
+    def backup_to(self, path):
+        destination = self.validate_output_path(path)
         if self.db.in_transaction:
             raise ValueError('Дождитесь завершения сохранения заметок.')
         destination.parent.mkdir(parents=True,exist_ok=True)

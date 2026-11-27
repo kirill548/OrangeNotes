@@ -96,8 +96,10 @@ def restore_database(store, source):
     """
     source = Path(source).resolve(strict=True)
     target = store.path.resolve()
-    if source == target or os.path.samefile(source,target):
-        raise ValueError('Нельзя восстановить базу из самой себя.')
+    try:
+        store.validate_output_path(source)
+    except ValueError as error:
+        raise ValueError('Нельзя восстановить базу из её рабочего файла.') from error
     validate_backup(source)
     descriptor, filename = tempfile.mkstemp(prefix='.notes-restore-', suffix='.sqlite3', dir=target.parent)
     os.close(descriptor)
@@ -126,6 +128,16 @@ def restore_database(store, source):
             raise ValueError('База используется другим процессом. Закройте его и повторите.')
         store.backup_to(safety)
         validate_backup(safety)
+        # A successful checkpoint alone does not rule out an open WAL reader.
+        # Leaving WAL mode acquires the exclusive lock needed to retire its sidecars.
+        try:
+            mode = store.db.execute('PRAGMA journal_mode=DELETE').fetchone()[0]
+        except sqlite3.OperationalError as error:
+            if getattr(error, 'sqlite_errorcode', None) not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                raise
+            raise ValueError('База используется другим процессом. Закройте его и повторите.') from error
+        if mode != 'delete':
+            raise ValueError('База используется другим процессом. Закройте его и повторите.')
         store.db.close()
         closed = True
         os.replace(staged,target)

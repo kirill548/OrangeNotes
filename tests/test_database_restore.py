@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from contextlib import closing
 import tempfile
@@ -80,4 +81,46 @@ class RestoreTests(unittest.TestCase):
             self.current.save_note(self.old,'New current','updated',None,False,'')
             with self.assertRaises(ValueError):restore_database(self.current,self.backup)
         self.assertEqual(self.current.rows('SELECT title FROM notes')[0][0],'New current')
+
+    def test_open_reader_blocks_restore_even_when_checkpoint_is_empty(self):
+        self.current.db.execute('PRAGMA busy_timeout=10')
+        self.assertEqual(tuple(self.current.db.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()), (0, 0, 0))
+        with closing(sqlite3.connect(self.current.path)) as reader:
+            reader.execute('BEGIN')
+            self.assertEqual(reader.execute('SELECT title FROM notes').fetchone()[0], 'Current')
+            self.assertEqual(tuple(self.current.db.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()), (0, 0, 0))
+            with self.assertRaisesRegex(ValueError, 'База используется'):
+                restore_database(self.current, self.backup)
+            self.assertEqual(reader.execute('SELECT title FROM notes').fetchone()[0], 'Current')
+        self.assertEqual(self.current.rows('SELECT title FROM notes')[0][0], 'Current')
+        self.assertEqual(self.current.db.execute('PRAGMA journal_mode').fetchone()[0], 'wal')
+
+    def test_backup_refuses_live_sqlite_companion_files_before_replacing(self):
+        with patch('app.database.store.os.replace') as replace:
+            for suffix in ('-wal', '-shm', '-journal'):
+                with self.subTest(suffix=suffix), self.assertRaises(ValueError):
+                    self.current.backup_to(self.current.path.with_name(self.current.path.name + suffix))
+            replace.assert_not_called()
+        self.assertEqual(self.current.rows('PRAGMA integrity_check')[0][0], 'ok')
+
+    def test_output_path_refuses_a_hardlink_to_the_live_database(self):
+        alias = self.root / 'export.txt'
+        try:
+            os.link(self.current.path, alias)
+        except OSError:
+            self.skipTest('Filesystem cannot create a hard link')
+        with self.assertRaises(ValueError):
+            self.current.validate_output_path(alias)
+        with self.assertRaisesRegex(ValueError, 'из её рабочего файла'):
+            restore_database(self.current, alias)
+
+    def test_restore_rejects_live_companion_files_before_opening_them(self):
+        with patch('app.services.database_restore.validate_backup') as validate:
+            for suffix in ('-wal', '-shm'):
+                source = self.current.path.with_name(self.current.path.name + suffix)
+                self.assertTrue(source.exists(), source)
+                with self.subTest(suffix=suffix), self.assertRaisesRegex(ValueError, 'из её рабочего файла'):
+                    restore_database(self.current, source)
+            validate.assert_not_called()
+        self.assertEqual(self.current.rows('SELECT title FROM notes')[0][0], 'Current')
 

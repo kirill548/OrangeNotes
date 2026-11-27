@@ -171,6 +171,29 @@ void main() {
     });
   });
 
+  testWidgets('System back guards a title-only edit before autosave', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MobileHome(store: store, pairing: TestPairing()),
+      ),
+    );
+    await settle(tester);
+    await tester.tap(find.text('Новая заметка'));
+    await tester.pumpAndSettle();
+    final editor = tester.element(find.byType(NoteEditor));
+    await tester.enterText(find.byType(TextField).first, 'Одна строка');
+    await tester.pump();
+    expect(ModalRoute.of(editor)!.popDisposition, RoutePopDisposition.doNotPop);
+    await tester.binding.handlePopRoute();
+    await settle(tester);
+    await settle(tester);
+    expect(find.byType(NoteEditor), findsNothing);
+    final notes = (await tester.runAsync(() => store.listNotes()))!;
+    expect(notes.single.title, 'Одна строка');
+  });
+
   testWidgets('Delete confirms and returns to remaining notes', (tester) async {
     await tester.runAsync(() async {
       await store.saveNote(title: 'Удаляемая', body: 'Текст');

@@ -49,3 +49,32 @@ def test_large_open_preserves_editor_database_and_full_search(tmp_path):
         window.deleteLater()
         app.processEvents()
         store.db.close()
+
+
+def test_large_notes_only_warn_on_explicit_open(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    store = Store(tmp_path / 'notes.sqlite3')
+    small = store.create_note()
+    store.save_note(small, 'Small', '<p>Keep me</p>', None, False, '')
+    large = store.create_note()
+    store.save_note(large, 'Large', '<p>' + 'x' * 512 + '</p>', None, False, '')
+    with patch('app.ui.window.MAX_RICH_DOCUMENT_CHARS', 512), patch('app.ui.window.QMessageBox.warning') as warning:
+        window = Window(store, background_managed=True)
+        window.clock.stop()
+        try:
+            window.refresh_list()
+            assert window.current == small
+            window.search.setText('Large')
+            window.refresh_list()
+            assert window.notes.count() == 1
+            assert window.current is None
+            warning.assert_not_called()
+            window.activate_note_card(large)
+            warning.assert_called_once()
+        finally:
+            window.tray.hide()
+            window.quitting = True
+            window.close()
+            window.deleteLater()
+            app.processEvents()
+            store.db.close()

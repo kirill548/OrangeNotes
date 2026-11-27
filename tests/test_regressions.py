@@ -10,10 +10,10 @@ from contextlib import closing
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import Qt, QTime, QCoreApplication, QEvent, QTimer
+from PySide6.QtCore import Qt, QTime, QCoreApplication, QEvent, QSaveFile, QTimer
 from PySide6.QtGui import QTextDocument
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QToolBar
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QPushButton, QToolBar
 from app.database.store import Store
 from app.ui.window import Window
 
@@ -206,6 +206,56 @@ class UserRegressions(unittest.TestCase):
         self.assertTrue(panel.isVisible())
         self.assertEqual(panel.values(), values)
         self.assertIsNone(self.store.reminder(w.current))
+
+    def test_opening_link_preserves_or_saves_pending_reminder(self):
+        w = self.window
+        target = self.store.create_note()
+        w.new_note()
+        source = w.current
+        w.edit_reminder()
+        w.panel.mode.setCurrentIndex(2)
+        values = w.panel.values()
+        with patch.object(QMessageBox, 'question', return_value=QMessageBox.Cancel) as confirm:
+            w.open_linked_note(target)
+        confirm.assert_called_once()
+        self.assertEqual(w.current, source)
+        self.assertTrue(w.panel.isVisible())
+        self.assertEqual(w.panel.values(), values)
+        self.assertIsNone(self.store.reminder(source))
+
+        with patch.object(QMessageBox, 'question', return_value=QMessageBox.Save):
+            w.open_linked_note(target)
+        self.assertEqual(w.current, target)
+        self.assertFalse(w.panel.isVisible())
+        self.assertIsNotNone(self.store.reminder(source))
+        self.assertIsNone(self.store.reminder(target))
+
+    def test_archive_selected_note_opens_remaining_note(self):
+        w = self.window
+        remaining = self.store.create_note()
+        w.new_note()
+        archived = w.current
+        self.assertEqual(w.notes.currentRow(), 0)
+        w.archive()
+        self.assertEqual(self.store.rows('SELECT archived FROM notes WHERE id=?', (archived,))[0][0], 1)
+        self.assertEqual(w.notes.currentItem().data(Qt.UserRole), remaining)
+        self.assertEqual(w.current, remaining)
+        self.assertEqual(w.editor_stack.currentIndex(), 1)
+
+    def test_export_preserves_existing_file_when_commit_fails(self):
+        w = self.window
+        w.new_note()
+        w.title.setText('Заголовок')
+        w.body.setPlainText('Текст заметки')
+        path = Path(self.directory.name) / 'note.txt'
+        path.write_text('Прежний файл', encoding='utf-8')
+        with patch.object(QFileDialog, 'getSaveFileName', return_value=(str(path), 'Текст (*.txt)')):
+            with patch.object(QSaveFile, 'commit', return_value=False), patch.object(QMessageBox, 'warning') as warning:
+                w.export_note()
+            warning.assert_called_once()
+            self.assertEqual(path.read_text(encoding='utf-8'), 'Прежний файл')
+            w.export_note()
+        self.assertEqual(path.read_text(encoding='utf-8'), 'Заголовок\n\nТекст заметки')
 
 
 if __name__ == '__main__':
