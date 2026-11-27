@@ -1,6 +1,12 @@
 # Установка и сборка Orange Notes Desktop
 
-Пакеты для Windows, Linux и macOS доступны в [Assets релиза v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2). Контрольные суммы приведены в `SHA256SUMS.txt`. Промежуточные сборки доступны в [GitHub Actions](https://github.com/kirill548/OrangeNotes/actions/workflows/release-builds.yml).
+Готовые пакеты и [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/SHA256SUMS.txt) доступны в [релизе v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2).
+
+- **Windows x64.** [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/Orange-Notes-Setup.exe) · [Портативный ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Windows-AMD64.zip).
+- **Linux x64.** [tar.gz](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Linux-x86_64.tar.gz) · [AppImage](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Linux-x86_64.AppImage) · [DEB](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Linux-x64.deb) · [Flatpak](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Linux-x86_64.flatpak).
+- **macOS Intel.** [DMG](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-macOS-x86_64.dmg) · [ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Darwin-x86_64.zip).
+- **macOS Apple Silicon.** [DMG](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-macOS-arm64.dmg) · [ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Darwin-arm64.zip).
+- **Мобильные устройства.** [Тестовый APK Android](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Android-debug.apk) · [Неподписанный IPA для iOS](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-iOS-unsigned.ipa). [Подпись и установка на iPhone](docs/IOS_DELIVERY.md).
 
 ## Пакеты и переносимость
 
@@ -14,7 +20,7 @@ Windows x86 и Windows 7/8 не поддерживаются стеком про
 
 ## Установка на Windows
 
-1. Скачайте `Orange Notes Setup.exe` из [релиза v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2) и сверьте контрольную сумму по `SHA256SUMS.txt`.
+1. Скачайте [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/Orange-Notes-Setup.exe) и сверьте SHA-256 по [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/SHA256SUMS.txt).
 2. Запустите установщик и подтвердите запрос Windows. Укажите диск и папку приложения, например `D:\Install\Orange Notes`. Мастер проверит доступ и создаст нужные каталоги. Место сохранения скачанного EXE выбирается в браузере.
 3. Для обновления закройте Orange Notes, сделайте резервную копию заметок и выберите прежнюю папку установки. При обновлении ранней тестовой версии, установленной только для одного пользователя, запустите мастер с параметром `/CURRENTUSER`. Модели, настройки ИИ и голосовые компоненты сохраняются в `ai/` и `stt/`. Для их загрузки из приложения текущей учётной записи нужен доступ на запись в эти каталоги. База в `%LOCALAPPDATA%\OrangeNotes` остаётся на месте.
 4. Для удаления откройте «Установленные приложения» в параметрах Windows и выберите Orange Notes. Перед удалением отдельно скопируйте заметки, `ai/` и `stt/`, если хотите сохранить их для переноса.
@@ -27,7 +33,7 @@ Windows x86 и Windows 7/8 не поддерживаются стеком про
 
 Установка компонентов требует записи в AppDir. Обычный AppImage смонтирован только для чтения: используйте tar.gz либо извлечённую папку AppImage. Изменение подписанного macOS-бандла может нарушить подпись; текущие неподписанные пакеты не заявляют нотаризацию. При переносе повторно откройте приложение из нового места, чтобы обновить регистрацию фоновых напоминаний.
 
-Новые тестовые сборки Windows различают повторный запуск того же EXE и запуск из другой папки. Во втором случае новая сборка ждёт освобождения базы. Закройте старую через «…» → «Выйти из приложения» или через «Выход» у значка рядом с часами. Подробнее о [новом интерфейсе](docs/DESKTOP_UI_GUIDE.md).
+В Windows повторный запуск того же EXE показывает уже открытое окно. Если запустить копию из другой папки с той же базой, она дождётся выхода работающего экземпляра. Выберите «…» → «Выйти из приложения» или «Выход» в меню значка рядом с часами. [Руководство по интерфейсу](docs/DESKTOP_UI_GUIDE.md).
 
 ## ИИ и диктовка
 
@@ -56,6 +62,12 @@ python tools/build_windows_installer.py --bundle dist/OrangeNotes --output-dir d
 PyInstaller собирает пакет на соответствующей ОС, не выполняет кросс-компиляцию. Linux AppImage и macOS DMG подготавливаются платформенными шагами CI. Конфигурация содержит Windows x64, Linux x64, macOS Intel и Apple Silicon. Для диагностики нативного whisper.cpp: `python tools/stt_native_smoke.py --help`; для Apple CLI/CMake: `python tools/diagnose_whisper_macos.py --help`.
 
 `python scripts/deploy_local.py --edition lite --target <каталог>` обновляет управляемую установку с сохранением базы, настроек и локальных компонентов. Перед обновлением закройте приложение и сделайте резервную копию базы. Контрольные суммы пакетов публикуются в `SHA256SUMS.txt`.
+
+## Публикация релиза
+
+1. Подготовьте версии Desktop и Flutter, описание выпуска и черновик GitHub Release. Укажите полный SHA исходного коммита в качестве цели черновика.
+2. Дождитесь успешных запусков Desktop package qualification и Mobile analysis and native builds для того же коммита.
+3. Запустите Publish verified desktop and mobile packages из основной ветки. Передайте тег черновика и идентификаторы двух запусков. Сценарий проверит исходный коммит, архивы и версии, загрузит пакеты и сравнит их SHA-256 с данными GitHub. После сверки он поставит тег и опубликует черновик. [Сценарий публикации](.github/workflows/publish-verified-release.yml).
 
 ## Уведомления и лицензии
 

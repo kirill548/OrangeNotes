@@ -1,5 +1,7 @@
 # Документация Orange Notes
 
+Текущий выпуск включает установщик и портативную версию для Windows, пакеты Linux и macOS, а также тестовые сборки Android и iOS. [Релиз v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2) · [Примечания к выпуску](../RELEASE_NOTES_v0.2.2.md).
+
 ## Установка и работа
 
 - [Пакеты и установка Desktop](../DISTRIBUTION.md)
@@ -22,6 +24,7 @@
 - [Правила репозитория](../AGENTS.md)
 - [Стресс-аудит v0.2.1](../TOTAL_STRESS_TEST_REPORT.md) и [нативные проверки уведомлений](../tools/NATIVE_NOTIFICATION_TESTS.md)
 - [Проверки Desktop](../.github/workflows/release-builds.yml) и [мобильных сборок](../.github/workflows/mobile-ci.yml)
+- [Сверка и публикация файлов релиза](../DISTRIBUTION.md#публикация-релиза)
 
 ## Исторические материалы
 

@@ -5,7 +5,7 @@
 
 | Платформа | Архитектура | Форматы Lite |
 |---|---|---|
-| Windows | x64 / AMD64 | `Orange Notes Setup.exe` и portable `OrangeNotes-Windows-AMD64.zip` |
+| Windows | x64 / AMD64 | [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/Orange-Notes-Setup.exe), [Портативный ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Windows-AMD64.zip) |
 | Linux | x64 / AMD64 | tar.gz, AppImage, `.deb`, Flatpak |
 | macOS Intel | x86_64 | `.app`, `.dmg`, архив бандла |
 | macOS Apple Silicon | arm64 | `.app`, `.dmg`, архив бандла |
@@ -33,4 +33,4 @@ Windows x86 (32 бита) не входит в текущую целевую м�
 Lite не включает веса модели. Complete требует отдельно квалифицированный
 AI-pack под целевую ОС и архитектуру; результаты Lite не квалифицируют модель.
 
-Голосовой ввод v0.1.4 требует Qt Multimedia, нативных аудиоплагинов и разрешения на запись. Мок-тесты не заменяют физический микрофон. Портативная установка моделей требует записи в `AppDir/ai/` и `AppDir/stt/`; защищённая или смонтированная read-only папка не поддерживает автоматическую установку компонентов. См. [контракт компонентов](V014_PORTABLE_COMPONENTS.md).
+Голосовой ввод требует Qt Multimedia, нативных аудиоплагинов и разрешения на запись. Проверка с физическим микрофоном проводится отдельно. Для автоматической установки компонентов нужны права записи в папки приложения `ai/` и `stt/`. [Голосовой ввод](V014_VOICE_INPUT.md) · [Портативные компоненты](V014_PORTABLE_COMPONENTS.md).

@@ -1,6 +1,6 @@
 # Orange Notes
 
-**Скачать Orange Notes v0.2.2.** В разделе Assets доступны установщик и портативный ZIP для Windows, пакеты Linux и macOS, а также тестовые сборки Android и iOS. [Открыть релиз](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2)
+**Orange Notes v0.2.2.** [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/Orange-Notes-Setup.exe) · [Портативный ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Windows-AMD64.zip) · [Все файлы релиза](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2)
 
 **Orange Notes — кроссплатформенное (универсальное) приложение для заметок с открытым исходным кодом.** Создавайте и редактируйте заметки без сети, связывайте их через `[[wiki-ссылки]]`, исследуйте граф знаний и синхронизируйте данные с доверенными устройствами.
 
@@ -13,15 +13,15 @@
 | Windows x64 | Python 3.12, PySide6 / Qt6 | Установщик и портативный ZIP в [v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2) |
 | Linux x64 | Python 3.12, PySide6 / Qt6 | tar.gz, AppImage, DEB и Flatpak в v0.2.2 |
 | macOS Intel / Apple Silicon | Python 3.12, PySide6 / Qt6 | Отдельные ZIP и DMG для каждой архитектуры в v0.2.2 |
-| Android | Flutter / Dart, Kotlin host | Debug APK собран в Mobile CI; установка на физическом устройстве требует проверки |
-| iOS 15+ | Flutter / Dart, Swift / UIKit host | IPA 0.2.2 (3) требует переподписи |
+| Android | Flutter / Dart, Kotlin | [Тестовый APK Android](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Android-debug.apk) |
+| iOS 15+ | Flutter / Dart, Swift / UIKit | [Неподписанный IPA для iOS](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-iOS-unsigned.ipa) версии 0.2.2 (3). Требует подписи перед установкой |
 | Web | Планируемый браузерный клиент | Web-host, браузерное хранилище и транспорт ещё не реализованы; готовая Web-сборка не заявляется |
 
 Универсальное позиционирование описывает весь продукт. Наличие Flutter не означает, что мобильный код уже работает в браузере: текущие `dart:io`, SQLite и mTLS требуют отдельных Web-адаптеров. Паритет функций между клиентами достигается поэтапно.
 
 ## Возможности
 
-- В тестовых Desktop-сборках обновлены значки, панель напоминаний и параметры помощника. Флажок «Показывать питомца» выводит пчёлку поверх рабочего стола. Она остаётся видимой при свёрнутых заметках и время от времени сама летает по экрану. Скрыть её можно через меню правой кнопки мыши.
+- В настольном приложении обновлены значки, панель напоминаний и параметры помощника. Флажок «Показывать питомца» выводит пчёлку поверх рабочего стола. При полёте и перетаскивании заметки остаются свёрнутыми. Пчёлку можно скрыть через меню правой кнопки мыши.
 - Локальное SQLite-хранилище, поиск, теги и Markdown-редактор.
 - Wiki-ссылки, обратные ссылки и интерактивный граф заметок.
 - Голосовой ввод через системный сервис распознавания; доступность офлайн зависит от ОС.
@@ -92,7 +92,7 @@ python -m pip install -r requirements-build.txt
 python tools/build.py --clean --edition lite
 ```
 
-Версию новых пакетов сверяйте с конфигурацией сборки и тегом. Наличие мобильного IPA не означает выпуск новых Desktop-пакетов: старые дистрибутивы сохраняют свою исходную версию. Подробнее: [дистрибутивы Desktop](DISTRIBUTION.md).
+Ссылки на пакеты и порядок сборки установщика описаны в [руководстве по установке](DISTRIBUTION.md).
 
 ### Android: запуск и тестовый APK
 
@@ -125,7 +125,7 @@ zip -qry OrangeNotes-iOS-unsigned.ipa Payload
 shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
 ```
 
-Это упаковка неподписанного бандла для устройства. Готовые CI-пакеты находятся в разделе Artifacts запусков [Mobile analysis and native builds](https://github.com/kirill548/OrangeNotes/actions/workflows/mobile-ci.yml). При публикации сопровождающий прикрепляет IPA и SHA256 к GitHub Release.
+Эти команды упаковывают неподписанную сборку для iPhone. Проверенные настольные и мобильные файлы публикуются через [сценарий выпуска](.github/workflows/publish-verified-release.yml).
 
 ## Установка и тестирование
 
@@ -133,7 +133,7 @@ shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
 
 Пакеты для Windows, Linux и macOS находятся в [Assets релиза v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2). Для macOS выберите пакет под Intel или Apple Silicon.
 
-Для установки Windows скачайте `Orange Notes Setup.exe`. Контрольная сумма приведена в `SHA256SUMS.txt`.
+Для установки скачайте файл `Orange-Notes-Setup.exe`. [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/Orange-Notes-Setup.exe) · [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/SHA256SUMS.txt).
 
 Запустите установщик и подтвердите запрос Windows. Затем в мастере выберите диск и папку, например `D:\Install\Orange Notes`. Путь по умолчанию — `C:\Program Files\Orange Notes`. Мастер создаст папку, если её ещё нет. Удаление доступно через «Установленные приложения» в параметрах Windows.
 
@@ -141,7 +141,7 @@ shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
 
 ### Android: тестовый APK
 
-Скачайте `OrangeNotes-Android-debug` из успешного запуска [Mobile CI для нужного коммита](https://github.com/kirill548/OrangeNotes/actions/workflows/mobile-ci.yml), распакуйте архив и передайте `app-debug.apk` на телефон. Разрешите установку для выбранного источника, затем откройте APK. Пакет тестовый; успешный CI не заменяет ручную проверку на телефоне.
+Скачайте [Тестовый APK Android](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Android-debug.apk), передайте файл на телефон и откройте его. При запросе Android разрешите установку для выбранного источника.
 
 ### Web
 
@@ -149,8 +149,8 @@ shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
 
 ### iOS: установка приложения (.ipa)
 
-1. Откройте [GitHub Releases проекта](https://github.com/kirill548/OrangeNotes/releases), выберите нужную версию и разверните **Assets**.
-2. Скачайте `OrangeNotes-iOS-unsigned.ipa` и `SHA256SUMS.txt`, если они прикреплены. Если IPA в релизе нет, используйте артефакт успешного Mobile CI — старые десктопные релизы не содержат мобильный пакет автоматически.
+1. Скачайте [Неподписанный IPA для iOS](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-iOS-unsigned.ipa) из релиза v0.2.2.
+2. Скачайте [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/SHA256SUMS.txt) для сверки файла.
 3. Сверьте SHA256: на macOS `shasum -a 256 OrangeNotes-iOS-unsigned.ipa`, в PowerShell `Get-FileHash ./OrangeNotes-iOS-unsigned.ipa -Algorithm SHA256`.
 4. Выберите один способ подписи ниже. Простое открытие unsigned IPA на iPhone его не установит.
 
@@ -177,11 +177,9 @@ shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
 
 ## Проверки и документация
 
-Для v0.2.1 внесены 11 исправлений по итогам стресс-аудита: валидация текста и резервных копий, защита отображения больших документов, ограничение загрузки графа и истории чата, SafeArea и остановка Qt-таймеров при завершении окна. Локальная регрессия патчей: **1421 PASS, 13 SKIP, 0 FAIL** Python/Qt и **94 PASS** Flutter; анализатор без замечаний. Эти числа относятся к стресс-аудиту v0.2.1. Проверку последующих изменений смотрите в GitHub Actions по коммиту.
+В v0.2.2 прошли проверки сборок Windows x64, Linux x64, macOS Intel и Apple Silicon, мобильные тесты и сборки Android и iOS. При публикации сверены SHA-256 всех 13 файлов. [Настольные сборки](https://github.com/kirill548/OrangeNotes/actions/runs/45963684683) · [Мобильные сборки](https://github.com/kirill548/OrangeNotes/actions/runs/45963686341).
 
 SQLite и резервные копии не зашифрованы на уровне приложения. Текущий протокол синхронизации ограничен 4096 сущностями и 8 МиБ истории; сохранение 50 000 локальных заметок не означает поддержку их полной синхронизации. Физические iOS/Android-устройства и Web-клиент этим аудитом не квалифицированы.
-
-Историческая квалификация AI Relay, коммит `c54d1b9`: [Mobile CI](https://github.com/kirill548/OrangeNotes/actions/runs/38926750683), 80 Flutter-тестов и мобильные сборки; [Desktop CI](https://github.com/kirill548/OrangeNotes/actions/runs/38926750839), четыре платформы/архитектуры, 0 FAIL. Эти результаты не заменяют CI версии v0.2.1.
 
 - [Оглавление документации](docs/README.md)
 - [Обновлённый интерфейс Desktop и помощник](docs/DESKTOP_UI_GUIDE.md)

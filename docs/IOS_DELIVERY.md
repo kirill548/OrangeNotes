@@ -1,8 +1,6 @@
 # Доставка Orange Notes на iPhone
 
-Статус: инфраструктура сборки подготовлена. Наличие workflow не означает успешную сборку, подпись, загрузку в TestFlight или проверку на физическом iPhone. Результаты конкретного запуска фиксируются отдельно.
-
-В [релизе v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2) доступны unsigned IPA версии **0.2.2+3** и SHA256.
+Опубликован неподписанный IPA версии **0.2.2 (3)**. Сборка и автоматические тесты выполнены в Mobile CI. Подписанная доставка через TestFlight и установка на физическом iPhone требуют отдельной проверки. [Мобильные проверки](https://github.com/kirill548/OrangeNotes/actions/runs/45963686341).
 
 На компьютере с Windows доступен установщик Orange Notes. [Инструкция по установке](../DISTRIBUTION.md#установка-на-windows).
 
@@ -47,7 +45,7 @@ Secrets Environment:
 
 Опубликованные пакеты iOS доступны в формате unsigned IPA. Установка через TestFlight для проекта пока не подтверждена.
 
-Скачайте `OrangeNotes-iOS-unsigned.ipa` и `SHA256SUMS.txt` из [Assets v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2).
+Скачайте [Неподписанный IPA для iOS](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-iOS-unsigned.ipa) и сверьте SHA-256 по [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/SHA256SUMS.txt).
 Unsigned-архив нельзя установить простым открытием файла на iPhone.
 Следуйте официальным инструкциям выбранного инструмента подписи:
 [AltStore Classic](https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows)
