@@ -1,5 +1,7 @@
 # Orange Notes
 
+**Актуальные сборки для компьютера.** Установщик и портативный ZIP лежат в [пакете Windows x64](https://github.com/kirill548/OrangeNotes/actions/runs/45835213537/artifacts/15127390049). Пакеты Linux и macOS доступны в [результатах проверенной сборки](https://github.com/kirill548/OrangeNotes/actions/runs/45835213537#artifacts). Для следующих сборок используйте [GitHub Actions](https://github.com/kirill548/OrangeNotes/actions/workflows/release-builds.yml).
+
 **Orange Notes — кроссплатформенное (универсальное) приложение для заметок с открытым исходным кодом.** Создавайте и редактируйте заметки без сети, связывайте их через `[[wiki-ссылки]]`, исследуйте граф знаний и синхронизируйте данные с доверенными устройствами.
 
 Проект объединяет Desktop (Windows, Linux, macOS), мобильные клиенты iOS/Android и направление Web. Это общий кроссплатформенный репозиторий: десктопный клиент находится в `app/`, мобильный — в `orange_notes_mobile/`. Последний опубликованный релиз — [v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) с unsigned IPA. Опубликованные десктопные пакеты доступны в [v0.1.5](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.5). Обновлённый интерфейс Desktop описан в [руководстве](docs/DESKTOP_UI_GUIDE.md) и относится к тестовым сборкам после v0.2.1.
@@ -8,7 +10,7 @@
 
 | Платформа | Клиент / стек | Доступность |
 |---|---|---|
-| Windows x64 | Python 3.12, PySide6 / Qt6 | [ZIP с OrangeNotes.exe в v0.1.5](https://github.com/kirill548/OrangeNotes/releases/tag/v0.1.5); установщик и portable ZIP в новых тестовых сборках GitHub Actions |
+| Windows x64 | Python 3.12, PySide6 / Qt6 | Установщик и портативный ZIP в [актуальной сборке](https://github.com/kirill548/OrangeNotes/actions/runs/45835213537/artifacts/15127390049) |
 | Linux x64 | Python 3.12, PySide6 / Qt6 | tar.gz, AppImage, DEB и экспериментальный Flatpak в v0.1.5 |
 | macOS Intel / Apple Silicon | Python 3.12, PySide6 / Qt6 | Отдельные `.app` / DMG для каждой архитектуры в v0.1.5 |
 | Android | Flutter / Dart, Kotlin host | Debug APK собран в Mobile CI; установка на физическом устройстве требует проверки |
