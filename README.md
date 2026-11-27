@@ -9,7 +9,7 @@
 
 ## Скачать
 
-Последний выпуск [v0.2.3](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.3).
+Последний выпуск [v0.2.4](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.4).
 
 - **Windows x64.** [Установщик](https://github.com/kirill548/OrangeNotes/releases/latest/download/Orange-Notes-Setup.exe) или [портативный ZIP](https://github.com/kirill548/OrangeNotes/releases/latest/download/OrangeNotes-Windows-AMD64.zip). Для запуска из ZIP распакуйте весь архив и откройте `OrangeNotes.exe`.
 - **Linux x64.** AppImage, DEB, Flatpak и tar.gz. [Скачать и установить](DISTRIBUTION.md).
@@ -17,7 +17,7 @@
 - **Android.** [Тестовый APK](https://github.com/kirill548/OrangeNotes/releases/latest/download/OrangeNotes-Android-debug.apk).
 - **iPhone (iOS 15 и новее).** [Неподписанный IPA](https://github.com/kirill548/OrangeNotes/releases/latest/download/OrangeNotes-iOS-unsigned.ipa). Перед установкой понадобится подпись.
 
-На Windows установите v0.2.3 поверх v0.2.2 в ту же папку. Дальше Orange Notes будет сообщать о новых версиях при запуске. Проверку можно начать и вручную через «…» → «Проверить обновления». [Обновление и смена сборки Windows](docs/DESKTOP_UI_GUIDE.md#обновление-и-смена-сборки-windows).
+В установленной версии Windows откройте «…» → «Проверить обновления». Если такого пункта ещё нет, скачайте установщик и укажите прежнюю папку установки. [Руководство по обновлению Windows](docs/DESKTOP_UI_GUIDE.md#обновление-и-смена-сборки-windows).
 
 [Контрольные суммы файлов](https://github.com/kirill548/OrangeNotes/releases/latest/download/SHA256SUMS.txt).
 
@@ -27,7 +27,7 @@
 
 ## Что умеет Orange Notes
 
-- **Папки, метки и поиск.** Заметки можно найти по названию или содержимому.
+- **Папки, метки и поиск.** Заметки можно найти по названию или содержимому. В боковой панели компьютера метки «Дом», «Личное», «Поездки» и «Чтение» можно узнать по собственным значкам. [Руководство по меткам](docs/DESKTOP_UI_GUIDE.md#заметки-и-напоминания).
 - **Ссылки между заметками.** Напишите `[[Планы на выходные]]`, чтобы сослаться на другую заметку. Связи видны в графе.
 - **Напоминания.** На компьютере можно поставить напоминание на сегодня вечером, завтра утром или через час.
 - **Диктовка.** На компьютере речь распознаёт локальный Whisper, на телефоне используется системный сервис.
@@ -68,7 +68,7 @@ flutter run -d <DEVICE_ID>
 
 Браузерная версия пока в планах. [План развития](ROADMAP.md) · [Журнал изменений](release_notes.md).
 
-Сборки v0.2.3 прошли проверки на GitHub Actions. Отдельно проверена переустановка на Windows поверх запущенного приложения. [Настольные сборки](https://github.com/kirill548/OrangeNotes/actions/runs/45972385879) · [Мобильные сборки](https://github.com/kirill548/OrangeNotes/actions/runs/45972385877).
+В GitHub Actions можно посмотреть результаты проверок пакетов. [Настольные сборки](https://github.com/kirill548/OrangeNotes/actions/workflows/release-builds.yml) · [Мобильные сборки](https://github.com/kirill548/OrangeNotes/actions/workflows/mobile-ci.yml).
 
 ## Лицензия
 

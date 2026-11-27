@@ -1,6 +1,6 @@
 # Документация Orange Notes
 
-Текущий выпуск включает установщик и портативную версию для Windows, пакеты Linux и macOS, а также тестовые сборки Android и iOS. [Релиз v0.2.3](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.3) · [Примечания к выпуску](../RELEASE_NOTES_v0.2.3.md).
+Текущий выпуск включает установщик и портативную версию для Windows, пакеты Linux и macOS, а также тестовые сборки Android и iOS. [Релиз v0.2.4](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.4) · [Примечания к выпуску](../RELEASE_NOTES_v0.2.4.md).
 
 ## Установка и работа
 
