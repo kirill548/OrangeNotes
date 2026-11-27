@@ -71,6 +71,40 @@ def stop_owned(process):
         process.wait(5)
 
 
+def restart_manager_shutdown(process):
+    class UniqueProcess(ctypes.Structure):
+        _fields_ = [('pid', wintypes.DWORD), ('created', wintypes.FILETIME)]
+
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    created, exited, cpu_kernel, cpu_user = (wintypes.FILETIME() for _ in range(4))
+    if not kernel.GetProcessTimes(int(process._handle), ctypes.byref(created), ctypes.byref(exited),
+                                 ctypes.byref(cpu_kernel), ctypes.byref(cpu_user)):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    manager = ctypes.WinDLL('Rstrtmgr')
+    manager.RmStartSession.argtypes = (ctypes.POINTER(wintypes.DWORD), wintypes.DWORD, wintypes.LPWSTR)
+    manager.RmRegisterResources.argtypes = (
+        wintypes.DWORD, wintypes.UINT, ctypes.c_void_p,
+        wintypes.UINT, ctypes.POINTER(UniqueProcess), wintypes.UINT, ctypes.c_void_p,
+    )
+    manager.RmShutdown.argtypes = (wintypes.DWORD, wintypes.ULONG, ctypes.c_void_p)
+    manager.RmEndSession.argtypes = (wintypes.DWORD,)
+
+    def check(result):
+        if result:
+            raise ctypes.WinError(result)
+
+    session = wintypes.DWORD()
+    check(manager.RmStartSession(ctypes.byref(session), 0, ctypes.create_unicode_buffer(33)))
+    try:
+        target = UniqueProcess(process.pid, created)
+        check(manager.RmRegisterResources(session, 0, None, 1, ctypes.byref(target), 0, None))
+        check(manager.RmShutdown(session, 0, None))
+    finally:
+        manager.RmEndSession(session)
+
+
 def main():
     if hasattr(sys.stdout,'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8',errors='replace')
@@ -78,6 +112,8 @@ def main():
     parser.add_argument('executable',type=Path)
     parser.add_argument('--timeout',type=float,default=25)
     parser.add_argument('--background-only',action='store_true')
+    parser.add_argument('--upgrade-shutdown', action='store_true',
+                        help='Verify GUI and worker exit safely when Windows Setup runs.')
     parser.add_argument('--hostile-qt-env',action='store_true',help='Run from a temporary directory with foreign Qt plugins/backend and only Windows on PATH.')
     parser.add_argument('--report',type=Path)
     args=parser.parse_args()
@@ -134,6 +170,24 @@ def main():
                 report['worker']={'pid':worker.pid,'heartbeat':status['heartbeat_utc'],'last_error':status.get('last_error')}
                 if visible_windows(worker.pid):
                     raise RuntimeError('Background worker unexpectedly displayed a main window.')
+                if args.upgrade_shutdown:
+                    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+                    kernel.CreateMutexW.argtypes = (ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR)
+                    kernel.CreateMutexW.restype = wintypes.HANDLE
+                    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+                    mutex = kernel.CreateMutexW(None, False, 'OrangeNotes.Desktop.Windows.Setup')
+                    if not mutex:
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    try:
+                        if worker.wait(args.timeout) != 0:
+                            raise RuntimeError('Reminder worker did not exit cleanly during setup.')
+                    finally:
+                        kernel.CloseHandle(mutex)
+                    if not args.background_only:
+                        restart_manager_shutdown(gui)
+                        if gui.wait(args.timeout) != 0:
+                            raise RuntimeError('GUI did not exit cleanly during setup.')
+                    report['upgrade_shutdown'] = 'passed'
                 for process in reversed(processes):
                     stop_owned(process)
             connection=sqlite3.connect(database)

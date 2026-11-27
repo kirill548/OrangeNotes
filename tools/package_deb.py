@@ -3,7 +3,12 @@ import argparse
 import pathlib
 import shutil
 import subprocess
+import sys
 import tempfile
+
+if __package__ in (None, ''):
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from app.version import APP_VERSION
 
 
 def package(folder, destination, version, architecture):
@@ -39,7 +44,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('folder')
     parser.add_argument('destination')
-    parser.add_argument('--version', default='0.2.2')
+    parser.add_argument('--version', default=APP_VERSION)
     parser.add_argument('--architecture', default='amd64', choices=['amd64', 'arm64'])
     args = parser.parse_args()
     package(args.folder, args.destination, args.version, args.architecture)

@@ -60,8 +60,8 @@ class PackagingResourceTests(unittest.TestCase):
         folder = self.build.bundle_directory('darwin')
         self.build.prepare_bundle(folder, 'darwin')
         metadata = plistlib.loads((folder / 'Contents/Info.plist').read_bytes())
-        self.assertEqual(metadata['CFBundleShortVersionString'], '0.2.2')
-        self.assertEqual(metadata['CFBundleVersion'], '0.2.2')
+        self.assertEqual(metadata['CFBundleShortVersionString'], self.build.APP_VERSION)
+        self.assertEqual(metadata['CFBundleVersion'], self.build.APP_VERSION)
 
     def test_windows_file_properties_use_release_version(self):
         import ast
@@ -69,7 +69,7 @@ class PackagingResourceTests(unittest.TestCase):
         tree = ast.parse(path.read_text(encoding='utf-8'), mode='eval')
         values = [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant)]
         self.assertIn('ProductVersion', values)
-        self.assertIn('0.2.2', values)
+        self.assertIn(self.build.APP_VERSION, values)
         self.assertIn('Orange Notes', values)
         self.assertEqual(path.parent, self.root / 'build')
 

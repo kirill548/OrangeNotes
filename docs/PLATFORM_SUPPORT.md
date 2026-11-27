@@ -5,7 +5,7 @@
 
 | Платформа | Архитектура | Форматы Lite |
 |---|---|---|
-| Windows | x64 / AMD64 | [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/Orange-Notes-Setup.exe), [Портативный ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Windows-AMD64.zip) |
+| Windows | x64 / AMD64 | [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/Orange-Notes-Setup.exe), [Портативный ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-Windows-AMD64.zip) |
 | Linux | x64 / AMD64 | tar.gz, AppImage, `.deb`, Flatpak |
 | macOS Intel | x86_64 | `.app`, `.dmg`, архив бандла |
 | macOS Apple Silicon | arm64 | `.app`, `.dmg`, архив бандла |

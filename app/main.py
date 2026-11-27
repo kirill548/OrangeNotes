@@ -131,6 +131,12 @@ def main(argv=None):
     database = (args.database or Store.default_path()).resolve()
     if args.background:
         from app.services.reminder_worker import run_worker
+        if FROZEN and sys.platform == 'win32':
+            from app.services.windows_update import SetupStopEvent
+            stop_event = SetupStopEvent()
+            if stop_event.is_set():
+                return 0
+            return run_worker(database, stop_event=stop_event)
         return run_worker(database)
     from app.utils.qt_runtime import configure_platform
     try:
@@ -161,6 +167,8 @@ def main(argv=None):
     from app.ui.localization import install_russian_dialogs
     install_russian_dialogs(app)
     app.setApplicationName('Orange Notes')
+    from app.version import APP_VERSION
+    app.setApplicationVersion(APP_VERSION)
     from app.utils.app_icon import application_icon
     app.setWindowIcon(application_icon())
     app.setStyle('Fusion')
@@ -245,6 +253,9 @@ def main(argv=None):
             timer.timeout.connect(status)
             timer.start()
         window.show()
+        if FROZEN and sys.platform == 'win32' and not (args.notification or args.database):
+            from app.ui.desktop_updates import DesktopUpdates
+            window.desktop_updates = DesktopUpdates(window, sys.executable)
         if selected:
             window.notification_note = selected
             QTimer.singleShot(0,window.open_notification)

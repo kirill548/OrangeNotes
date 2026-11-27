@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from pathlib import Path
 import sqlite3
+import sys
 from PySide6.QtCore import Qt, QTimer, QSize, QSettings, QEvent
 from app.utils.shortcuts import shortcut as native_shortcut
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap, QTextCharFormat, QTextCursor, QTextDocument, QShortcut, QKeySequence
@@ -563,7 +564,7 @@ class Window(QMainWindow):
             self.saved.setText('Сохранение…')
             self.debounce.start()
 
-    def save(self,refresh=True):
+    def save(self,refresh=True, *, report_error=True):
         if self.loading or not self.current or not self._dirty: return True
         self.debounce.stop()
         try:
@@ -571,7 +572,7 @@ class Window(QMainWindow):
         except (sqlite3.Error,ValueError):
             self.saved.setText('Не удалось сохранить. Нажмите Ctrl+S, чтобы повторить.')
             self._mini_companion.notify_event('Не удалось сохранить. Изменения остались в редакторе.','error')
-            if not self._save_error_reported:
+            if report_error and not self._save_error_reported:
                 self._save_error_reported=True
                 QMessageBox.warning(self,'Ошибка сохранения','Изменения остались в редакторе. Проверьте доступ к базе данных и повторите сохранение нажатием Ctrl+S.')
             return False
@@ -1449,6 +1450,23 @@ class Window(QMainWindow):
             if answer != QMessageBox.Yes:
                 return
         self.quit()
+
+    def prepare_for_update(self):
+        if self._companion_dialog and (
+            self._companion_dialog.busy or self._companion_dialog.has_unsubmitted_input()
+        ):
+            return False
+        if self.panel and self.panel.isVisible() and self.panel.has_changes():
+            return False
+        return self.save(refresh=False, report_error=False)
+
+    def nativeEvent(self, event_type, message):
+        if sys.platform == 'win32':
+            from app.services.windows_update import handle_setup_message
+            result = handle_setup_message(self, event_type, message)
+            if result is not None:
+                return True, result
+        return super().nativeEvent(event_type, message)
 
     def quit(self):
         if not self.close_reminder_panel(): return

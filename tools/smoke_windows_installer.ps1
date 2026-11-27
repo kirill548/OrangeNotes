@@ -90,7 +90,25 @@ $markers = @('ai/setup-smoke-model.txt', 'stt/setup-smoke-voice.txt', 'custom-fi
 foreach ($marker in $markers) {
     Set-Content -LiteralPath (Join-Path $install $marker) -Value 'Preserve this file' -Encoding ascii
 }
-Run-Package $setupPath $arguments
+$testDb = Join-Path $root 'upgrade-test-data\notes.sqlite3'
+$gui = Start-Process -FilePath $executable -ArgumentList @('--database', ('"' + $testDb + '"')) -PassThru
+try {
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    do {
+        Start-Sleep -Milliseconds 200
+        $gui.Refresh()
+        if ($gui.HasExited) { throw 'The installed GUI exited before the upgrade test.' }
+    } until ($gui.MainWindowHandle -ne 0 -or [DateTime]::UtcNow -gt $deadline)
+    if ($gui.MainWindowHandle -eq 0) { throw 'The installed GUI did not open before the upgrade test.' }
+
+    $upgradeArgs = @($arguments | Where-Object { $_ -ne '/NOCLOSEAPPLICATIONS' }) + @('/CLOSEAPPLICATIONS')
+    Run-Package $setupPath $upgradeArgs
+    if (!$gui.WaitForExit(10000) -or $gui.ExitCode -ne 0 -or !(Test-Path -LiteralPath $testDb)) {
+        throw 'Setup did not close the running Orange Notes without losing the test database.'
+    }
+} finally {
+    if (!$gui.HasExited) { Stop-Process -InputObject $gui }
+}
 & $Python tools/smoke_frozen.py $executable --hostile-qt-env
 if ($LASTEXITCODE -ne 0) { throw 'Installed executable did not pass native smoke' }
 

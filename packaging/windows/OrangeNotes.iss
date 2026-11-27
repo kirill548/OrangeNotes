@@ -85,10 +85,10 @@ end;
 function InitializeSetup(): Boolean;
 begin
   Result := not HasSwitch('/FORCECLOSEAPPLICATIONS');
-  if WizardSilent and not HasSwitch('/NOCLOSEAPPLICATIONS') then
+  if WizardSilent and not (HasSwitch('/NOCLOSEAPPLICATIONS') or HasSwitch('/CLOSEAPPLICATIONS')) then
     Result := False;
   if not Result then
-    Log('Force closing applications is disabled. Silent setup requires /NOCLOSEAPPLICATIONS.');
+    Log('Force closing applications is disabled. Silent setup requires an explicit close-applications mode.');
 end;
 
 function Exists(const FileName: String): Boolean;

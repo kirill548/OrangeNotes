@@ -1,5 +1,9 @@
 # Журнал изменений Orange Notes
 
+## v0.2.3
+
+Обновление Windows из Orange Notes. Приложение проверяет новую версию при запуске и предлагает скачать проверенный установщик. Мастер закрывает работающую копию и обновляет её в той же папке. [Описание выпуска](RELEASE_NOTES_v0.2.3.md).
+
 ## v0.2.2
 
 Пакеты для Windows, Linux, macOS, Android и iOS опубликованы на GitHub. [Файлы релиза](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2) · [Ссылки по платформам](DISTRIBUTION.md) · [Описание выпуска](RELEASE_NOTES_v0.2.2.md).
@@ -14,6 +18,7 @@
 
 ## Опубликованные версии
 
+- [v0.2.3](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.3). Обновление Windows из приложения. [Описание](RELEASE_NOTES_v0.2.3.md).
 - [v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2). Установщик Windows, пакеты Linux и macOS, тестовые сборки Android и iOS. [Описание](RELEASE_NOTES_v0.2.2.md).
 - [v0.2.1](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.1) — unsigned IPA и SHA256. [Описание](RELEASE_NOTES_v0.2.1.md).
 - [v0.2.0](RELEASE_NOTES_v0.2.0.md) — мобильный прототип и P2P.

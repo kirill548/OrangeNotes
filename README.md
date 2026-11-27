@@ -1,6 +1,6 @@
 # Orange Notes
 
-**Orange Notes v0.2.2.** [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/Orange-Notes-Setup.exe) · [Портативный ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Windows-AMD64.zip) · [Все файлы релиза](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2)
+**Orange Notes v0.2.3.** [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/Orange-Notes-Setup.exe) · [Портативный ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-Windows-AMD64.zip) · [Все файлы релиза](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.3)
 
 **Orange Notes — кроссплатформенное (универсальное) приложение для заметок с открытым исходным кодом.** Создавайте и редактируйте заметки без сети, связывайте их через `[[wiki-ссылки]]`, исследуйте граф знаний и синхронизируйте данные с доверенными устройствами.
 
@@ -10,11 +10,11 @@
 
 | Платформа | Клиент / стек | Доступность |
 |---|---|---|
-| Windows x64 | Python 3.12, PySide6 / Qt6 | Установщик и портативный ZIP в [v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2) |
-| Linux x64 | Python 3.12, PySide6 / Qt6 | tar.gz, AppImage, DEB и Flatpak в v0.2.2 |
-| macOS Intel / Apple Silicon | Python 3.12, PySide6 / Qt6 | Отдельные ZIP и DMG для каждой архитектуры в v0.2.2 |
-| Android | Flutter / Dart, Kotlin | [Тестовый APK Android](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Android-debug.apk) |
-| iOS 15+ | Flutter / Dart, Swift / UIKit | [Неподписанный IPA для iOS](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-iOS-unsigned.ipa) версии 0.2.2 (3). Требует подписи перед установкой |
+| Windows x64 | Python 3.12, PySide6 / Qt6 | Установщик и портативный ZIP в [v0.2.3](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.3) |
+| Linux x64 | Python 3.12, PySide6 / Qt6 | tar.gz, AppImage, DEB и Flatpak в v0.2.3 |
+| macOS Intel / Apple Silicon | Python 3.12, PySide6 / Qt6 | Отдельные ZIP и DMG для каждой архитектуры в v0.2.3 |
+| Android | Flutter / Dart, Kotlin | [Тестовый APK Android](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-Android-debug.apk) |
+| iOS 15+ | Flutter / Dart, Swift / UIKit | [Неподписанный IPA для iOS](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-iOS-unsigned.ipa) версии 0.2.3 (4). Требует подписи перед установкой |
 | Web | Планируемый браузерный клиент | Web-host, браузерное хранилище и транспорт ещё не реализованы; готовая Web-сборка не заявляется |
 
 Универсальное позиционирование описывает весь продукт. Наличие Flutter не означает, что мобильный код уже работает в браузере: текущие `dart:io`, SQLite и mTLS требуют отдельных Web-адаптеров. Паритет функций между клиентами достигается поэтапно.
@@ -131,9 +131,11 @@ shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
 
 ### Desktop: Windows, Linux и macOS
 
-Пакеты для Windows, Linux и macOS находятся в [Assets релиза v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2). Для macOS выберите пакет под Intel или Apple Silicon.
+Пакеты для Windows, Linux и macOS находятся в [Assets релиза v0.2.3](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.3). Для macOS выберите пакет под Intel или Apple Silicon.
 
-Для установки скачайте файл `Orange-Notes-Setup.exe`. [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/Orange-Notes-Setup.exe) · [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/SHA256SUMS.txt).
+Для установки скачайте файл `Orange-Notes-Setup.exe`. [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/Orange-Notes-Setup.exe) · [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/SHA256SUMS.txt).
+
+В сборках с поддержкой обновлений новая версия появляется в нижней строке окна. Для проверки вручную выберите «…» → «Проверить обновления». [Обновление Windows и портативной копии](docs/DESKTOP_UI_GUIDE.md#обновление-и-смена-сборки-windows).
 
 Запустите установщик и подтвердите запрос Windows. Затем в мастере выберите диск и папку, например `D:\Install\Orange Notes`. Путь по умолчанию — `C:\Program Files\Orange Notes`. Мастер создаст папку, если её ещё нет. Удаление доступно через «Установленные приложения» в параметрах Windows.
 
@@ -141,7 +143,7 @@ shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
 
 ### Android: тестовый APK
 
-Скачайте [Тестовый APK Android](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Android-debug.apk), передайте файл на телефон и откройте его. При запросе Android разрешите установку для выбранного источника.
+Скачайте [Тестовый APK Android](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-Android-debug.apk), передайте файл на телефон и откройте его. При запросе Android разрешите установку для выбранного источника.
 
 ### Web
 
@@ -149,8 +151,8 @@ shasum -a 256 OrangeNotes-iOS-unsigned.ipa > SHA256SUMS.txt
 
 ### iOS: установка приложения (.ipa)
 
-1. Скачайте [Неподписанный IPA для iOS](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-iOS-unsigned.ipa) из релиза v0.2.2.
-2. Скачайте [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/SHA256SUMS.txt) для сверки файла.
+1. Скачайте [Неподписанный IPA для iOS](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-iOS-unsigned.ipa) из релиза v0.2.3.
+2. Скачайте [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/SHA256SUMS.txt) для сверки файла.
 3. Сверьте SHA256: на macOS `shasum -a 256 OrangeNotes-iOS-unsigned.ipa`, в PowerShell `Get-FileHash ./OrangeNotes-iOS-unsigned.ipa -Algorithm SHA256`.
 4. Выберите один способ подписи ниже. Простое открытие unsigned IPA на iPhone его не установит.
 
@@ -184,7 +186,8 @@ SQLite и резервные копии не зашифрованы на уро�
 - [Оглавление документации](docs/README.md)
 - [Обновлённый интерфейс Desktop и помощник](docs/DESKTOP_UI_GUIDE.md)
 - [Журнал изменений](release_notes.md)
-- [Описание v0.2.2](RELEASE_NOTES_v0.2.2.md)
+- [Описание v0.2.3](RELEASE_NOTES_v0.2.3.md)
+- [Описание v0.2.3](RELEASE_NOTES_v0.2.3.md)
 - [Описание v0.2.1](RELEASE_NOTES_v0.2.1.md)
 - [Полный стресс-аудит и ограничения](TOTAL_STRESS_TEST_REPORT.md)
 - [Спецификация мобильного клиента](docs/MOBILE_CLIENT_SPEC.md)

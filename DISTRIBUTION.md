@@ -1,12 +1,12 @@
 # Установка и сборка Orange Notes Desktop
 
-Готовые пакеты и [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/SHA256SUMS.txt) доступны в [релизе v0.2.2](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.2).
+Готовые пакеты и [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/SHA256SUMS.txt) доступны в [релизе v0.2.3](https://github.com/kirill548/OrangeNotes/releases/tag/v0.2.3).
 
-- **Windows x64.** [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/Orange-Notes-Setup.exe) · [Портативный ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Windows-AMD64.zip).
-- **Linux x64.** [tar.gz](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Linux-x86_64.tar.gz) · [AppImage](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Linux-x86_64.AppImage) · [DEB](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Linux-x64.deb) · [Flatpak](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Linux-x86_64.flatpak).
-- **macOS Intel.** [DMG](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-macOS-x86_64.dmg) · [ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Darwin-x86_64.zip).
-- **macOS Apple Silicon.** [DMG](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-macOS-arm64.dmg) · [ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Darwin-arm64.zip).
-- **Мобильные устройства.** [Тестовый APK Android](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-Android-debug.apk) · [Неподписанный IPA для iOS](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/OrangeNotes-iOS-unsigned.ipa). [Подпись и установка на iPhone](docs/IOS_DELIVERY.md).
+- **Windows x64.** [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/Orange-Notes-Setup.exe) · [Портативный ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-Windows-AMD64.zip).
+- **Linux x64.** [tar.gz](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-Linux-x86_64.tar.gz) · [AppImage](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-Linux-x86_64.AppImage) · [DEB](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-Linux-x64.deb) · [Flatpak](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-Linux-x86_64.flatpak).
+- **macOS Intel.** [DMG](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-macOS-x86_64.dmg) · [ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-Darwin-x86_64.zip).
+- **macOS Apple Silicon.** [DMG](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-macOS-arm64.dmg) · [ZIP](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-Darwin-arm64.zip).
+- **Мобильные устройства.** [Тестовый APK Android](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-Android-debug.apk) · [Неподписанный IPA для iOS](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/OrangeNotes-iOS-unsigned.ipa). [Подпись и установка на iPhone](docs/IOS_DELIVERY.md).
 
 ## Пакеты и переносимость
 
@@ -20,9 +20,9 @@ Windows x86 и Windows 7/8 не поддерживаются стеком про
 
 ## Установка на Windows
 
-1. Скачайте [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/Orange-Notes-Setup.exe) и сверьте SHA-256 по [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.2/SHA256SUMS.txt).
+1. Скачайте [Установщик Windows](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/Orange-Notes-Setup.exe) и сверьте SHA-256 по [SHA256SUMS.txt](https://github.com/kirill548/OrangeNotes/releases/download/v0.2.3/SHA256SUMS.txt).
 2. Запустите установщик и подтвердите запрос Windows. Укажите диск и папку приложения, например `D:\Install\Orange Notes`. Мастер проверит доступ и создаст нужные каталоги. Место сохранения скачанного EXE выбирается в браузере.
-3. Для обновления закройте Orange Notes, сделайте резервную копию заметок и выберите прежнюю папку установки. При обновлении ранней тестовой версии, установленной только для одного пользователя, запустите мастер с параметром `/CURRENTUSER`. Модели, настройки ИИ и голосовые компоненты сохраняются в `ai/` и `stt/`. Для их загрузки из приложения текущей учётной записи нужен доступ на запись в эти каталоги. База в `%LOCALAPPDATA%\OrangeNotes` остаётся на месте.
+3. Для обновления используйте кнопку «Обновление» в нижней строке или повторно запустите установщик и выберите прежнюю папку. Кнопка доступна в сборках со встроенной проверкой GitHub Releases. При ручном обновлении ранней тестовой версии, установленной только для одного пользователя, запустите мастер с параметром `/CURRENTUSER`. Модели, настройки ИИ и голосовые компоненты сохраняются в `ai/` и `stt/`. Для их загрузки из приложения текущей учётной записи нужен доступ на запись в эти каталоги. База в `%LOCALAPPDATA%\OrangeNotes` остаётся на месте.
 4. Для удаления откройте «Установленные приложения» в параметрах Windows и выберите Orange Notes. Перед удалением отдельно скопируйте заметки, `ai/` и `stt/`, если хотите сохранить их для переноса.
 
 Для запуска без мастера возьмите отдельный `OrangeNotes-Windows-AMD64.zip`. Распакуйте весь архив вместе с `_internal/` и запустите `OrangeNotes.exe`.
