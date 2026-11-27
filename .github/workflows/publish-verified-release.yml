@@ -1,0 +1,116 @@
+name: Publish verified desktop and mobile packages
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft release tag
+        required: true
+        type: string
+      desktop_run:
+        description: Successful desktop package run ID
+        required: true
+        type: string
+      mobile_run:
+        description: Successful mobile CI run ID for the same source
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: verified-release-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+      DESKTOP_RUN: ${{ inputs.desktop_run }}
+      MOBILE_RUN: ${{ inputs.mobile_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify candidate commit and release draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$DESKTOP_RUN" =~ ^[0-9]+$ && "$MOBILE_RUN" =~ ^[0-9]+$ ]]
+          for run in "$DESKTOP_RUN" "$MOBILE_RUN"; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > "$RUNNER_TEMP/run-$run.json"
+          done
+          sha=$(jq -er --arg repo "$GITHUB_REPOSITORY" '
+            select(.conclusion == "success" and .head_repository.full_name == $repo)
+            | select(.path | startswith(".github/workflows/release-builds.yml"))
+            | .head_sha' "$RUNNER_TEMP/run-$DESKTOP_RUN.json")
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg sha "$sha" '
+            .conclusion == "success" and .head_repository.full_name == $repo and
+            .head_sha == $sha and (.path | startswith(".github/workflows/mobile-ci.yml"))
+          ' "$RUNNER_TEMP/run-$MOBILE_RUN.json" > /dev/null
+          git merge-base --is-ancestor "$sha" "$GITHUB_SHA"
+          gh release view "$TAG" --json isDraft,targetCommitish --jq \
+            '.isDraft and .targetCommitish == "'"$sha"'"' | grep -qx true
+          version=$(git show "$sha:orange_notes_mobile/pubspec.yaml" | sed -n 's/^version: \([0-9.]*\)+\([0-9]*\)$/\1 \2/p')
+          read -r app_version ios_build <<< "$version"
+          [[ "$app_version" == "${TAG#v}" && "$ios_build" =~ ^[0-9]+$ ]]
+          printf 'CANDIDATE=%s\nAPP_VERSION=%s\nIOS_BUILD=%s\n' "$sha" "$app_version" "$ios_build" >> "$GITHUB_ENV"
+      - name: Download qualified desktop packages
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.desktop_run }}
+          pattern: OrangeNotes-*
+          path: downloaded
+      - name: Download qualified mobile packages
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.mobile_run }}
+          pattern: OrangeNotes-*
+          path: downloaded
+      - name: Verify archives and stage named release assets
+        run: python3 tools/stage_verified_release.py downloaded upload "$APP_VERSION" "$IOS_BUILD"
+      - name: Upload and verify every release asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" upload/* --clobber
+          gh api -X GET "repos/$GITHUB_REPOSITORY/releases" -f per_page=100 > releases.json
+          release_id=$(jq -er --arg tag "$TAG" '.[] | select(.tag_name == $tag and .draft == true) | .id' releases.json)
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" > uploaded.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          files = {path.name: path for path in Path("upload").iterdir()}
+          assets = {asset["name"]: asset for asset in json.loads(Path("uploaded.json").read_text())}
+          if files.keys() != assets.keys():
+              raise SystemExit("The uploaded release files do not match the verified package set.")
+          for name, path in files.items():
+              with path.open("rb") as handle:
+                  digest = "sha256:" + hashlib.file_digest(handle, "sha256").hexdigest()
+              asset = assets[name]
+              if asset["state"] != "uploaded" or asset["size"] != path.stat().st_size or asset["digest"] != digest:
+                  raise SystemExit(f"GitHub reported different bytes for {name}")
+          PY
+          setup_id=$(jq -er '.[] | select(.name == "Orange-Notes-Setup.exe") | .id' uploaded.json)
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/assets/$setup_id" \
+            -f 'label=Orange Notes Setup.exe' --silent
+      - name: Tag the qualified source and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git rev-parse --verify --quiet "refs/tags/$TAG"; then
+            test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$CANDIDATE"
+          else
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                tag -a "$TAG" "$CANDIDATE" -m "Orange Notes $TAG"
+            git push origin "refs/tags/$TAG"
+          fi
+          gh release edit "$TAG" --draft=false --latest
